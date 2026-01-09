@@ -432,32 +432,6 @@ results/
 └── optimization_*.json         # 超参数搜索结果
 ```
 
-## 超参数优化
-
-使用 ML 工程师助手自动搜索最优参数:
-
-```bash
-# 运行 50 次试验
-uv run python -m src.optimization.hyperparameter_tuner \
-    --subject S01 \
-    --model eegnet \
-    --task binary \
-    --n-trials 50
-
-# 设置超时 (1小时)
-uv run python -m src.optimization.hyperparameter_tuner \
-    --subject S01 \
-    --model cbramod \
-    --timeout 3600
-```
-
-搜索空间包括:
-- 学习率: 1e-5 ~ 1e-2
-- Batch size: 16, 32, 64
-- Dropout: 0.1 ~ 0.7
-- EEGNet: F1, D, kernel_length
-- CBraMod: classifier_type, freeze_backbone
-
 ## GPU 要求
 
 - **必须使用 NVIDIA GPU**，CPU 模式已禁用
@@ -475,4 +449,4 @@ uv run python -m src.optimization.hyperparameter_tuner \
 - 数据集: "EEG-based brain-computer interface enables real-time robotic hand control at individual finger level"
 - CBraMod: "CBraMod: A Criss-Cross Brain Foundation Model for EEG Decoding" (ICLR 2025)
 - 实验计划详情: `docs/experiment_plan_v1.md`
-- 开发指南: `docs/DEVELOPMENT.md`
+- 参考论文: `references/` 目录
