@@ -1,0 +1,91 @@
+# Experiment Configuration
+# Settings for all experiments in the comparison study
+
+# Common settings
+common:
+  seed: 42
+  device: cuda  # or cpu
+  num_workers: 4
+  pin_memory: true
+
+# Data paths
+paths:
+  data_root: data
+  elc_file: data/biosemi128.ELC
+  results_dir: results
+  checkpoints_dir: checkpoints
+
+# Subject splits (subject-independent evaluation)
+subjects:
+  all: [S01, S02, S03, S04, S05, S06, S07, S08, S09, S10, S11, S12, S13, S14, S15, S16, S17, S18, S19, S20, S21]
+  train: [S01, S02, S03, S04, S05, S06, S07, S08, S09, S10, S11, S12, S13, S14]
+  val: [S15, S16, S17]
+  test: [S18, S19, S20, S21]
+
+# Experiment 1: Standard Offline Comparison
+exp1_offline_comparison:
+  description: "Standard offline performance comparison with 100% training data"
+  task_types: [OfflineImagery]  # Focus on motor imagery
+  tasks:
+    - name: binary
+      classes: [1, 4]  # Thumb vs Pinky
+      baseline_accuracy: 0.8056  # From original paper
+    - name: ternary
+      classes: [1, 2, 4]  # Thumb vs Index vs Pinky
+      baseline_accuracy: 0.6061
+    - name: quaternary
+      classes: [1, 2, 3, 4]
+      baseline_accuracy: 0.45
+
+# Experiment 2: Low Resource / Fast Calibration
+exp2_low_resource:
+  description: "Performance with limited training data"
+  task_types: [OfflineImagery]
+  data_fractions: [0.1, 0.3, 1.0]  # 10%, 30%, 100% of training data
+  tasks:
+    - name: binary
+      classes: [1, 4]
+  # Reference: CBraMod Table 19 shows advantage at 30% data
+
+# Experiment 3: Online Fine-tuning
+exp3_online_finetune:
+  description: "Online session fine-tuning simulation"
+  task_types: [OnlineImagery]
+  phases:
+    base:
+      runs: [1, 2, 3, 4, 5, 6, 7, 8]
+      purpose: "Train/collect data for fine-tuning"
+    finetune:
+      runs: [9, 10, 11, 12, 13, 14, 15, 16]
+      purpose: "Evaluate fine-tuned model"
+
+# Experiment 4: Convergence Analysis
+exp4_convergence:
+  description: "Training convergence speed comparison"
+  task_types: [OfflineImagery]
+  tasks:
+    - name: binary
+      classes: [1, 4]
+  metrics:
+    - epochs_to_70_accuracy
+    - epochs_to_convergence
+    - learning_curves
+
+# Evaluation metrics
+metrics:
+  binary:
+    - balanced_accuracy
+    - auroc
+    - auc_pr
+  multi_class:
+    - balanced_accuracy
+    - cohens_kappa  # Primary metric for CBraMod
+    - weighted_f1
+    - confusion_matrix
+
+# Known data issues
+data_quality:
+  exclude:
+    - subject: S07
+      session: OnlineImagery_Sess05_3class_Base
+      reason: "Missing event information"

@@ -1,0 +1,75 @@
+[project]
+name = "eeg-bci"
+version = "0.1.0"
+description = "Foundation Model for Finger-Level BCI Decoding"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "EEG-BCI Team"}
+]
+keywords = ["eeg", "bci", "deep-learning", "foundation-model", "cbramod", "eegnet"]
+
+dependencies = [
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "scikit-learn>=1.3.0",
+    "pandas>=2.0.0",
+    "pyyaml>=6.0",
+    "mne>=1.5.0",
+    "optuna>=3.5.0",
+    "h5py>=3.8.0",
+    "mpmath>=1.3.0",  # Required by sympy (torch dependency)
+]
+
+# Note: PyTorch with CUDA must be installed separately:
+# uv pip install torch --index-url https://download.pytorch.org/whl/cu124
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "ruff>=0.1.0",
+]
+viz = [
+    "matplotlib>=3.7.0",
+    "seaborn>=0.12.0",
+]
+tracking = [
+    "wandb>=0.15.0",
+    "tensorboard>=2.14.0",
+]
+all = [
+    "eeg-bci[dev,viz,tracking]",
+]
+
+# Note: Entry point scripts removed - use module invocation instead:
+# uv run python -m src.training.train_within_subject --help
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39", "py310", "py311", "py312"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

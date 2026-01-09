@@ -1,0 +1,27 @@
+{
+  "description": "BioSemi 128 to standard 10-20 channel mapping",
+  "source": "biosemi128.ELC",
+  "target_system": "Standard 10-20 (CBraMod pretrained channels)",
+  "n_channels": 19,
+  "mapping": {
+    "Fp1": "C27",
+    "Fp2": "C14",
+    "F7": "D5",
+    "F3": "D3",
+    "Fz": "C22",
+    "F4": "C3",
+    "F8": "C5",
+    "T3": "D21",
+    "C3": "D18",
+    "Cz": "A1",
+    "C4": "B21",
+    "T4": "B24",
+    "T5": "D29",
+    "P3": "A6",
+    "Pz": "A4",
+    "P4": "B3",
+    "T6": "B13",
+    "O1": "A17",
+    "O2": "A30"
+  }
+}

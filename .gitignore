@@ -1,0 +1,80 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# uv
+.uv/
+uv.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Project specific
+checkpoints/
+results/
+*.pt
+*.pth
+*.ckpt
+*.zip
+
+# Data (large files)
+data/S*/
+data/*.mat
+!data/biosemi128.ELC
+!data/README.txt
+!data/channel_mapping.json
+
+# Logs
+*.log
+wandb/
+runs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/
+
+# Caches
+caches/
+
+# Test cache
+.pytest_cache/
+
+# Generated figures (experiment outputs)
+figures/
+
+# Temporary files
+*.tmp
+tmp.*
