@@ -18,7 +18,7 @@ EEGNet (default):
 - Pre-training: 300 epochs on offline data
 
 CBraMod:
-- 19 channels (10-20 system), 200 Hz sampling rate
+- 19 or 128 channels, 200 Hz sampling rate
 - 0.3-75 Hz bandpass, 60 Hz notch filter
 - Divide by 100 normalization
 - Patch-based processing (1s patches)
@@ -31,12 +31,24 @@ Usage:
     # Train on Motor Execution
     uv run python -m src.training.train_within_subject --subject S01 --task binary --model eegnet --paradigm movement
 
-    # Train CBraMod for subject S01
+    # Train CBraMod for subject S01 (default 128 channels)
     uv run python -m src.training.train_within_subject --subject S01 --task binary --model cbramod
+
+    # Train CBraMod with 19 channels (10-20 system, less memory)
+    uv run python -m src.training.train_within_subject --subject S01 --task binary --model cbramod --cbramod-channels 19
 
     # Train all subjects with both models
     uv run python -m src.training.train_within_subject --all-subjects --task binary --model both
 """
+
+# Suppress RuntimeWarning from multiprocessing workers when using -m flag
+# Must be before any other imports to take effect in worker processes
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message=".*found in sys.modules after import of package.*",
+    category=RuntimeWarning,
+)
 
 import argparse
 import logging
@@ -689,6 +701,7 @@ def train_single_subject(
     device: torch.device,
     model_type: str = 'eegnet',
     paradigm: str = 'imagery',
+    cbramod_channels: int = 128,
 ) -> Dict:
     """
     Train model for a single subject.
@@ -707,6 +720,8 @@ def train_single_subject(
         device: Device to use (cuda/cpu)
         model_type: 'eegnet' or 'cbramod'
         paradigm: 'imagery' (MI) or 'movement' (ME)
+        cbramod_channels: Number of channels for CBraMod (19 or 128).
+            128 uses ACPE adaptation for full BioSemi channels.
 
     Returns:
         Results dict with accuracy and history
@@ -743,8 +758,14 @@ def train_single_subject(
 
     # Select preprocessing config based on model type
     if model_type == 'cbramod':
-        preprocess_config = PreprocessConfig.for_cbramod()
-        log_data.info("Preprocess: CBraMod (19ch, 200Hz, 0.3-75Hz)")
+        # Check if using 128 channels (ACPE adaptation)
+        use_full_channels = (cbramod_channels == 128)
+        preprocess_config = PreprocessConfig.for_cbramod(full_channels=use_full_channels)
+        if use_full_channels:
+            log_data.info("Preprocess: CBraMod (128ch, 200Hz, 0.3-75Hz) - ACPE adaptation")
+            print(colored(f"  CBraMod 128-channel mode: Using ACPE for channel adaptation", Colors.CYAN))
+        else:
+            log_data.info("Preprocess: CBraMod (19ch, 200Hz, 0.3-75Hz)")
     else:
         preprocess_config = PreprocessConfig.paper_aligned(n_class=n_classes)
         log_data.info("Preprocess: EEGNet (128ch, 100Hz, 4-40Hz)")
@@ -1126,6 +1147,7 @@ def main(args):
                     device=device,
                     model_type=model_type,
                     paradigm=args.paradigm,
+                    cbramod_channels=args.cbramod_channels,
                 )
                 model_results[subject_id] = results
 
@@ -1268,6 +1290,7 @@ def train_subject_simple(
     data_root: str = 'data',
     save_dir: str = 'checkpoints',
     device: Optional[torch.device] = None,
+    cbramod_channels: int = 128,
 ) -> Dict:
     """
     Simplified training function for programmatic use.
@@ -1283,6 +1306,8 @@ def train_subject_simple(
         data_root: Path to data directory
         save_dir: Path to save checkpoints
         device: Device to use (auto-detect if None)
+        cbramod_channels: Number of channels for CBraMod (19 or 128).
+            128 uses ACPE adaptation for full BioSemi channels.
 
     Returns:
         Results dict with keys:
@@ -1309,6 +1334,7 @@ def train_subject_simple(
         device=device,
         model_type=model_type,
         paradigm=paradigm,
+        cbramod_channels=cbramod_channels,
     )
 
 
@@ -1358,6 +1384,13 @@ if __name__ == '__main__':
         '--seed', type=int,
         default=42,
         help='Random seed for reproducibility (default: 42)'
+    )
+    parser.add_argument(
+        '--cbramod-channels', type=int,
+        choices=[19, 128],
+        default=128,
+        help='Number of channels for CBraMod (19=10-20 system, 128=full BioSemi). '
+             'Default 128 uses all channels with ACPE adaptation. Requires more GPU memory.'
     )
 
     args = parser.parse_args()

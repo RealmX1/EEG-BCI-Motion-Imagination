@@ -38,7 +38,7 @@ training:
 
   # Early stopping
   early_stopping: true
-  patience: 4           # Stop if no improvement for 5 epochs
+  patience: 10           # Stop if no improvement for 10 epochs
   min_delta: 0.001
 
   # Learning rate scheduler (aligned with official implementation)

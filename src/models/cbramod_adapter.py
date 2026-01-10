@@ -151,11 +151,24 @@ class CBraModForFingerBCI(nn.Module):
     encoder with a task-specific classification head.
 
     Input format: [batch, n_channels, n_patches, patch_size]
-    - n_channels: Number of EEG channels (19 for standard 10-20)
+    - n_channels: Number of EEG channels (19 for 10-20, or 128 for full BioSemi)
     - n_patches: Number of time patches (e.g., 5 for 5-second trial)
     - patch_size: 200 (1 second @ 200 Hz, fixed)
 
     Output: [batch, n_classes]
+
+    Channel Flexibility (ACPE):
+        CBraMod uses Asymmetric Conditional Positional Encoding (ACPE) which
+        generates position encodings dynamically via convolution. The ACPE kernel
+        is (19, 7) with padding (9, 3), allowing it to handle ANY number of channels.
+        This means you can use 19 channels (standard 10-20) or 128 channels (full
+        BioSemi) without any architecture changes - only the classifier input
+        dimension changes accordingly.
+
+    Memory Considerations:
+        - 19 channels: Attention map 19x19 = 361, classifier input 3,800
+        - 128 channels: Attention map 128x128 = 16,384, classifier input 25,600
+        When using 128 channels, consider reducing batch_size to avoid OOM.
     """
 
     def __init__(
@@ -254,7 +267,13 @@ class CBraModForFingerBCI(nn.Module):
         logger.debug(f"CBraModForFingerBCI initialized:")
         logger.debug(f"  - Channels: {n_channels}, Patches: {n_patches}")
         logger.debug(f"  - Classes: {n_classes}")
+        logger.debug(f"  - Classifier input dim: {classifier_input_dim:,}")
         logger.debug(f"  - Using official CBraMod: {self._using_official}")
+
+        # Warn about memory usage for high channel counts
+        if n_channels > 64:
+            logger.info(f"Using {n_channels} channels - attention map size: {n_channels}x{n_channels}={n_channels**2:,}")
+            logger.info("Consider reducing batch_size if OOM occurs")
 
     def _load_pretrained(self, pretrained_path: str):
         """Load pretrained backbone weights."""

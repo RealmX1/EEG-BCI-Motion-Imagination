@@ -17,12 +17,29 @@ Features:
 - Resume capability: Automatically skips subjects with cached results
 - New run mode: Use --new-run to start fresh experiments without overwriting old results
 
+Cache Behavior:
+- Default (no flags): Loads the LATEST cache file (tagged or untagged), trains only
+  new subjects, saves to untagged cache. This allows incremental training as new
+  subjects are added to the data directory.
+- --new-run: Starts a fresh experiment with a datetime-tagged cache. Use this when
+  you want to preserve previous results and start a completely new experiment.
+- --force-retrain: Ignores all caches and retrains everything.
+
+Output Files (in results/ directory):
+- comparison_cache_{paradigm}_{task}.json: Incremental cache for resume capability
+- {tag}_comparison_cache_{paradigm}_{task}.json: Tagged cache for --new-run sessions
+- comparison_{paradigm}_{task}_{timestamp}.json: Final results report
+
 Usage:
     # Run on Motor Imagery (default paradigm, plots generated automatically)
     uv run python scripts/run_full_comparison.py
 
     # Run on Motor Execution
     uv run python scripts/run_full_comparison.py --paradigm movement
+
+    # Incremental training: add new subjects to existing results
+    # (assumes S01-S03 already trained, S04-S05 newly added to data/)
+    uv run python scripts/run_full_comparison.py
 
     # Start a NEW experiment (preserves old results/plots with datetime tag)
     uv run python scripts/run_full_comparison.py --new-run
@@ -147,14 +164,67 @@ def get_cache_path(output_dir: str, paradigm: str, task: str, run_tag: Optional[
     return Path(output_dir) / filename
 
 
-def load_cache(output_dir: str, paradigm: str, task: str, run_tag: Optional[str] = None) -> Dict[str, Dict[str, dict]]:
-    """Load cached results with backward compatibility for old cache format."""
+def find_latest_cache(output_dir: str, paradigm: str, task: str) -> Optional[Path]:
+    """Find the latest cache file (tagged or untagged) for the given paradigm and task."""
+    results_dir = Path(output_dir)
+    if not results_dir.exists():
+        return None
+
+    # Pattern matches both tagged and untagged cache files
+    # Tagged: 20260110_2317_comparison_cache_imagery_binary.json
+    # Untagged: comparison_cache_imagery_binary.json
+    pattern = f'*comparison_cache_{paradigm}_{task}.json'
+    cache_files = list(results_dir.glob(pattern))
+
+    if not cache_files:
+        # Fallback: try old format without paradigm
+        old_pattern = f'*comparison_cache_{task}.json'
+        cache_files = list(results_dir.glob(old_pattern))
+
+    if not cache_files:
+        return None
+
+    # Sort by modification time, newest first
+    # Use try/except to handle race condition if file is deleted between glob and stat
+    def safe_mtime(p: Path) -> float:
+        try:
+            return p.stat().st_mtime
+        except OSError:
+            return 0.0
+
+    cache_files.sort(key=safe_mtime, reverse=True)
+    return cache_files[0]
+
+
+def load_cache(output_dir: str, paradigm: str, task: str, run_tag: Optional[str] = None, find_latest: bool = False) -> Dict[str, Dict[str, dict]]:
+    """Load cached results with backward compatibility for old cache format.
+
+    Args:
+        output_dir: Directory containing cache files
+        paradigm: 'imagery' or 'movement'
+        task: 'binary', 'ternary', or 'quaternary'
+        run_tag: Optional tag for specific run (e.g., '20260110_2317')
+        find_latest: If True and run_tag is None, find the latest cache file (tagged or untagged)
+    """
+    # If find_latest is True and no run_tag, find the most recent cache file
+    if find_latest and not run_tag:
+        latest_cache = find_latest_cache(output_dir, paradigm, task)
+        if latest_cache:
+            try:
+                with open(latest_cache, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                log_cache.info(f"Loaded latest cache: {latest_cache.name}")
+                return data.get('results', {})
+            except Exception as e:
+                log_cache.warning(f"Failed to load latest cache: {e}")
+        return {}
+
     cache_path = get_cache_path(output_dir, paradigm, task, run_tag)
     if cache_path.exists():
         try:
-            with open(cache_path, 'r') as f:
+            with open(cache_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-            log_cache.info(f"Loaded from {cache_path}")
+            log_cache.info(f"Loaded from {cache_path.name}")
             return data.get('results', {})
         except Exception as e:
             log_cache.warning(f"Failed to load: {e}")
@@ -164,7 +234,7 @@ def load_cache(output_dir: str, paradigm: str, task: str, run_tag: Optional[str]
         old_format_path = Path(output_dir) / f'comparison_cache_{task}.json'
         if old_format_path.exists():
             try:
-                with open(old_format_path, 'r') as f:
+                with open(old_format_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                 log_cache.info(f"Loaded legacy {old_format_path} → new: {cache_path.name}")
                 return data.get('results', {})
@@ -191,6 +261,7 @@ def save_cache(output_dir: str, paradigm: str, task: str, results: Dict[str, Dic
     try:
         with tempfile.NamedTemporaryFile(
             mode='w',
+            encoding='utf-8',
             dir=cache_path.parent,
             suffix='.tmp',
             delete=False
@@ -201,7 +272,7 @@ def save_cache(output_dir: str, paradigm: str, task: str, results: Dict[str, Dic
     except Exception as e:
         # Fallback to direct write if atomic fails
         log_cache.warning(f"Atomic write failed, fallback: {e}")
-        with open(cache_path, 'w') as f:
+        with open(cache_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2)
 
 
@@ -333,7 +404,22 @@ def run_with_cache(
         else:
             log_train.info(f"New run '{run_tag}' - fresh start")
     else:
-        cache = load_cache(output_dir, paradigm, task)
+        # No run_tag: find the LATEST cache file (tagged or untagged) to continue from
+        cache = load_cache(output_dir, paradigm, task, find_latest=True)
+
+    # Log cache summary: show what's cached and what needs training
+    if cache and not force_retrain:
+        for model_type in model_types:
+            cached_subjects = set(cache.get(model_type, {}).keys())
+            requested_subjects = set(subject_ids)
+            already_cached = cached_subjects & requested_subjects
+            need_training = requested_subjects - cached_subjects
+            if already_cached and need_training:
+                log_train.info(f"{model_type.upper()}: {len(already_cached)} cached, {len(need_training)} to train ({', '.join(sorted(need_training))})")
+            elif already_cached and not need_training:
+                log_train.info(f"{model_type.upper()}: all {len(already_cached)} subjects cached (no training needed)")
+            elif need_training:
+                log_train.info(f"{model_type.upper()}: {len(need_training)} to train ({', '.join(sorted(need_training))})")
 
     results: Dict[str, List[TrainingResult]] = {m: [] for m in model_types}
 
@@ -691,7 +777,7 @@ def save_full_results(
     output_path = Path(output_dir) / filename
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(output_path, 'w') as f:
+    with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(output, f, indent=2)
 
     log_io.info(f"Results saved: {output_path}")
@@ -700,7 +786,7 @@ def save_full_results(
 
 def load_existing_results(results_file: str) -> Dict[str, List[TrainingResult]]:
     """Load results from a previous run."""
-    with open(results_file, 'r') as f:
+    with open(results_file, 'r', encoding='utf-8') as f:
         data = json.load(f)
 
     results = {}

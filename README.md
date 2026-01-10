@@ -124,6 +124,26 @@ uv run python -m src.training.train_within_subject --all-subjects --task binary
 uv run python scripts/verify_trial_split.py --subject S01
 ```
 
+### 缓存管理
+
+预处理结果会缓存到 `caches/preprocessed/` 以加速后续加载。当预处理逻辑更新时，需要清理受影响的缓存：
+
+```bash
+# 查看缓存统计
+uv run python scripts/cache_helper.py --stats
+
+# 按条件过滤查看 (干运行)
+uv run python scripts/cache_helper.py --paradigm offline --model eegnet
+uv run python scripts/cache_helper.py --subject S01 --n-classes 2
+
+# 删除匹配的缓存
+uv run python scripts/cache_helper.py --paradigm offline --execute
+uv run python scripts/cache_helper.py --model cbramod --task-type movement --execute
+
+# 清空所有缓存 (需要确认)
+uv run python scripts/cache_helper.py --all --execute
+```
+
 ## 项目结构
 
 ```
@@ -156,6 +176,7 @@ EEG-BCI/
 ├── scripts/                   # 实验脚本
 │   ├── run_full_comparison.py # 全被试模型对比
 │   ├── preprocess_zip.py      # ZIP 预处理
+│   ├── cache_helper.py        # 缓存管理工具
 │   ├── visualize_comparison.py # 结果可视化
 │   └── verify_trial_split.py  # 数据分割验证
 ├── tests/                     # 测试

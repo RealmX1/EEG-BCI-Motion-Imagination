@@ -279,13 +279,13 @@ training:
   learning_rate: 1.0e-3
   weight_decay: 0
   early_stopping: true
-  patience: 4              # 原论文: 80
+  patience: 10              # 原论文: 80
   min_delta: 0.001
   scheduler: plateau       # ReduceLROnPlateau
 ```
 
 ```python
-# src/training/train_within_subject.py:264-275
+# src/training/train_within_subject.py
 elif scheduler_type == 'plateau':
     self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         self.optimizer,
@@ -304,14 +304,14 @@ elif scheduler_type == 'plateau':
 | Epochs | 300 | 300 | ✅ 一致 |
 | Learning Rate | 1e-3 | 1e-3 | ✅ 一致 |
 | Weight Decay | 未明确 | 0 | ✅ 标准值 |
-| **Early Stopping** | **patience=80** | **patience=4-5** | ⚠️ 差异显著 |
+| **Early Stopping** | **patience=80** | **patience=10** | ⚠️ 差异显著 |
 | LR Scheduler | ReduceLROnPlateau | ReduceLROnPlateau | ✅ 一致 |
 | LR Factor | 0.5 | 0.5 | ✅ 一致 |
 | LR Patience | 30 | 30 | ✅ 一致 |
 
 **关键差异**:
 1. **Batch Size**: 原论文 16，本仓库 64 (4x)
-2. **Early Stopping Patience**: 原论文 80 epochs，本仓库 4-5 epochs
+2. **Early Stopping Patience**: 原论文 80 epochs，本仓库 10 epochs
 
 ---
 

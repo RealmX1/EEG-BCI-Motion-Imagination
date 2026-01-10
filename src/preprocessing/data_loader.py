@@ -31,6 +31,16 @@ import logging
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 import multiprocessing
 import os
+import warnings
+
+# Suppress RuntimeWarning from runpy when using multiprocessing with -m flag
+# This warning is harmless and occurs because worker processes inherit module state
+warnings.filterwarnings(
+    "ignore",
+    message=".*found in sys.modules after import of package.*",
+    category=RuntimeWarning,
+    module="runpy"
+)
 
 from .channel_selection import (
     create_biosemi128_to_1020_mapping,
@@ -156,12 +166,12 @@ class PreprocessConfig:
         )
 
     @classmethod
-    def for_cbramod(cls, use_sliding_window: bool = True) -> 'PreprocessConfig':
+    def for_cbramod(cls, use_sliding_window: bool = True, full_channels: bool = True) -> 'PreprocessConfig':
         """
         Create configuration for CBraMod model.
 
         CBraMod settings:
-        - 19 channels (10-20 system)
+        - 128 channels (full BioSemi, default) or 19 channels (10-20 system)
         - 200 Hz sampling rate
         - 0.3-75 Hz bandpass
         - Divide by 100 normalization
@@ -170,19 +180,24 @@ class PreprocessConfig:
             use_sliding_window: If True, use sliding window (1s, 125ms step) for
                 more training data. If False, use whole trials as patches.
                 Default True for fair comparison with EEGNet.
+            full_channels: If True (default), use all 128 channels. If False, use
+                19 channels (10-20 system). CBraMod's ACPE handles any channel count.
 
         Returns:
             PreprocessConfig for CBraMod
         """
+        channel_strategy = 'C' if full_channels else 'A'
+        target_model = 'cbramod_128ch' if full_channels else 'cbramod'
+
         return cls(
-            target_model='cbramod',
+            target_model=target_model,
             original_fs=1024,
             target_fs=200,
             bandpass_low=0.3,
             bandpass_high=75.0,
             notch_freq=60.0,
             filter_order=4,
-            channel_strategy='A',  # 10-20 channels for CBraMod
+            channel_strategy=channel_strategy,
             segment_length=1.0,  # 1s segments (= 200 samples @ 200Hz)
             segment_step_samples=128,  # 125ms step @ 1024 Hz (same as EEGNet)
             use_sliding_window=use_sliding_window,
@@ -192,6 +207,29 @@ class PreprocessConfig:
             apply_car=True,
             filter_padding=100,
         )
+
+    @classmethod
+    def for_cbramod_128ch(cls, use_sliding_window: bool = True) -> 'PreprocessConfig':
+        """
+        Create configuration for CBraMod with full 128 channels.
+
+        This leverages CBraMod's ACPE (Asymmetric Conditional Positional Encoding)
+        which can dynamically generate position encodings for any number of channels.
+        The ACPE uses a (19, 7) convolution kernel with padding=(9, 3), allowing
+        it to process inputs of arbitrary spatial dimensions.
+
+        Advantages over 19-channel version:
+        - Preserves full spatial resolution (128 vs 19 channels)
+        - Better for fine-grained motor decoding (finger-level)
+        - Fair comparison with EEGNet (both use 128 channels)
+
+        Note: Requires more GPU memory due to larger attention maps (128x128 vs 19x19).
+        Consider reducing batch_size if OOM occurs.
+
+        Returns:
+            PreprocessConfig for CBraMod with 128 channels
+        """
+        return cls.for_cbramod(use_sliding_window=use_sliding_window, full_channels=True)
 
 
 def load_mat_file(mat_path: str) -> Tuple[np.ndarray, List[Dict], Dict]:
@@ -724,7 +762,8 @@ def preprocess_run_paper_aligned(
     metadata: Dict,
     config: PreprocessConfig,
     target_classes: Optional[List[int]] = None,
-    label_mapping: Optional[Dict[int, int]] = None
+    label_mapping: Optional[Dict[int, int]] = None,
+    store_all_fingers: bool = False
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Preprocess a complete run following the exact paper pipeline.
@@ -745,11 +784,14 @@ def preprocess_run_paper_aligned(
         config: Preprocessing configuration
         target_classes: Classes to keep (e.g., [1, 4] for thumb/pinky)
         label_mapping: Map original labels to new labels (e.g., {1: 0, 4: 1})
+        store_all_fingers: If True, keep all trials regardless of target_classes
+                          and use original labels (1,2,3,4). Used for Offline
+                          data caching where all 4 fingers are cached together.
 
     Returns:
         Tuple of (segments, labels, trial_indices)
         - segments: [n_segments x channels x samples]
-        - labels: [n_segments]
+        - labels: [n_segments] (original 1,2,3,4 if store_all_fingers, else mapped)
         - trial_indices: [n_segments] original trial index
     """
     fs = metadata['fsample']
@@ -766,9 +808,10 @@ def preprocess_run_paper_aligned(
         start_sample = start_evt['sample'] - 1  # Convert to 0-indexed (as per paper)
         target_class = start_evt['value']
 
-        # Filter by target class
-        if target_classes is not None and target_class not in target_classes:
-            continue
+        # Filter by target class (skip if store_all_fingers is True)
+        if not store_all_fingers:
+            if target_classes is not None and target_class not in target_classes:
+                continue
 
         # Find end sample
         if i < len(trial_ends):
@@ -789,8 +832,10 @@ def preprocess_run_paper_aligned(
 
         trials.append(trial_data)
 
-        # Map label if mapping provided
-        if label_mapping is not None:
+        # Map label: store_all_fingers uses original labels (1,2,3,4)
+        if store_all_fingers:
+            labels.append(target_class)  # Keep original finger ID
+        elif label_mapping is not None:
             labels.append(label_mapping[target_class])
         else:
             labels.append(target_class)
@@ -803,8 +848,9 @@ def preprocess_run_paper_aligned(
     labels = np.array(labels)
 
     # Step 2: Apply CAR to each trial independently (as per paper)
+    # Use nanmean to handle NaN-padded trials correctly
     if config.apply_car:
-        trials = trials - trials.mean(axis=1, keepdims=True)
+        trials = trials - np.nanmean(trials, axis=1, keepdims=True)
 
     # Step 3: Segment with sliding window
     segment_size = int(config.segment_length * fs)
@@ -814,9 +860,13 @@ def preprocess_run_paper_aligned(
         trials, labels, segment_size, step_size
     )
 
-    # Step 4: Downsample
-    target_samples = int(config.segment_length * config.target_fs)
-    segments = scipy.signal.resample(segments, target_samples, axis=2)
+    # Step 4: Downsample using resample_poly for better numerical stability
+    # resample_poly uses rational resampling which avoids FFT artifacts
+    from math import gcd
+    common = gcd(config.original_fs, config.target_fs)
+    up = config.target_fs // common
+    down = config.original_fs // common
+    segments = scipy.signal.resample_poly(segments, up, down, axis=2)
     segments = segments.astype(np.float32)  # Ensure float32 after resample
 
     # Step 5: Bandpass filter
@@ -835,11 +885,171 @@ def preprocess_run_paper_aligned(
     return segments, seg_labels, trial_indices
 
 
+def preprocess_run_to_trials(
+    eeg_data: np.ndarray,
+    events: List[Dict],
+    metadata: Dict,
+    config: PreprocessConfig,
+    target_classes: Optional[List[int]] = None,
+    store_all_fingers: bool = False
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Preprocess a run to trial level for caching (no sliding window).
+
+    This extracts trials, applies CAR, and downsamples to target_fs.
+    Sliding window, filtering, and normalization are applied on cache load.
+
+    Pipeline:
+    1. Extract trials based on events
+    2. Pad trials to max length (with NaN for missing)
+    3. Apply CAR to each trial
+    4. Downsample to target_fs
+
+    Cache size reduction: ~6.6x compared to segment-level caching.
+
+    Args:
+        eeg_data: Raw continuous EEG [128 x time]
+        events: List of event dicts
+        metadata: Dict with 'fsample', etc.
+        config: Preprocessing configuration
+        target_classes: Classes to keep (e.g., [1, 4] for thumb/pinky)
+        store_all_fingers: If True, keep all trials with original labels (1,2,3,4)
+
+    Returns:
+        Tuple of (trials, labels)
+        - trials: [n_trials x channels x target_samples] at target_fs
+        - labels: [n_trials] (original 1,2,3,4 if store_all_fingers)
+    """
+    from math import gcd
+
+    fs = metadata['fsample']
+
+    # Step 1: Extract trials
+    trial_starts = [e for e in events if e['type'] == 'Target']
+    trial_ends = [e for e in events if e['type'] == 'TrialEnd']
+
+    max_samples = int(config.trial_duration * fs)
+    trials = []
+    labels = []
+
+    for i, start_evt in enumerate(trial_starts):
+        start_sample = start_evt['sample'] - 1  # Convert to 0-indexed
+        target_class = start_evt['value']
+
+        # Filter by target class (skip if store_all_fingers is True)
+        if not store_all_fingers:
+            if target_classes is not None and target_class not in target_classes:
+                continue
+
+        # Find end sample
+        if i < len(trial_ends):
+            end_sample = trial_ends[i]['sample'] - 1
+        else:
+            end_sample = start_sample + max_samples
+
+        # Extract trial data
+        trial_data = eeg_data[:, start_sample:end_sample]
+
+        # Pad to max length (with NaN, as per paper)
+        actual_len = trial_data.shape[1]
+        if actual_len < max_samples:
+            pad_width = ((0, 0), (0, max_samples - actual_len))
+            trial_data = np.pad(trial_data, pad_width, 'constant', constant_values=np.nan)
+        elif actual_len > max_samples:
+            trial_data = trial_data[:, :max_samples]
+
+        trials.append(trial_data)
+        labels.append(target_class)
+
+    if not trials:
+        return np.array([]), np.array([])
+
+    trials = np.array(trials, dtype=np.float32)
+    labels = np.array(labels)
+
+    # Step 2: Apply CAR (using nanmean to handle NaN-padded trials)
+    # Suppress "Mean of empty slice" warning - expected for all-NaN trials
+    if config.apply_car:
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', 'Mean of empty slice', RuntimeWarning)
+            trials = trials - np.nanmean(trials, axis=1, keepdims=True)
+
+    # Step 3: Downsample to target_fs using resample_poly
+    common = gcd(config.original_fs, config.target_fs)
+    up = config.target_fs // common
+    down = config.original_fs // common
+    trials = scipy.signal.resample_poly(trials, up, down, axis=2)
+    trials = trials.astype(np.float32)
+
+    return trials, labels
+
+
+def trials_to_segments(
+    trials: np.ndarray,
+    labels: np.ndarray,
+    config: PreprocessConfig
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Convert trials to segments (apply sliding window, filter, normalize).
+
+    Called after loading trials from cache. This applies the remaining
+    preprocessing steps that were deferred for cache efficiency.
+
+    Pipeline:
+    1. Sliding window segmentation (at target_fs)
+    2. Bandpass filter
+    3. Z-score normalization
+
+    Args:
+        trials: [n_trials x channels x trial_samples] at target_fs
+        labels: [n_trials]
+        config: Preprocessing configuration
+
+    Returns:
+        Tuple of (segments, seg_labels, trial_indices)
+        - segments: [n_segments x channels x segment_samples]
+        - seg_labels: [n_segments]
+        - trial_indices: [n_segments] original trial index for each segment
+    """
+    # Step 1: Sliding window at target_fs
+    # segment_size in samples at target_fs
+    segment_size = int(config.segment_length * config.target_fs)
+
+    # step_size: convert from original_fs to target_fs
+    # Use ceiling to ensure we don't miss segments
+    step_size = int(np.ceil(
+        config.segment_step_samples * config.target_fs / config.original_fs
+    ))
+
+    segments, seg_labels, trial_indices = segment_with_sliding_window(
+        trials, labels, segment_size, step_size
+    )
+
+    if len(segments) == 0:
+        return np.array([]), np.array([]), np.array([])
+
+    # Step 2: Bandpass filter
+    segments = apply_bandpass_filter_paper(
+        segments,
+        fs=config.target_fs,
+        low_freq=config.bandpass_low,
+        high_freq=config.bandpass_high,
+        order=config.filter_order,
+        padding=config.filter_padding
+    )
+
+    # Step 3: Z-score normalize (per segment, along time axis)
+    segments = apply_zscore_per_segment(segments, axis=-1)
+
+    return segments, seg_labels, trial_indices
+
+
 def _process_single_mat_file(
     mat_path: str,
     config: 'PreprocessConfig',
     target_classes: Optional[List[int]],
     channel_indices: Optional[List[int]],
+    store_all_fingers: bool = False,
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray], Dict, str]:
     """
     Process a single MAT file for parallel execution.
@@ -852,6 +1062,8 @@ def _process_single_mat_file(
         config: Preprocessing configuration
         target_classes: Target classes to include
         channel_indices: Channel indices to select (for CBraMod)
+        store_all_fingers: If True, keep all trials and original labels (1,2,3,4).
+                          Used for Offline data caching.
 
     Returns:
         Tuple of (segments, labels, trial_indices, session_info, mat_path)
@@ -864,9 +1076,9 @@ def _process_single_mat_file(
         # Load MAT file
         eeg_data, events, metadata = load_mat_file(str(mat_path))
 
-        # Prepare label mapping
+        # Prepare label mapping (not used if store_all_fingers)
         label_mapping = None
-        if target_classes is not None:
+        if not store_all_fingers and target_classes is not None:
             label_mapping = {cls: i for i, cls in enumerate(sorted(target_classes))}
 
         # Apply paper-aligned preprocessing
@@ -875,8 +1087,9 @@ def _process_single_mat_file(
             events,
             metadata,
             config,
-            target_classes=target_classes,
-            label_mapping=label_mapping
+            target_classes=target_classes if not store_all_fingers else None,
+            label_mapping=label_mapping,
+            store_all_fingers=store_all_fingers
         )
 
         if len(segments) == 0:
@@ -892,6 +1105,62 @@ def _process_single_mat_file(
         log_prep.error(f"Error processing {mat_path}: {e}")
         session_info = parse_session_path(Path(mat_path))
         return None, None, None, session_info, str(mat_path)
+
+
+def _process_single_mat_file_to_trials(
+    mat_path: str,
+    config: 'PreprocessConfig',
+    target_classes: Optional[List[int]],
+    channel_indices: Optional[List[int]],
+    store_all_fingers: bool = False,
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Dict, str]:
+    """
+    Process a single MAT file to trial level for caching.
+
+    This is the trial-level version of _process_single_mat_file.
+    Used for v3.0 caching which stores trials instead of segments.
+
+    Args:
+        mat_path: Path to the MAT file
+        config: Preprocessing configuration
+        target_classes: Target classes to include
+        channel_indices: Channel indices to select
+        store_all_fingers: If True, keep all trials with original labels
+
+    Returns:
+        Tuple of (trials, labels, session_info, mat_path)
+        Returns (None, None, session_info, mat_path) on error
+    """
+    try:
+        mat_path = Path(mat_path)
+        session_info = parse_session_path(mat_path)
+
+        # Load MAT file
+        eeg_data, events, metadata = load_mat_file(str(mat_path))
+
+        # Preprocess to trial level (no sliding window)
+        trials, labels = preprocess_run_to_trials(
+            eeg_data,
+            events,
+            metadata,
+            config,
+            target_classes=target_classes if not store_all_fingers else None,
+            store_all_fingers=store_all_fingers
+        )
+
+        if len(trials) == 0:
+            return None, None, session_info, str(mat_path)
+
+        # Apply channel selection if needed
+        if channel_indices is not None:
+            trials = trials[:, channel_indices, :]
+
+        return trials, labels, session_info, str(mat_path)
+
+    except Exception as e:
+        log_prep.error(f"Error processing {mat_path} to trials: {e}")
+        session_info = parse_session_path(Path(mat_path))
+        return None, None, session_info, str(mat_path)
 
 
 class FingerEEGDataset(Dataset):
@@ -1043,39 +1312,71 @@ class FingerEEGDataset(Dataset):
                     continue
 
                 # Check cache
+                # Offline data: cache with target_classes=None (all 4 fingers)
+                # Online data: cache with actual target_classes
+                is_offline = self._is_offline_session(parent_folder)
+                cache_target_classes = None if is_offline else self.target_classes
+
                 needs_processing = True
                 if self.cache is not None and self.config.use_sliding_window:
                     has_cache = self.cache.has_valid_cache(
                         session_info['subject'],
                         session_info['run'],
-                        session_info['task_type'],
+                        parent_folder,  # Use folder name, not task_type
                         self.config,
                         str(mat_path),
-                        self.target_classes
+                        cache_target_classes  # None for Offline, actual for Online
                     )
                     if has_cache:
                         needs_processing = False
 
-                files_to_process.append((mat_path, session_info, needs_processing))
+                files_to_process.append((mat_path, session_info, needs_processing, is_offline))
 
         # Phase 2: Load from cache (fast, serial)
-        cached_files = [(p, s) for p, s, needs in files_to_process if not needs]
-        for mat_path, session_info in cached_files:
+        # v3.0: Cache stores trials, not segments. Apply sliding window on load.
+        cached_files = [(p, s, offline) for p, s, needs, offline in files_to_process if not needs]
+        for mat_path, session_info, is_offline in cached_files:
             try:
-                segments, seg_labels, trial_indices = self.cache.load(
+                parent_folder = mat_path.parent.name
+                cache_target_classes = None if is_offline else self.target_classes
+
+                # v3.0: Load trials + labels (not segments)
+                trials, labels = self.cache.load(
                     session_info['subject'],
                     session_info['run'],
-                    session_info['task_type'],
+                    parent_folder,  # Use folder name
                     self.config,
-                    self.target_classes
+                    cache_target_classes  # None for Offline
                 )
+
+                # Offline data: filter to target_classes before sliding window
+                # Online data: just map labels (already filtered during extraction)
+                if self.target_classes is not None:
+                    if is_offline:
+                        # Offline: filter + map labels
+                        trials, labels = self._filter_trials_by_classes(
+                            trials, labels, self.target_classes
+                        )
+                    else:
+                        # Online: just map labels (already filtered)
+                        labels = self._map_labels_to_indices(labels, self.target_classes)
+
+                # v3.0: Apply sliding window, filter, normalize on load
+                segments, seg_labels, trial_indices = trials_to_segments(
+                    trials, labels, self.config
+                )
+
+                # Apply channel selection if needed (after trials_to_segments)
+                if self.channel_indices is not None:
+                    segments = segments[:, self.channel_indices, :]
+
                 self._store_segments(segments, seg_labels, trial_indices, session_info)
                 n_cache_hits += 1
             except Exception as e:
                 log_cache.error(f"Cache load failed: {mat_path.name}: {e}")
 
         # Phase 3: Process uncached files (potentially parallel)
-        uncached_files = [(p, s) for p, s, needs in files_to_process if needs]
+        uncached_files = [(p, s, offline) for p, s, needs, offline in files_to_process if needs]
 
         if uncached_files:
             if self.config.use_sliding_window:
@@ -1083,7 +1384,7 @@ class FingerEEGDataset(Dataset):
                 self._load_uncached_parallel(uncached_files)
             else:
                 # Trial-based preprocessing (serial, less common)
-                for mat_path, session_info in uncached_files:
+                for mat_path, session_info, is_offline in uncached_files:
                     try:
                         eeg_data, events, metadata = load_mat_file(str(mat_path))
                         self._load_run_trial_based(
@@ -1100,11 +1401,19 @@ class FingerEEGDataset(Dataset):
         log_load.debug(f"Load time: {format_time(total_time)} ({n_cache_hits} hits, {n_cache_misses} miss, {self.parallel_workers}w)")
         log_load.info(f"Loaded {len(self.trials)} segs (cache: {'hit' if n_cache_misses == 0 else 'partial'})")
 
-    def _load_uncached_parallel(self, uncached_files: List[Tuple[Path, Dict]]):
+    def _load_uncached_parallel(self, uncached_files: List[Tuple[Path, Dict, bool]]):
         """
         Load and preprocess uncached files using parallel workers.
 
+        v3.0: Uses trial-level caching. Process flow:
+        1. Parallel: Extract trials, apply CAR, downsample (preprocess_run_to_trials)
+        2. Serial: Store segments after applying sliding window
+        3. Parallel: Save trials to cache
+
         Results are merged in the original file order to ensure reproducibility.
+
+        Args:
+            uncached_files: List of (mat_path, session_info, is_offline) tuples
         """
         import time
 
@@ -1118,21 +1427,27 @@ class FingerEEGDataset(Dataset):
             # Prepare arguments for parallel execution
             # Sort by path for reproducible ordering
             sorted_files = sorted(uncached_files, key=lambda x: str(x[0]))
-            mat_paths = [str(p) for p, _ in sorted_files]
+            mat_paths = [str(p) for p, _, _ in sorted_files]
+
+            # Build mapping of mat_path -> is_offline
+            path_to_offline = {str(p): offline for p, _, offline in sorted_files}
 
             # Use ProcessPoolExecutor for CPU-bound preprocessing
-            # ThreadPoolExecutor is faster for I/O but preprocessing is CPU-bound
+            # v3.0: Use _process_single_mat_file_to_trials instead of _process_single_mat_file
             results = {}
 
             with ProcessPoolExecutor(max_workers=self.parallel_workers) as executor:
                 # Submit all tasks
+                # For offline data: store_all_fingers=True, process all 4 fingers
+                # For online data: use actual target_classes
                 future_to_path = {
                     executor.submit(
-                        _process_single_mat_file,
+                        _process_single_mat_file_to_trials,
                         path,
                         self.config,
                         self.target_classes,
-                        self.channel_indices
+                        None,  # channel_indices applied later (after cache load)
+                        path_to_offline[path]  # store_all_fingers for offline
                     ): path for path in mat_paths
                 }
 
@@ -1144,35 +1459,65 @@ class FingerEEGDataset(Dataset):
                         results[path] = result
                     except Exception as e:
                         log_prep.error(f"Parallel failed: {Path(path).name}: {e}")
-                        results[path] = (None, None, None, parse_session_path(Path(path)), path)
-
-            # Store results in original sorted order (for reproducibility)
-            # First, store segments (fast, must be serial for correct trial ordering)
-            for mat_path in mat_paths:
-                segments, seg_labels, trial_indices, session_info, path = results[mat_path]
-                if segments is not None:
-                    self._store_segments(segments, seg_labels, trial_indices, session_info)
+                        results[path] = (None, None, parse_session_path(Path(path)), path)
 
             elapsed_preprocess = time.perf_counter() - start_time
             log_prep.info(f"Parallel done: {elapsed_preprocess:.1f}s ({n_files / elapsed_preprocess:.1f} f/s)")
 
+            # Store results in original sorted order (for reproducibility)
+            # v3.0: Apply trials_to_segments() before storing
+            for mat_path in mat_paths:
+                trials, labels, session_info, path = results[mat_path]
+                if trials is not None:
+                    is_offline = path_to_offline[mat_path]
+
+                    # Offline data: filter to target_classes before sliding window
+                    # Online data: just map labels (already filtered during extraction)
+                    trials_for_segments = trials
+                    labels_for_segments = labels
+                    if self.target_classes is not None:
+                        if is_offline:
+                            # Offline: filter + map labels
+                            trials_for_segments, labels_for_segments = self._filter_trials_by_classes(
+                                trials, labels, self.target_classes
+                            )
+                        else:
+                            # Online: just map labels (already filtered)
+                            labels_for_segments = self._map_labels_to_indices(labels, self.target_classes)
+
+                    # v3.0: Apply sliding window, filter, normalize
+                    segments, seg_labels, trial_indices = trials_to_segments(
+                        trials_for_segments, labels_for_segments, self.config
+                    )
+
+                    # Apply channel selection if needed
+                    if self.channel_indices is not None:
+                        segments = segments[:, self.channel_indices, :]
+
+                    self._store_segments(segments, seg_labels, trial_indices, session_info)
+
             # Save to cache in parallel (I/O + compression bound)
+            # v3.0: Cache stores TRIALS (not segments), UNFILTERED for offline
             if self.cache is not None:
                 cache_start = time.perf_counter()
                 cache_tasks = [
-                    (results[p], p) for p in mat_paths
+                    (results[p], p, path_to_offline[p]) for p in mat_paths
                     if results[p][0] is not None
                 ]
 
                 def save_to_cache(args):
-                    (segments, seg_labels, trial_indices, session_info, path), mat_path = args
+                    (trials, labels, session_info, path), mat_path, is_offline = args
+                    parent_folder = Path(path).parent.name
+                    # Offline: cache all fingers with target_classes=None
+                    # Online: cache with actual target_classes
+                    cache_target_classes = None if is_offline else self.target_classes
                     self.cache.save(
                         session_info['subject'],
                         session_info['run'],
-                        session_info['task_type'],
+                        parent_folder,  # Use folder name
                         self.config,
-                        segments, seg_labels, trial_indices,
-                        path, self.target_classes
+                        trials, labels,  # v3.0: trials, not segments
+                        path, cache_target_classes
                     )
 
                 # Use ThreadPoolExecutor for I/O-bound cache saving
@@ -1184,11 +1529,11 @@ class FingerEEGDataset(Dataset):
 
         else:
             # Serial fallback
-            for mat_path, session_info in uncached_files:
+            for mat_path, session_info, is_offline in uncached_files:
                 try:
                     eeg_data, events, metadata = load_mat_file(str(mat_path))
                     self._load_run_paper_aligned(
-                        eeg_data, events, metadata, session_info, mat_path
+                        eeg_data, events, metadata, session_info, mat_path, is_offline
                     )
                 except Exception as e:
                     log_load.error(f"Load failed: {mat_path.name}: {e}")
@@ -1199,56 +1544,79 @@ class FingerEEGDataset(Dataset):
         events: List[Dict],
         metadata: Dict,
         session_info: Dict,
-        mat_path: Path
+        mat_path: Path,
+        is_offline: bool = False
     ):
         """
         Load a run using paper-aligned preprocessing.
 
-        Applies preprocessing at Run level:
-        - CAR on entire continuous data
-        - Extract trials
-        - Sliding window segmentation
-        - Downsample
-        - Bandpass filter
-        - Z-score per segment
+        v3.0: Uses trial-level caching. Process flow:
+        1. Extract trials, apply CAR, downsample (preprocess_run_to_trials)
+        2. Save trials to cache (smaller than segments)
+        3. Apply sliding window, filter, normalize (trials_to_segments)
+        4. Store segments in dataset
 
         Note: Cache loading is handled by _load_data() for timing purposes.
         This method is only called on cache miss.
+
+        Args:
+            is_offline: If True, this is Offline data - cache all 4 fingers,
+                       filter to target_classes after loading.
         """
         subject = session_info['subject']
         run_id = session_info['run']
-        task_type = session_info['task_type']
+        parent_folder = mat_path.parent.name
 
-        # Prepare label mapping
-        label_mapping = None
-        if self.target_classes is not None:
-            # Create mapping: original class -> continuous index
-            label_mapping = {cls: i for i, cls in enumerate(sorted(self.target_classes))}
+        # Offline data: store all fingers in cache, filter later
+        # Online data: store only target_classes
+        store_all_fingers = is_offline
 
-        # Apply paper-aligned preprocessing
-        segments, seg_labels, trial_indices = preprocess_run_paper_aligned(
+        # v3.0: Preprocess to trial level (no sliding window yet)
+        trials, labels = preprocess_run_to_trials(
             eeg_data,
             events,
             metadata,
             self.config,
-            target_classes=self.target_classes,
-            label_mapping=label_mapping
+            target_classes=self.target_classes if not store_all_fingers else None,
+            store_all_fingers=store_all_fingers
         )
 
-        if len(segments) == 0:
+        if len(trials) == 0:
             return
+
+        # Save to cache (before applying sliding window)
+        # Offline: save all fingers with target_classes=None
+        # Online: save with actual target_classes
+        if self.cache is not None:
+            cache_target_classes = None if is_offline else self.target_classes
+            self.cache.save(
+                subject, run_id, parent_folder, self.config,
+                trials, labels,  # v3.0: trials, not segments
+                str(mat_path), cache_target_classes
+            )
+
+        # Offline data: filter to target_classes before sliding window
+        # Online data: just map labels (already filtered during extraction)
+        trials_for_segments = trials
+        labels_for_segments = labels
+        if self.target_classes is not None:
+            if is_offline:
+                # Offline: filter + map labels
+                trials_for_segments, labels_for_segments = self._filter_trials_by_classes(
+                    trials, labels, self.target_classes
+                )
+            else:
+                # Online: just map labels (already filtered)
+                labels_for_segments = self._map_labels_to_indices(labels, self.target_classes)
+
+        # v3.0: Apply sliding window, filter, normalize
+        segments, seg_labels, trial_indices = trials_to_segments(
+            trials_for_segments, labels_for_segments, self.config
+        )
 
         # Apply channel selection if needed
         if self.channel_indices is not None:
             segments = segments[:, self.channel_indices, :]
-
-        # Save to cache
-        if self.cache is not None:
-            self.cache.save(
-                subject, run_id, task_type, self.config,
-                segments, seg_labels, trial_indices,
-                str(mat_path), self.target_classes
-            )
 
         # Store segments
         self._store_segments(segments, seg_labels, trial_indices, session_info)
@@ -1293,6 +1661,99 @@ class FingerEEGDataset(Dataset):
             self.trials.append(segment)
             self.labels.append(label)
             self.trial_infos.append(trial_info)
+
+    def _map_labels_to_indices(
+        self,
+        labels: np.ndarray,
+        target_classes: List[int],
+    ) -> np.ndarray:
+        """
+        Map original labels (finger IDs) to continuous indices.
+
+        v3.0: Used for Online data where labels are already filtered
+        but need to be mapped to continuous indices (0, 1, ..., n_classes-1).
+
+        Args:
+            labels: Original labels (finger IDs: 1, 4 for binary)
+            target_classes: Target classes (e.g., [1, 4] for binary)
+
+        Returns:
+            Mapped labels using continuous indices (0, 1, ..., n_classes-1)
+        """
+        label_mapping = {cls: i for i, cls in enumerate(sorted(target_classes))}
+        return np.array([label_mapping[l] for l in labels])
+
+    def _filter_trials_by_classes(
+        self,
+        trials: np.ndarray,
+        labels: np.ndarray,
+        target_classes: List[int],
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Filter trials to keep only those matching target_classes.
+
+        v3.0: Used for Offline data where all 4 fingers are cached together,
+        but we need to filter to specific classes at load time.
+
+        Args:
+            trials: All trials [n_trials x channels x samples]
+            labels: Original labels (finger IDs: 1,2,3,4)
+            target_classes: Classes to keep (e.g., [1, 4] for binary)
+
+        Returns:
+            Tuple of (filtered_trials, mapped_labels)
+            where mapped_labels use continuous indices (0, 1, ..., n_classes-1)
+        """
+        # Create mask for target classes
+        mask = np.isin(labels, target_classes)
+
+        # Filter
+        filtered_trials = trials[mask]
+
+        # Map labels to continuous indices
+        filtered_labels = self._map_labels_to_indices(labels[mask], target_classes)
+
+        return filtered_trials, filtered_labels
+
+    def _filter_segments_by_classes(
+        self,
+        segments: np.ndarray,
+        labels: np.ndarray,
+        trial_indices: np.ndarray,
+        target_classes: List[int],
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Filter segments to keep only those matching target_classes.
+
+        DEPRECATED in v3.0: Use _filter_trials_by_classes instead.
+        Kept for backward compatibility with non-sliding-window mode.
+
+        Args:
+            segments: All segments [n_segments x channels x samples]
+            labels: Original labels (finger IDs: 1,2,3,4)
+            trial_indices: Trial indices for each segment
+            target_classes: Classes to keep (e.g., [1, 4] for binary)
+
+        Returns:
+            Tuple of (filtered_segments, mapped_labels, filtered_trial_indices)
+            where mapped_labels use continuous indices (0, 1, ..., n_classes-1)
+        """
+        # Create mask for target classes
+        mask = np.isin(labels, target_classes)
+
+        # Filter
+        filtered_segments = segments[mask]
+        filtered_trial_indices = trial_indices[mask]
+
+        # Map labels to continuous indices
+        label_mapping = {cls: i for i, cls in enumerate(sorted(target_classes))}
+        filtered_labels = np.array([label_mapping[l] for l in labels[mask]])
+
+        return filtered_segments, filtered_labels, filtered_trial_indices
+
+    def _is_offline_session(self, folder_name: str) -> bool:
+        """Check if the session folder is an Offline session."""
+        return folder_name.lower().startswith('offline')
 
     def _load_run_trial_based(
         self,

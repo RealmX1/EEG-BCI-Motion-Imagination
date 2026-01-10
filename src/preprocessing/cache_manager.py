@@ -7,14 +7,32 @@ redundant computation during training and hyperparameter optimization.
 Cache structure:
     caches/
     ├── preprocessed/
-    │   ├── {cache_key}.h5           # Preprocessed segments
+    │   ├── {cache_key}.h5           # Preprocessed trials (not segments!)
     │   └── ...
     └── .cache_index.json            # Metadata index
 
+Cache Index Schema (v3.0):
+    Each cache entry contains structured fields:
+    - subject: Subject ID (e.g., 'S01')
+    - run: Run number (1-30)
+    - session_folder: Original folder name (e.g., 'OfflineImagery', 'OnlineImagery_Sess01_2class_Base')
+    - model: Target model ('eegnet' or 'cbramod')
+    - collection_paradigm: Data collection mode ('online' or 'offline')
+    - subject_task_type: Task performed by subject ('imagery' or 'movement')
+    - n_classes: Number of classification classes (2, 3, or 4)
+    - source_file: Path to source .mat file
+    - created_at: Unix timestamp
+    - version: Cache format version
+    - shape: Trial array shape [n_trials, n_channels, n_samples_at_target_fs]
+    - size_mb: Size in megabytes
+
 Features:
-    - HDF5 disk caching with gzip compression
+    - HDF5 disk caching with lzf compression (default)
     - In-memory LRU cache for fast repeated access
     - Automatic cache invalidation on source file changes
+    - Structured metadata for easy querying and filtering
+    - **v3.0**: Stores trials (not segments) for ~6.6x size reduction
+      Sliding window segmentation is applied on load.
 
 Usage:
     from src.preprocessing.cache_manager import PreprocessingCache
@@ -22,11 +40,14 @@ Usage:
     cache = PreprocessingCache()
 
     # Check and load from cache
-    if cache.has_valid_cache(subject, run, task_type, config, mat_path):
-        segments, labels, trial_indices = cache.load(...)
+    if cache.has_valid_cache(subject, run, session_folder, config, mat_path):
+        trials, labels = cache.load(...)
+        # Apply sliding window on load
+        segments, seg_labels, trial_indices = trials_to_segments(trials, labels, config)
     else:
-        segments, labels, trial_indices = preprocess_run_paper_aligned(...)
-        cache.save(subject, run, task_type, config, segments, labels, trial_indices, mat_path)
+        trials, labels = preprocess_run_to_trials(...)
+        cache.save(subject, run, session_folder, config, trials, labels, mat_path)
+        segments, seg_labels, trial_indices = trials_to_segments(trials, labels, config)
 """
 
 import hashlib
@@ -42,6 +63,90 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+def parse_session_folder(folder_name: str) -> Dict[str, Any]:
+    """
+    Parse session folder name into structured components.
+
+    Examples:
+        'OfflineImagery' -> {
+            'collection_paradigm': 'offline',
+            'subject_task_type': 'imagery',
+            'session_num': None,
+            'n_classes': None,
+            'session_phase': None
+        }
+        'OnlineImagery_Sess01_2class_Base' -> {
+            'collection_paradigm': 'online',
+            'subject_task_type': 'imagery',
+            'session_num': 1,
+            'n_classes': 2,
+            'session_phase': 'base'
+        }
+        'OnlineMovement_Sess02_3class_Finetune' -> {
+            'collection_paradigm': 'online',
+            'subject_task_type': 'movement',
+            'session_num': 2,
+            'n_classes': 3,
+            'session_phase': 'finetune'
+        }
+
+    Args:
+        folder_name: Session folder name (e.g., 'OfflineImagery', 'OnlineImagery_Sess01_2class_Base')
+
+    Returns:
+        Dict with parsed components
+    """
+    result = {
+        'collection_paradigm': None,  # 'online' or 'offline'
+        'subject_task_type': None,    # 'imagery' or 'movement'
+        'session_num': None,          # 1, 2, or None (for offline)
+        'n_classes': None,            # 2, 3, 4, or None (from folder name like "2class")
+        'session_phase': None,        # 'base', 'finetune', or None
+    }
+
+    folder_lower = folder_name.lower()
+
+    # Parse collection paradigm (online vs offline)
+    if folder_lower.startswith('offline'):
+        result['collection_paradigm'] = 'offline'
+    elif folder_lower.startswith('online'):
+        result['collection_paradigm'] = 'online'
+
+    # Parse subject task type (imagery vs movement/execution)
+    if 'imagery' in folder_lower:
+        result['subject_task_type'] = 'imagery'
+    elif 'movement' in folder_lower:
+        result['subject_task_type'] = 'movement'
+
+    # Parse online session details (e.g., "OnlineImagery_Sess01_2class_Base")
+    parts = folder_name.split('_')
+    for part in parts:
+        part_lower = part.lower()
+
+        # Session number (Sess01, Sess02)
+        if part_lower.startswith('sess'):
+            try:
+                result['session_num'] = int(part_lower.replace('sess', ''))
+            except ValueError:
+                pass
+
+        # Number of classes (2class, 3class, 4class)
+        if part_lower.endswith('class'):
+            try:
+                result['n_classes'] = int(part_lower.replace('class', ''))
+            except ValueError:
+                pass
+
+        # Session phase (Base, Finetune)
+        if part_lower == 'base':
+            result['session_phase'] = 'base'
+        elif part_lower == 'finetune':
+            result['session_phase'] = 'finetune'
+
+    return result
+
 
 # Try to import h5py, fall back to numpy if not available
 try:
@@ -71,7 +176,12 @@ class PreprocessingCache:
     """
 
     # Cache format version - increment when cache structure changes
-    CACHE_VERSION = "1.0"
+    # v2.0: Restructured metadata fields (model, collection_paradigm, subject_task_type, n_classes)
+    # v2.1: Offline data caches all 4 fingers together, filtered at load time
+    # v3.0: BREAKING CHANGE - stores trials instead of segments (~6.6x size reduction)
+    #       Sliding window, filtering, normalization applied on load via trials_to_segments()
+    #       HDF5 datasets renamed: "segments" -> "trials", "trial_indices" removed
+    CACHE_VERSION = "3.0"
 
     def __init__(
         self,
@@ -103,7 +213,8 @@ class PreprocessingCache:
         self._lock = threading.Lock()
 
         # In-memory LRU cache: OrderedDict for LRU eviction
-        self._memory_cache: OrderedDict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]] = OrderedDict()
+        # v3.0: Stores (trials, labels) instead of (segments, labels, trial_indices)
+        self._memory_cache: OrderedDict[str, Tuple[np.ndarray, np.ndarray]] = OrderedDict()
         self._memory_cache_size = 0  # Current size in bytes
 
         if self.enabled:
@@ -150,7 +261,7 @@ class PreprocessingCache:
         self,
         subject: str,
         run: int,
-        task_type: str,
+        session_folder: str,
         config: Any,
         target_classes: Optional[List[int]] = None,
     ) -> str:
@@ -160,18 +271,37 @@ class PreprocessingCache:
         Args:
             subject: Subject ID (e.g., 'S01')
             run: Run number
-            task_type: Task type (e.g., 'OfflineImagery')
+            session_folder: Session folder name (e.g., 'OfflineImagery', 'OnlineImagery_Sess01_2class_Base')
             config: PreprocessConfig instance or dict
-            target_classes: Target classes for filtering
+            target_classes: Target classes for filtering (e.g., [1, 4] for binary)
 
         Returns:
             MD5 hash string as cache key
         """
         config_dict = self._config_to_dict(config)
 
+        # Parse session folder into structured components
+        session_info = parse_session_folder(session_folder)
+
+        # Extract model from config
+        model = config_dict.get("target_model", "eegnet")
+
+        # Offline data: cache all 4 fingers together, ignore target_classes in cache key
+        # Online data: cache per target_classes (separate sessions for 2class/3class)
+        is_offline = session_info['collection_paradigm'] == 'offline'
+
+        if is_offline:
+            # Offline: use None for target_classes to cache all fingers together
+            cache_target_classes = None
+            n_classes = 4  # All 4 fingers
+        else:
+            # Online: cache per target_classes (preserve existing behavior)
+            cache_target_classes = sorted(target_classes) if target_classes else None
+            n_classes = len(target_classes) if target_classes else None
+
         # Only include config parameters that affect preprocessing output
         relevant_config = {
-            "target_model": config_dict.get("target_model"),
+            "target_model": model,
             "target_fs": config_dict.get("target_fs"),
             "bandpass_low": config_dict.get("bandpass_low"),
             "bandpass_high": config_dict.get("bandpass_high"),
@@ -189,9 +319,16 @@ class PreprocessingCache:
             "version": self.CACHE_VERSION,
             "subject": subject,
             "run": run,
-            "task_type": task_type,
+            # New structured fields (v2.0)
+            "model": model,
+            "collection_paradigm": session_info['collection_paradigm'],
+            "subject_task_type": session_info['subject_task_type'],
+            "n_classes": n_classes,
+            # Keep session_folder for exact matching
+            "session_folder": session_folder,
             "config": relevant_config,
-            "target_classes": sorted(target_classes) if target_classes else None,
+            # v2.1: Offline uses None (all fingers), Online uses actual target_classes
+            "target_classes": cache_target_classes,
         }
 
         key_str = json.dumps(key_data, sort_keys=True)
@@ -204,9 +341,9 @@ class PreprocessingCache:
 
     # ==================== Memory Cache Methods ====================
 
-    def _get_entry_size(self, segments: np.ndarray, labels: np.ndarray, trial_indices: np.ndarray) -> int:
-        """Calculate memory size of a cache entry."""
-        return segments.nbytes + labels.nbytes + trial_indices.nbytes
+    def _get_entry_size(self, trials: np.ndarray, labels: np.ndarray) -> int:
+        """Calculate memory size of a cache entry (v3.0: trials + labels)."""
+        return trials.nbytes + labels.nbytes
 
     def _evict_lru_if_needed(self, new_entry_size: int) -> None:
         """Evict least recently used entries if memory limit would be exceeded."""
@@ -221,15 +358,14 @@ class PreprocessingCache:
     def _add_to_memory_cache(
         self,
         cache_key: str,
-        segments: np.ndarray,
+        trials: np.ndarray,
         labels: np.ndarray,
-        trial_indices: np.ndarray
     ) -> None:
-        """Add entry to memory cache with LRU eviction."""
+        """Add entry to memory cache with LRU eviction (v3.0: trials + labels)."""
         if not self.use_memory_cache:
             return
 
-        entry_size = self._get_entry_size(segments, labels, trial_indices)
+        entry_size = self._get_entry_size(trials, labels)
 
         # Don't cache if single entry exceeds limit
         if entry_size > self.memory_limit_bytes:
@@ -240,14 +376,14 @@ class PreprocessingCache:
         self._evict_lru_if_needed(entry_size)
 
         # Add to cache
-        self._memory_cache[cache_key] = (segments, labels, trial_indices)
+        self._memory_cache[cache_key] = (trials, labels)
         self._memory_cache_size += entry_size
 
     def _get_from_memory_cache(
         self,
         cache_key: str
-    ) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
-        """Get entry from memory cache, updating LRU order."""
+    ) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+        """Get entry from memory cache, updating LRU order (v3.0: trials + labels)."""
         if not self.use_memory_cache or cache_key not in self._memory_cache:
             return None
 
@@ -278,6 +414,8 @@ class PreprocessingCache:
     ) -> Dict:
         """
         Preload disk cache into memory for faster access.
+
+        v3.0: Loads trials + labels (not segments).
 
         Args:
             subjects: List of subjects to preload (None = all cached)
@@ -312,18 +450,16 @@ class PreprocessingCache:
                 try:
                     if self.use_h5py:
                         with h5py.File(cache_path, "r") as f:
-                            segments = f["segments"][:]
+                            trials = f["trials"][:]
                             labels = f["labels"][:]
-                            trial_indices = f["trial_indices"][:]
                     else:
                         data = np.load(cache_path)
-                        segments = data["segments"]
+                        trials = data["trials"]
                         labels = data["labels"]
-                        trial_indices = data["trial_indices"]
 
-                    self._add_to_memory_cache(cache_key, segments, labels, trial_indices)
+                    self._add_to_memory_cache(cache_key, trials, labels)
                     loaded_entries += 1
-                    loaded_bytes += self._get_entry_size(segments, labels, trial_indices)
+                    loaded_bytes += self._get_entry_size(trials, labels)
 
                 except Exception as e:
                     logger.warning(f"Failed to preload {cache_key[:8]}: {e}")
@@ -349,7 +485,7 @@ class PreprocessingCache:
         self,
         subject: str,
         run: int,
-        task_type: str,
+        session_folder: str,
         config: Any,
         mat_file_path: str,
         target_classes: Optional[List[int]] = None,
@@ -365,7 +501,7 @@ class PreprocessingCache:
         Args:
             subject: Subject ID
             run: Run number
-            task_type: Task type
+            session_folder: Session folder name (e.g., 'OfflineImagery')
             config: PreprocessConfig
             mat_file_path: Path to source .mat file
             target_classes: Target classes
@@ -376,7 +512,7 @@ class PreprocessingCache:
         if not self.enabled:
             return False
 
-        cache_key = self.get_cache_key(subject, run, task_type, config, target_classes)
+        cache_key = self.get_cache_key(subject, run, session_folder, config, target_classes)
         cache_path = self._get_cache_path(cache_key)
 
         # Check if cache file exists
@@ -408,30 +544,35 @@ class PreprocessingCache:
         self,
         subject: str,
         run: int,
-        task_type: str,
+        session_folder: str,
         config: Any,
         target_classes: Optional[List[int]] = None,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Load preprocessed data from cache.
+        Load preprocessed trials from cache.
+
+        v3.0: Returns trials + labels (not segments).
+        Call trials_to_segments() after loading to apply sliding window.
 
         Checks in-memory cache first, then falls back to disk cache.
 
         Args:
             subject: Subject ID
             run: Run number
-            task_type: Task type
+            session_folder: Session folder name (e.g., 'OfflineImagery')
             config: PreprocessConfig
             target_classes: Target classes
 
         Returns:
-            Tuple of (segments, labels, trial_indices)
+            Tuple of (trials, labels)
+            - trials: [n_trials x channels x samples_at_target_fs]
+            - labels: [n_trials]
 
         Raises:
             FileNotFoundError: If cache doesn't exist
             IOError: If cache file is corrupted
         """
-        cache_key = self.get_cache_key(subject, run, task_type, config, target_classes)
+        cache_key = self.get_cache_key(subject, run, session_folder, config, target_classes)
 
         # Try memory cache first (fast path)
         memory_result = self._get_from_memory_cache(cache_key)
@@ -450,19 +591,17 @@ class PreprocessingCache:
         try:
             if self.use_h5py:
                 with h5py.File(cache_path, "r") as f:
-                    segments = f["segments"][:]
+                    trials = f["trials"][:]
                     labels = f["labels"][:]
-                    trial_indices = f["trial_indices"][:]
             else:
                 data = np.load(cache_path)
-                segments = data["segments"]
+                trials = data["trials"]
                 labels = data["labels"]
-                trial_indices = data["trial_indices"]
 
             # Add to memory cache for future access
-            self._add_to_memory_cache(cache_key, segments, labels, trial_indices)
+            self._add_to_memory_cache(cache_key, trials, labels)
 
-            return segments, labels, trial_indices
+            return trials, labels
 
         except Exception as e:
             logger.error(f"Failed to load cache {cache_key[:8]}: {e}")
@@ -474,37 +613,44 @@ class PreprocessingCache:
         self,
         subject: str,
         run: int,
-        task_type: str,
+        session_folder: str,
         config: Any,
-        segments: np.ndarray,
+        trials: np.ndarray,
         labels: np.ndarray,
-        trial_indices: np.ndarray,
         mat_file_path: str,
         target_classes: Optional[List[int]] = None,
     ) -> None:
         """
-        Save preprocessed data to cache.
+        Save preprocessed trials to cache.
+
+        v3.0: Stores trials + labels (not segments + trial_indices).
+        Sliding window segmentation is applied on load via trials_to_segments().
 
         Args:
             subject: Subject ID
             run: Run number
-            task_type: Task type
+            session_folder: Session folder name (e.g., 'OfflineImagery')
             config: PreprocessConfig
-            segments: Preprocessed segments array
-            labels: Labels array
-            trial_indices: Trial indices array
+            trials: Preprocessed trials array [n_trials x channels x samples_at_target_fs]
+            labels: Labels array [n_trials]
             mat_file_path: Path to source .mat file
             target_classes: Target classes
         """
         if not self.enabled:
             return
 
-        cache_key = self.get_cache_key(subject, run, task_type, config, target_classes)
+        cache_key = self.get_cache_key(subject, run, session_folder, config, target_classes)
         cache_path = self._get_cache_path(cache_key)
+
+        # Parse session folder and extract model info for metadata
+        session_info = parse_session_folder(session_folder)
+        config_dict = self._config_to_dict(config)
+        model = config_dict.get("target_model", "eegnet")
+        n_classes = len(target_classes) if target_classes else None
 
         logger.debug(
             f"Saving to cache: {cache_key[:8]} "
-            f"(segments: {segments.shape}, {segments.nbytes / 1e6:.1f} MB)"
+            f"(trials: {trials.shape}, {trials.nbytes / 1e6:.1f} MB)"
         )
 
         try:
@@ -532,10 +678,10 @@ class PreprocessingCache:
                         # Parse compression setting
                         if self.compression is None or self.compression == "none":
                             # No compression
-                            f.create_dataset("segments", data=segments)
+                            f.create_dataset("trials", data=trials)
                         elif self.compression == "lzf":
                             # Fast lzf compression (default)
-                            f.create_dataset("segments", data=segments, compression="lzf")
+                            f.create_dataset("trials", data=trials, compression="lzf")
                         elif self.compression.startswith("gzip"):
                             # gzip compression: "gzip" or "gzip:N"
                             if ":" in self.compression:
@@ -543,40 +689,49 @@ class PreprocessingCache:
                             else:
                                 level = 4  # default gzip level
                             f.create_dataset(
-                                "segments", data=segments,
+                                "trials", data=trials,
                                 compression="gzip", compression_opts=level
                             )
                         else:
                             # Fallback to lzf
-                            f.create_dataset("segments", data=segments, compression="lzf")
+                            f.create_dataset("trials", data=trials, compression="lzf")
 
                         f.create_dataset("labels", data=labels)
-                        f.create_dataset("trial_indices", data=trial_indices)
+                        # v3.0: No trial_indices dataset - trials are indexed by position
 
-                        # Store metadata in HDF5 as well
+                        # Store metadata in HDF5 as well (v3.0 structured fields)
                         f.attrs["subject"] = subject
                         f.attrs["run"] = run
-                        f.attrs["task_type"] = task_type
+                        f.attrs["session_folder"] = session_folder
+                        f.attrs["model"] = model
+                        f.attrs["collection_paradigm"] = session_info['collection_paradigm'] or ""
+                        f.attrs["subject_task_type"] = session_info['subject_task_type'] or ""
+                        f.attrs["n_classes"] = n_classes if n_classes else 0
                         f.attrs["version"] = self.CACHE_VERSION
                 else:
                     np.savez_compressed(
                         cache_path,
-                        segments=segments,
+                        trials=trials,
                         labels=labels,
-                        trial_indices=trial_indices
                     )
 
-            # Update metadata index (thread-safe)
+            # Update metadata index (thread-safe) with v3.0 structured fields
             with self._lock:
                 self.metadata.setdefault("entries", {})[cache_key] = {
                     "subject": subject,
                     "run": run,
-                    "task_type": task_type,
+                    "session_folder": session_folder,
+                    # v3.0 structured fields
+                    "model": model,
+                    "collection_paradigm": session_info['collection_paradigm'],
+                    "subject_task_type": session_info['subject_task_type'],
+                    "n_classes": n_classes,
+                    # Additional metadata
                     "source_file": str(mat_file_path),
                     "created_at": time.time(),
                     "version": self.CACHE_VERSION,
-                    "shape": list(segments.shape),
-                    "size_mb": round(segments.nbytes / 1e6, 2),
+                    "shape": list(trials.shape),
+                    "size_mb": round(trials.nbytes / 1e6, 2),
                 }
                 self._save_metadata()
 
@@ -653,12 +808,36 @@ class PreprocessingCache:
         Get cache statistics.
 
         Returns:
-            Dict with cache statistics
+            Dict with cache statistics including breakdowns by model, paradigm, etc.
         """
         entries = self.metadata.get("entries", {})
 
         total_size_mb = sum(e.get("size_mb", 0) for e in entries.values())
         subjects = set(e.get("subject") for e in entries.values())
+
+        # v2.0 field statistics
+        models = {}
+        paradigms = {}
+        task_types = {}
+        n_classes_counts = {}
+
+        for entry in entries.values():
+            # Count by model
+            model = entry.get("model", "unknown")
+            models[model] = models.get(model, 0) + 1
+
+            # Count by collection paradigm
+            paradigm = entry.get("collection_paradigm", "unknown")
+            paradigms[paradigm] = paradigms.get(paradigm, 0) + 1
+
+            # Count by subject task type
+            task_type = entry.get("subject_task_type", "unknown")
+            task_types[task_type] = task_types.get(task_type, 0) + 1
+
+            # Count by n_classes
+            n_cls = entry.get("n_classes")
+            if n_cls is not None:
+                n_classes_counts[n_cls] = n_classes_counts.get(n_cls, 0) + 1
 
         return {
             "total_entries": len(entries),
@@ -666,6 +845,11 @@ class PreprocessingCache:
             "subjects_cached": sorted(subjects),
             "cache_dir": str(self.cache_dir),
             "format": "h5" if self.use_h5py else "npz",
+            # v2.0 breakdowns
+            "by_model": models,
+            "by_collection_paradigm": paradigms,
+            "by_subject_task_type": task_types,
+            "by_n_classes": n_classes_counts,
         }
 
 

@@ -13,10 +13,23 @@ model:
   freeze_backbone: false    # Whether to freeze pretrained backbone
 
 data:
-  # CBraMod settings (19 channels @ 200 Hz)
+  # CBraMod settings
   sampling_rate: 200        # Hz
-  n_channels: 19            # Standard 10-20 system
   window_length: 5.0        # seconds (offline trial duration)
+
+  # Channel configuration
+  # CBraMod supports both 19-channel (10-20 system) and 128-channel (full BioSemi)
+  # The ACPE (Asymmetric Conditional Positional Encoding) dynamically generates
+  # position encodings via convolution, allowing it to handle arbitrary channel counts.
+  #
+  # Use command line argument to select:
+  #   --cbramod-channels 19   # Standard 10-20 system (default, less memory)
+  #   --cbramod-channels 128  # Full BioSemi (more spatial info, more memory)
+  #
+  # Memory considerations:
+  #   19ch:  Attention map 19x19=361,     Classifier input 3,800 dim
+  #   128ch: Attention map 128x128=16,384, Classifier input 25,600 dim
+  #   For 128ch, consider reducing batch_size to 32-64 if OOM occurs.
 
   # Patch settings (CBraMod uses 1s patches instead of sliding window)
   patch_duration: 1.0       # seconds per patch
@@ -43,7 +56,7 @@ training:
 
   # Early stopping
   early_stopping: true
-  patience: 5               # Stop if no improvement for 5 epochs
+  patience: 10               # Stop if no improvement for 10 epochs
   min_delta: 0.001
 
   # Learning rate scheduler
