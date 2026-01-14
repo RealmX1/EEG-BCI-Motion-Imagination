@@ -19,6 +19,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 uv sync
 uv pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu128
 
+# 验证安装
+uv run python scripts/verify_installation.py
+
 # Within-subject 训练
 uv run python -m src.training.train_within_subject --subject S01 --task binary --model eegnet
 uv run python -m src.training.train_within_subject --subject S01 --task binary --model cbramod
@@ -98,6 +101,7 @@ caches/preprocessed/                  # 预处理缓存
 
 | 文档 | 说明 |
 |------|------|
+| `docs/TROUBLESHOOTING.md` | 故障排除指南 |
 | `docs/preprocessing_architecture.md` | 预处理管线详细架构 |
 | `docs/experiment_plan_v1.md` | 实验计划 |
 | `docs/dev_log/changelog.md` | 开发历史和变更记录 |

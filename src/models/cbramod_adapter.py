@@ -12,6 +12,7 @@ for EEG Decoding", ICLR 2025
 CBraMod repository: https://github.com/wjq-learning/CBraMod
 """
 
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -23,8 +24,10 @@ import importlib.util
 
 logger = logging.getLogger(__name__)
 
-# CBraMod repository path (parallel to EEG-BCI: github/CBraMod)
-CBRAMOD_REPO_PATH = Path(__file__).parent.parent.parent.parent / 'CBraMod'
+# CBraMod repository path - configurable via environment variable
+# Default: parallel to EEG-BCI (github/CBraMod)
+_default_cbramod_path = Path(__file__).parent.parent.parent.parent / 'CBraMod'
+CBRAMOD_REPO_PATH = Path(os.environ.get('CBRAMOD_REPO_PATH', _default_cbramod_path))
 
 
 def get_cbramod_model():
@@ -202,6 +205,22 @@ class CBraModForFingerBCI(nn.Module):
             freeze_backbone: Whether to freeze backbone weights
         """
         super().__init__()
+
+        # Validate input parameters
+        if not isinstance(n_channels, int) or n_channels < 1:
+            raise ValueError(f"n_channels must be a positive integer, got {n_channels}")
+        if not isinstance(n_patches, int) or n_patches < 1:
+            raise ValueError(f"n_patches must be a positive integer, got {n_patches}")
+        if not isinstance(n_classes, int) or n_classes < 2:
+            raise ValueError(f"n_classes must be >= 2, got {n_classes}")
+
+        # Warn about very high channel counts (potential OOM)
+        if n_channels > 256:
+            logger.warning(
+                f"n_channels={n_channels} is very high. "
+                f"Attention map size: {n_channels}x{n_channels}={n_channels**2:,}. "
+                f"This may cause out-of-memory errors."
+            )
 
         self.n_channels = n_channels
         self.n_patches = n_patches

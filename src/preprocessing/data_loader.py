@@ -1457,6 +1457,10 @@ class FingerEEGDataset(Dataset):
                     try:
                         result = future.result()
                         results[path] = result
+                    except MemoryError as e:
+                        # OOM errors should propagate - don't silently continue
+                        log_prep.critical(f"Out of memory during parallel processing: {Path(path).name}")
+                        raise
                     except Exception as e:
                         log_prep.error(f"Parallel failed: {Path(path).name}: {e}")
                         results[path] = (None, None, parse_session_path(Path(path)), path)

@@ -39,12 +39,24 @@
 
 ## 安装
 
-### 环境要求
+### 系统要求
 
-- Python 3.9+
-- PyTorch 2.0+ with CUDA
-- NVIDIA GPU with CUDA support
-- [uv](https://docs.astral.sh/uv/) (推荐) 或 pip
+| 要求 | 说明 |
+|------|------|
+| **操作系统** | Windows 10+, Linux (Ubuntu 20.04+), macOS |
+| **Python** | 3.9+ (推荐 3.11.x) |
+| **GPU** | NVIDIA GPU (必须)，CPU 模式已禁用 |
+| **显存** | 8GB+ (EEGNet) / 12GB+ (CBraMod 128ch) |
+| **CUDA** | 12.1+ (RTX 30/40), 12.8 nightly (RTX 50) |
+| **包管理器** | [uv](https://docs.astral.sh/uv/) (推荐) 或 pip |
+
+### GPU 兼容性
+
+| GPU 系列 | CUDA 版本 | PyTorch 安装命令 |
+|----------|-----------|-----------------|
+| RTX 50xx | 12.8 (nightly) | `uv pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu128` |
+| RTX 40xx | 12.4 | `uv pip install torch --index-url https://download.pytorch.org/whl/cu124` |
+| RTX 30xx | 12.4 / 12.1 | `uv pip install torch --index-url https://download.pytorch.org/whl/cu124` |
 
 ### 安装步骤
 
@@ -71,6 +83,30 @@ uv sync --extra viz        # 可视化依赖
 git clone https://github.com/wjq-learning/CBraMod.git
 uv pip install -e CBraMod/
 ```
+
+### 验证安装
+
+运行验证脚本检查环境是否正确配置：
+
+```bash
+uv run python scripts/verify_installation.py
+```
+
+成功时输出示例：
+```
+[Python 版本]
+  ✓ Python 3.11.9
+
+[PyTorch & CUDA]
+  ✓ PyTorch 2.6.0+cu128
+  ✓ CUDA 12.8
+  ✓ GPU 0: NVIDIA GeForce RTX 5080 (16.0 GB)
+  ✓ GPU 张量计算正常
+
+环境检查通过
+```
+
+如果遇到问题，请参考 [故障排除指南](docs/TROUBLESHOOTING.md)。
 
 ### 数据准备
 

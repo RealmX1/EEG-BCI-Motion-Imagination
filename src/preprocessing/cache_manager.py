@@ -315,14 +315,18 @@ class PreprocessingCache:
             "filter_padding": config_dict.get("filter_padding"),
         }
 
+        # Ensure collection_paradigm is never None to prevent cache key collisions
+        collection_paradigm = session_info['collection_paradigm'] or 'unknown'
+        subject_task_type = session_info['subject_task_type'] or 'unknown'
+
         key_data = {
             "version": self.CACHE_VERSION,
             "subject": subject,
             "run": run,
             # New structured fields (v2.0)
             "model": model,
-            "collection_paradigm": session_info['collection_paradigm'],
-            "subject_task_type": session_info['subject_task_type'],
+            "collection_paradigm": collection_paradigm,
+            "subject_task_type": subject_task_type,
             "n_classes": n_classes,
             # Keep session_folder for exact matching
             "session_folder": session_folder,
@@ -674,7 +678,15 @@ class PreprocessingCache:
                     return
 
                 if self.use_h5py:
-                    with h5py.File(cache_path, "w") as f:
+                    # Use 'x' mode (exclusive creation) to atomically fail if file exists
+                    # This prevents race conditions in multiprocessing scenarios
+                    try:
+                        f = h5py.File(cache_path, "x")
+                    except (FileExistsError, ValueError) as e:
+                        # ValueError is raised by older h5py versions for existing file
+                        logger.debug(f"Cache {cache_key[:8]} already created by another process")
+                        return
+                    with f:
                         # Parse compression setting
                         if self.compression is None or self.compression == "none":
                             # No compression
@@ -742,8 +754,12 @@ class PreprocessingCache:
                 if cache_path.exists():
                     try:
                         cache_path.unlink()
-                    except PermissionError:
-                        pass  # File may be locked by another thread
+                        logger.debug(f"Cleaned up partial cache file {cache_key[:8]}")
+                    except PermissionError as pe:
+                        logger.warning(
+                            f"Could not delete corrupted cache {cache_key[:8]}: {pe}. "
+                            f"Manual cleanup may be required: {cache_path}"
+                        )
 
     def _remove_cache(self, cache_key: str) -> None:
         """Remove a cache entry (thread-safe)."""
@@ -853,13 +869,18 @@ class PreprocessingCache:
         }
 
 
-# Global cache instance (lazy initialization)
+# Global cache instance (lazy initialization with thread safety)
 _global_cache: Optional[PreprocessingCache] = None
+_global_cache_lock = threading.Lock()
 
 
 def get_cache(cache_dir: str = "caches/preprocessed", enabled: bool = True) -> PreprocessingCache:
     """
-    Get or create global cache instance.
+    Get or create global cache instance (thread-safe).
+
+    Note: In multiprocessing contexts (ProcessPoolExecutor), each worker process
+    will have its own cache instance. This is safe because HDF5 files are written
+    with per-file locks and atomic operations.
 
     Args:
         cache_dir: Cache directory
@@ -870,13 +891,17 @@ def get_cache(cache_dir: str = "caches/preprocessed", enabled: bool = True) -> P
     """
     global _global_cache
 
+    # Double-checked locking pattern for thread safety
     if _global_cache is None:
-        _global_cache = PreprocessingCache(cache_dir=cache_dir, enabled=enabled)
+        with _global_cache_lock:
+            if _global_cache is None:
+                _global_cache = PreprocessingCache(cache_dir=cache_dir, enabled=enabled)
 
     return _global_cache
 
 
 def clear_global_cache() -> None:
-    """Clear the global cache instance."""
+    """Clear the global cache instance (thread-safe)."""
     global _global_cache
-    _global_cache = None
+    with _global_cache_lock:
+        _global_cache = None
