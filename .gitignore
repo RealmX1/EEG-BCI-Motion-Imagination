@@ -41,11 +41,12 @@ uv.lock
 
 # Project specific
 checkpoints/
-results/
+# results/ 文件夹同步（模型文件由 *.pt/*.pth/*.ckpt 规则单独忽略）
 *.pt
 *.pth
 *.ckpt
 *.zip
+**/*_within_subject/
 
 # Data (large files)
 data/S*/

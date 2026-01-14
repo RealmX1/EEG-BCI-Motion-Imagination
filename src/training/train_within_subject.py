@@ -83,6 +83,12 @@ from src.preprocessing.data_loader import (
 )
 from src.utils.device import get_device, check_cuda_available, set_seed
 from src.utils.logging import YellowFormatter, SectionLogger
+from src.utils.wandb_logger import (
+    is_wandb_available,
+    WandbLogger,
+    WandbCallback,
+    create_wandb_logger,
+)
 from src.utils.timing import (
     Timer,
     EpochTimer,
@@ -305,7 +311,8 @@ class WithinSubjectTrainer:
             'val_majority_acc': [],
         }
         self.best_val_loss = float('inf')
-        self.best_val_acc = 0.0  # Track best validation accuracy
+        self.best_val_acc = 0.0  # Track best validation accuracy (segment-level)
+        self.best_majority_acc = 0.0  # Track best validation accuracy (trial-level majority voting)
         self.best_epoch = 0
         self.best_state = None
 
@@ -445,6 +452,7 @@ class WithinSubjectTrainer:
         epochs: int = 300,
         patience: int = 20,
         save_path: Optional[Path] = None,
+        wandb_callback: Optional['WandbCallback'] = None,
     ) -> Dict:
         """
         Full training loop with early stopping.
@@ -455,6 +463,7 @@ class WithinSubjectTrainer:
             epochs: Maximum epochs
             patience: Early stopping patience
             save_path: Path to save best model
+            wandb_callback: Optional WandB callback for logging
 
         Returns:
             Training history
@@ -487,15 +496,12 @@ class WithinSubjectTrainer:
             with epoch_timer.phase("validate"):
                 val_loss, val_acc = self.validate(val_loader)
 
-            # Majority voting: only compute every 10 epochs or on improvement (expensive operation)
-            majority_acc = self.history['val_majority_acc'][-1] if self.history['val_majority_acc'] else 0.0
-            compute_majority = (epoch % 10 == 0) or (val_loss < self.best_val_loss)
-            if compute_majority:
-                with epoch_timer.phase("majority_vote"):
-                    majority_acc, _ = majority_vote_accuracy(
-                        self.model, self.dataset, self.val_indices, self.device,
-                        use_amp=self.use_amp
-                    )
+            # Majority voting: compute every epoch for accurate early stopping
+            with epoch_timer.phase("majority_vote"):
+                majority_acc, _ = majority_vote_accuracy(
+                    self.model, self.dataset, self.val_indices, self.device,
+                    use_amp=self.use_amp
+                )
 
             # Update scheduler (only for EEGNet - CBraMod uses per-step scheduling in train_epoch)
             if self.scheduler is not None and self.model_type != 'cbramod':
@@ -513,22 +519,42 @@ class WithinSubjectTrainer:
             self.history['val_acc'].append(val_acc)
             self.history['val_majority_acc'].append(majority_acc)
 
+            # WandB callback
+            # Note: majority_acc always has the last computed value (from history or fresh computation)
+            if wandb_callback is not None:
+                current_lr = self.optimizer.param_groups[0]['lr']
+                wandb_callback.on_epoch_end(
+                    epoch=epoch + 1,
+                    train_loss=train_loss,
+                    train_acc=train_acc,
+                    val_loss=val_loss,
+                    val_acc=val_acc,
+                    val_majority_acc=majority_acc,
+                    learning_rate=current_lr,
+                )
+
             # Logging with timing (every 10 epochs or first epoch)
             if (epoch + 1) % 10 == 0 or epoch == 0:
                 epoch_timer.print_epoch_summary()
-                maj_str = f"{majority_acc:.3f}" if compute_majority else f"{majority_acc:.3f}*"
                 print(
                     f"    {colored('Metrics:', Colors.DIM)} "
                     f"loss={colored(f'{train_loss:.4f}', Colors.WHITE)}/{colored(f'{val_loss:.4f}', Colors.CYAN)} "
                     f"acc={colored(f'{train_acc:.3f}', Colors.WHITE)}/{colored(f'{val_acc:.3f}', Colors.CYAN)} "
-                    f"maj={colored(maj_str, Colors.BRIGHT_GREEN if majority_acc > 0.6 else Colors.YELLOW)}"
+                    f"maj={colored(f'{majority_acc:.3f}', Colors.BRIGHT_GREEN if majority_acc > 0.6 else Colors.YELLOW)}"
                 )
 
-            # Early stopping based on validation ACCURACY (not loss)
-            # Save model only when validation accuracy improves
+            # Early stopping: reset patience when EITHER segment acc OR majority acc improves
+            # Save model when either metric reaches new high
+            improved = False
             if val_acc > self.best_val_acc:
-                self.best_val_loss = val_loss
                 self.best_val_acc = val_acc
+                improved = True
+            if majority_acc > self.best_majority_acc:
+                self.best_majority_acc = majority_acc
+                improved = True
+
+            if improved:
+                self.best_val_loss = val_loss
                 self.best_epoch = epoch + 1
                 self.best_state = self.model.state_dict().copy()
                 no_improve = 0
@@ -538,9 +564,10 @@ class WithinSubjectTrainer:
                         'model_state_dict': self.best_state,
                         'epoch': self.best_epoch,
                         'val_acc': self.best_val_acc,
+                        'val_majority_acc': self.best_majority_acc,
                         'val_loss': self.best_val_loss,
                     }, save_path / 'best.pt')
-                    log_train.debug(f"Best model saved (val_acc={val_acc:.4f})")
+                    log_train.debug(f"Best model saved (val_acc={val_acc:.4f}, maj_acc={majority_acc:.4f})")
             else:
                 no_improve += 1
                 if no_improve >= patience:
@@ -561,6 +588,7 @@ class WithinSubjectTrainer:
         print(f"  {colored('Training complete', Colors.GREEN, bold=True)}")
         print(f"  Best epoch: {colored(str(self.best_epoch), Colors.CYAN)} | "
               f"Val acc: {colored(f'{self.best_val_acc:.4f}', Colors.BRIGHT_GREEN)} | "
+              f"Maj acc: {colored(f'{self.best_majority_acc:.4f}', Colors.BRIGHT_GREEN)} | "
               f"Val loss: {colored(f'{self.best_val_loss:.4f}', Colors.CYAN)}")
         print(f"  Total time: {format_time(training_time)}")
 
@@ -702,6 +730,11 @@ def train_single_subject(
     model_type: str = 'eegnet',
     paradigm: str = 'imagery',
     cbramod_channels: int = 128,
+    # WandB parameters
+    no_wandb: bool = False,
+    wandb_project: str = 'eeg-bci',
+    wandb_entity: Optional[str] = None,
+    wandb_group: Optional[str] = None,
 ) -> Dict:
     """
     Train model for a single subject.
@@ -722,12 +755,40 @@ def train_single_subject(
         paradigm: 'imagery' (MI) or 'movement' (ME)
         cbramod_channels: Number of channels for CBraMod (19 or 128).
             128 uses ACPE adaptation for full BioSemi channels.
+        no_wandb: Disable wandb logging
+        wandb_project: WandB project name
+        wandb_entity: WandB entity (team/username)
+        wandb_group: WandB run group
 
     Returns:
         Results dict with accuracy and history
     """
     total_start = time.perf_counter()
     Timer.reset()
+
+    # ========== WANDB INITIALIZATION ==========
+    wandb_config = {
+        "model_type": model_type,
+        "model_config": config.get('model', {}),
+        "training_config": config.get('training', {}),
+        "task": config['task'],
+        "paradigm": paradigm,
+        "cbramod_channels": cbramod_channels if model_type == 'cbramod' else None,
+    }
+
+    wandb_logger = create_wandb_logger(
+        subject_id=subject_id,
+        model_type=model_type,
+        task=config['task'],
+        paradigm=paradigm,
+        config=wandb_config,
+        enabled=not no_wandb,
+        project=wandb_project,
+        entity=wandb_entity,
+        group=wandb_group,
+    )
+
+    wandb_callback = WandbCallback(wandb_logger) if wandb_logger.enabled else None
 
     # ========== PERFORMANCE OPTIMIZATION ==========
     # Enable cuDNN auto-tuning for faster convolutions (20-50% speedup)
@@ -976,6 +1037,7 @@ def train_single_subject(
             epochs=config['training']['epochs'],
             patience=config['training']['patience'],
             save_path=subject_save_dir,
+            wandb_callback=wandb_callback,
         )
 
     # ========== FINAL EVALUATION ==========
@@ -1029,7 +1091,8 @@ def train_single_subject(
         'n_trials_test': n_test_trials,
         # Accuracies
         'val_accuracy': val_acc,
-        'best_val_acc': trainer.best_val_acc,  # Val accuracy at best epoch
+        'best_val_acc': trainer.best_val_acc,  # Val segment accuracy at best epoch
+        'best_majority_acc': trainer.best_majority_acc,  # Val majority accuracy at best epoch
         'test_accuracy': test_acc,  # This is the main metric (Phase 3)
         'test_accuracy_majority': test_acc,  # Alias for compatibility with run_full_comparison
         'final_accuracy': test_acc if test_acc > 0 else val_acc,  # For backwards compatibility
@@ -1059,6 +1122,32 @@ def train_single_subject(
     # Save history
     with open(subject_save_dir / 'history.json', 'w') as f:
         json.dump(history, f, indent=2)
+
+    # ========== WANDB FINALIZATION ==========
+    if wandb_callback is not None:
+        # Get class names for confusion matrix
+        task_config = config['tasks'][config['task']]
+        class_names = task_config.get('classes', [str(i) for i in range(task_config['n_classes'])])
+
+        # Extract predictions from test results for confusion matrix
+        y_true = None
+        y_pred = None
+        if test_results and 'trial_predictions' in test_results:
+            trial_preds = test_results['trial_predictions']
+            y_true = np.array([v['true_label'] for v in trial_preds.values()])
+            y_pred = np.array([v['predicted_label'] for v in trial_preds.values()])
+
+        wandb_callback.on_train_end(
+            best_epoch=trainer.best_epoch,
+            best_val_acc=trainer.best_val_acc,
+            test_acc=test_acc,
+            test_majority_acc=test_acc,
+            model_path=subject_save_dir / 'best.pt',
+            y_true=y_true,
+            y_pred=y_pred,
+            class_names=class_names,
+        )
+        wandb_logger.finish()
 
     return results
 
@@ -1148,6 +1237,11 @@ def main(args):
                     model_type=model_type,
                     paradigm=args.paradigm,
                     cbramod_channels=args.cbramod_channels,
+                    # WandB parameters
+                    no_wandb=args.no_wandb,
+                    wandb_project=args.wandb_project,
+                    wandb_entity=args.wandb_entity,
+                    wandb_group=args.wandb_group,
                 )
                 model_results[subject_id] = results
 
@@ -1291,6 +1385,11 @@ def train_subject_simple(
     save_dir: str = 'checkpoints',
     device: Optional[torch.device] = None,
     cbramod_channels: int = 128,
+    # WandB parameters
+    no_wandb: bool = False,
+    wandb_project: str = 'eeg-bci',
+    wandb_entity: Optional[str] = None,
+    wandb_group: Optional[str] = None,
 ) -> Dict:
     """
     Simplified training function for programmatic use.
@@ -1308,6 +1407,10 @@ def train_subject_simple(
         device: Device to use (auto-detect if None)
         cbramod_channels: Number of channels for CBraMod (19 or 128).
             128 uses ACPE adaptation for full BioSemi channels.
+        no_wandb: Disable wandb logging
+        wandb_project: WandB project name
+        wandb_entity: WandB entity (team/username)
+        wandb_group: WandB run group
 
     Returns:
         Results dict with keys:
@@ -1335,6 +1438,11 @@ def train_subject_simple(
         model_type=model_type,
         paradigm=paradigm,
         cbramod_channels=cbramod_channels,
+        # WandB parameters
+        no_wandb=no_wandb,
+        wandb_project=wandb_project,
+        wandb_entity=wandb_entity,
+        wandb_group=wandb_group,
     )
 
 
@@ -1391,6 +1499,24 @@ if __name__ == '__main__':
         default=128,
         help='Number of channels for CBraMod (19=10-20 system, 128=full BioSemi). '
              'Default 128 uses all channels with ACPE adaptation. Requires more GPU memory.'
+    )
+
+    # WandB arguments
+    parser.add_argument(
+        '--no-wandb', action='store_true',
+        help='Disable wandb logging (default: enabled if wandb is installed)'
+    )
+    parser.add_argument(
+        '--wandb-project', type=str, default='eeg-bci',
+        help='WandB project name (default: eeg-bci)'
+    )
+    parser.add_argument(
+        '--wandb-entity', type=str, default=None,
+        help='WandB entity (team/username)'
+    )
+    parser.add_argument(
+        '--wandb-group', type=str, default=None,
+        help='WandB run group (for grouping multiple subjects)'
     )
 
     args = parser.parse_args()
