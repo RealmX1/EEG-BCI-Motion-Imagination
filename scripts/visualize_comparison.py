@@ -34,6 +34,7 @@ def create_visualizations(data: Dict, output_dir: Path):
         import matplotlib.pyplot as plt
         import matplotlib.patches as mpatches
         from matplotlib.gridspec import GridSpec
+        from matplotlib.lines import Line2D
     except ImportError:
         print("Error: matplotlib is required. Install with: uv pip install matplotlib")
         sys.exit(1)
@@ -105,17 +106,36 @@ def create_visualizations(data: Dict, output_dir: Path):
         ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1,
                 f'{val*100:.1f}', ha='center', va='bottom', fontsize=8)
 
-    # Panel B: Box plot comparison
+    # Panel B: Box plot comparison (showing both median and mean)
     ax2 = fig.add_subplot(gs[0, 1])
+
+    # Define colors for mean/median lines
+    median_color = 'black'
+    mean_color = '#E63946'  # Bright red for better contrast
+
     bp = ax2.boxplot([[a*100 for a in eegnet_acc], [a*100 for a in cbramod_acc]],
-                     labels=['EEGNet', 'CBraMod'],
+                     tick_labels=['EEGNet', 'CBraMod'],
                      patch_artist=True,
-                     widths=0.6)
+                     widths=0.6,
+                     showmeans=True,
+                     meanline=True,
+                     meanprops={'color': mean_color, 'linewidth': 2,
+                               'linestyle': (0, (3, 2))})  # Short dash pattern: 3pt line, 2pt gap
 
     bp['boxes'][0].set_facecolor(eegnet_color)
     bp['boxes'][1].set_facecolor(cbramod_color)
     for box in bp['boxes']:
         box.set_alpha(0.7)
+    # Style median line
+    for median in bp['medians']:
+        median.set_color(median_color)
+        median.set_linewidth(2)
+
+    # Calculate mean and median values
+    eegnet_mean = np.mean(eegnet_acc) * 100
+    eegnet_median = np.median(eegnet_acc) * 100
+    cbramod_mean = np.mean(cbramod_acc) * 100
+    cbramod_median = np.median(cbramod_acc) * 100
 
     # Add individual points
     for i, (acc, color) in enumerate([(eegnet_acc, eegnet_color), (cbramod_acc, cbramod_color)]):
@@ -128,6 +148,24 @@ def create_visualizations(data: Dict, output_dir: Path):
     ax2.set_title('B. Accuracy Distribution', fontweight='bold')
     # Adjust y-axis lower limit based on chance level
     ax2.set_ylim([max(0, chance_level - 15), 100])
+
+    # Add value annotations next to the lines (right side of each box)
+    x_offset = 0.35  # Offset from box center
+    ax2.text(1 + x_offset, eegnet_mean, f'{eegnet_mean:.1f}',
+             ha='left', va='center', fontsize=8, color=mean_color, fontweight='bold')
+    ax2.text(1 + x_offset, eegnet_median, f'{eegnet_median:.1f}',
+             ha='left', va='center', fontsize=8, color=median_color, fontweight='bold')
+    ax2.text(2 + x_offset, cbramod_mean, f'{cbramod_mean:.1f}',
+             ha='left', va='center', fontsize=8, color=mean_color, fontweight='bold')
+    ax2.text(2 + x_offset, cbramod_median, f'{cbramod_median:.1f}',
+             ha='left', va='center', fontsize=8, color=median_color, fontweight='bold')
+
+    # Add legend for mean/median lines
+    legend_elements = [
+        Line2D([0], [0], color=median_color, linewidth=2, linestyle='-', label='Median'),
+        Line2D([0], [0], color=mean_color, linewidth=2, linestyle=(0, (3, 2)), label='Mean')
+    ]
+    ax2.legend(handles=legend_elements, loc='upper right', fontsize=9)
 
     # Add significance annotation
     y_max = max(max(eegnet_acc), max(cbramod_acc)) * 100 + 5
@@ -165,6 +203,10 @@ def create_visualizations(data: Dict, output_dir: Path):
     ax4 = fig.add_subplot(gs[1, 1])
     ax4.axis('off')
 
+    # Get median values (with fallback for older JSON files)
+    eegnet_median_val = comparison.get('eegnet_median', np.median(eegnet_acc)) * 100
+    cbramod_median_val = comparison.get('cbramod_median', np.median(cbramod_acc)) * 100
+
     # Create summary table
     summary_text = f"""
     BINARY CLASSIFICATION RESULTS
@@ -176,8 +218,10 @@ def create_visualizations(data: Dict, output_dir: Path):
     +-------------------------------------------+
     | MODEL PERFORMANCE (Majority Voting)       |
     +-------------------------------------------+
-    | EEGNet:   {comparison['eegnet_mean']*100:5.1f}% +/- {comparison['eegnet_std']*100:4.1f}%           |
-    | CBraMod:  {comparison['cbramod_mean']*100:5.1f}% +/- {comparison['cbramod_std']*100:4.1f}%           |
+    | EEGNet:  Mean   {comparison['eegnet_mean']*100:5.1f}% +/- {comparison['eegnet_std']*100:4.1f}%       |
+    |          Median {eegnet_median_val:5.1f}%                   |
+    | CBraMod: Mean   {comparison['cbramod_mean']*100:5.1f}% +/- {comparison['cbramod_std']*100:4.1f}%       |
+    |          Median {cbramod_median_val:5.1f}%                   |
     |                                           |
     | Difference: {comparison['difference_mean']*100:+5.1f}% +/- {comparison['difference_std']*100:4.1f}%        |
     +-------------------------------------------+

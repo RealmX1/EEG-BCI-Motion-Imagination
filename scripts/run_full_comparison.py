@@ -143,6 +143,9 @@ class ComparisonResult:
     wilcoxon_p: Optional[float]
     better_model: str
     significant: bool
+    # New fields with defaults for backward compatibility
+    eegnet_median: float = 0.0
+    cbramod_median: float = 0.0
 
 
 def discover_subjects(data_root: str, paradigm: str = 'imagery', task: str = 'binary') -> List[str]:
@@ -534,8 +537,10 @@ def compare_models(
         n_subjects=len(common_subjects),
         eegnet_mean=float(np.mean(eegnet_accs)),
         eegnet_std=float(np.std(eegnet_accs)),
+        eegnet_median=float(np.median(eegnet_accs)),
         cbramod_mean=float(np.mean(cbramod_accs)),
         cbramod_std=float(np.std(cbramod_accs)),
+        cbramod_median=float(np.median(cbramod_accs)),
         difference_mean=float(np.mean(differences)),
         difference_std=float(np.std(differences)),
         paired_ttest_t=float(t_stat),
@@ -598,14 +603,14 @@ def print_comparison_report(
     print("\n" + "-" * 70)
     print(" SUMMARY STATISTICS")
     print("-" * 70)
-    print(f"{'Model':<15} {'Mean':<12} {'Std':<12} {'Min':<12} {'Max':<12}")
+    print(f"{'Model':<15} {'Mean':<12} {'Median':<12} {'Std':<12} {'Min':<12} {'Max':<12}")
     print("-" * 70)
 
     for model_type in ['eegnet', 'cbramod']:
         model_results = results.get(model_type, [])
         if model_results:
             accs = [r.test_acc_majority for r in model_results]
-            print(f"{model_type.upper():<15} {np.mean(accs):.2%}      {np.std(accs):.2%}      "
+            print(f"{model_type.upper():<15} {np.mean(accs):.2%}      {np.median(accs):.2%}      {np.std(accs):.2%}      "
                   f"{np.min(accs):.2%}      {np.max(accs):.2%}")
 
     if comparison:
@@ -659,6 +664,7 @@ def generate_plot(
     chance_level = chance_levels.get(task_type, 0.5)
     try:
         import matplotlib.pyplot as plt
+        from matplotlib.lines import Line2D
     except ImportError:
         log_io.warning("matplotlib not installed, skipping plots")
         return
@@ -686,8 +692,8 @@ def generate_plot(
     x = np.arange(len(common))
     width = 0.35
 
-    ax1.bar(x - width/2, eegnet_accs, width, label='EEGNet', color='steelblue')
-    ax1.bar(x + width/2, cbramod_accs, width, label='CBraMod', color='coral')
+    bars1 = ax1.bar(x - width/2, eegnet_accs, width, label='EEGNet', color='steelblue')
+    bars2 = ax1.bar(x + width/2, cbramod_accs, width, label='CBraMod', color='coral')
     ax1.set_xlabel('Subject')
     ax1.set_ylabel('Test Accuracy')
     ax1.set_title('Per-Subject Accuracy Comparison')
@@ -698,12 +704,58 @@ def generate_plot(
     ax1.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5,
                 label=f'Chance ({chance_level*100:.1f}%)')
 
-    # Plot 2: Box plot
+    # Add value labels on bars
+    for bar, val in zip(bars1, eegnet_accs):
+        ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01,
+                f'{val*100:.1f}', ha='center', va='bottom', fontsize=7)
+    for bar, val in zip(bars2, cbramod_accs):
+        ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01,
+                f'{val*100:.1f}', ha='center', va='bottom', fontsize=7)
+
+    # Plot 2: Box plot (showing both median and mean)
     ax2 = axes[1]
-    ax2.boxplot([eegnet_accs, cbramod_accs], labels=['EEGNet', 'CBraMod'])
+    median_color = 'black'
+    mean_color = '#E63946'  # Bright red for better contrast
+
+    bp = ax2.boxplot([eegnet_accs, cbramod_accs], tick_labels=['EEGNet', 'CBraMod'],
+                     patch_artist=True,
+                     showmeans=True, meanline=True,
+                     meanprops={'color': mean_color, 'linewidth': 2,
+                               'linestyle': (0, (3, 2))})  # Short dash pattern
+    bp['boxes'][0].set_facecolor('steelblue')
+    bp['boxes'][0].set_alpha(0.7)
+    bp['boxes'][1].set_facecolor('coral')
+    bp['boxes'][1].set_alpha(0.7)
+    for median in bp['medians']:
+        median.set_color(median_color)
+        median.set_linewidth(2)
     ax2.set_ylabel('Test Accuracy')
     ax2.set_title('Accuracy Distribution')
     ax2.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5)
+
+    # Calculate mean and median
+    eegnet_mean = np.mean(eegnet_accs)
+    eegnet_median = np.median(eegnet_accs)
+    cbramod_mean = np.mean(cbramod_accs)
+    cbramod_median = np.median(cbramod_accs)
+
+    # Add value annotations next to the lines
+    x_offset = 0.35
+    ax2.text(1 + x_offset, eegnet_mean, f'{eegnet_mean*100:.1f}',
+             ha='left', va='center', fontsize=7, color=mean_color, fontweight='bold')
+    ax2.text(1 + x_offset, eegnet_median, f'{eegnet_median*100:.1f}',
+             ha='left', va='center', fontsize=7, color=median_color, fontweight='bold')
+    ax2.text(2 + x_offset, cbramod_mean, f'{cbramod_mean*100:.1f}',
+             ha='left', va='center', fontsize=7, color=mean_color, fontweight='bold')
+    ax2.text(2 + x_offset, cbramod_median, f'{cbramod_median*100:.1f}',
+             ha='left', va='center', fontsize=7, color=median_color, fontweight='bold')
+
+    # Add legend for mean/median lines
+    legend_elements = [
+        Line2D([0], [0], color=median_color, linewidth=2, linestyle='-', label='Median'),
+        Line2D([0], [0], color=mean_color, linewidth=2, linestyle=(0, (3, 2)), label='Mean')
+    ]
+    ax2.legend(handles=legend_elements, loc='upper right', fontsize=7)
 
     # Plot 3: Scatter plot
     ax3 = axes[2]
@@ -877,6 +929,10 @@ Examples:
 
     args = parser.parse_args()
 
+    # Start timer
+    import time
+    start_time = time.time()
+
     # Check GPU
     check_cuda_available(required=True)
     device = get_device()
@@ -961,6 +1017,15 @@ Examples:
             plot_filename = f'comparison_{args.paradigm}_{args.task}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png'
         plot_path = Path(args.output_dir) / plot_filename
         generate_plot(results, comparison, str(plot_path), task_type=args.task)
+
+    # Log total time
+    total_time = time.time() - start_time
+    if total_time >= 3600:
+        log_main.info(f"Total time: {total_time/3600:.1f}h")
+    elif total_time >= 60:
+        log_main.info(f"Total time: {total_time/60:.1f}m")
+    else:
+        log_main.info(f"Total time: {total_time:.1f}s")
 
     return 0
 
