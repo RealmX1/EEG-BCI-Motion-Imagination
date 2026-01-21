@@ -484,21 +484,11 @@ def load_cbramod_for_finger_bci(
 
 
 def get_default_pretrained_path() -> Optional[str]:
-    """Get default path to pretrained weights.
-
-    Priority order:
-    1. Local checkpoints directory (checkpoints/cbramod/pretrained_weights.pth)
-    2. External CBraMod repository (if available)
-
-    The pretrained weights are included in this repository to avoid external dependencies.
-    Downloaded from: https://huggingface.co/weighting666/CBraMod
-    """
-    # Check common locations - local checkpoints first
+    """Get default path to pretrained weights."""
+    # Check common locations
     possible_paths = [
-        # Priority 1: Local checkpoints (included in this repo)
-        Path(__file__).parent.parent.parent / 'checkpoints' / 'cbramod' / 'pretrained_weights.pth',
-        # Priority 2: External CBraMod repo (fallback)
         CBRAMOD_REPO_PATH / 'pretrained_weights' / 'pretrained_weights.pth',
+        Path(__file__).parent.parent.parent / 'checkpoints' / 'cbramod' / 'pretrained_weights.pth',
     ]
 
     for path in possible_paths:

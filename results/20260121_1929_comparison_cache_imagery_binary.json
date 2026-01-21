@@ -1,0 +1,20 @@
+{
+  "paradigm": "imagery",
+  "task": "binary",
+  "run_tag": "20260121_1929",
+  "last_updated": "2026-01-21T19:34:12.386332",
+  "results": {
+    "cbramod": {
+      "S01": {
+        "subject_id": "S01",
+        "task_type": "binary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.6719636776390465,
+        "test_acc": 0.7625,
+        "test_acc_majority": 0.7625,
+        "epochs_trained": 8,
+        "training_time": 279.47060028299893
+      }
+    }
+  }
+}
