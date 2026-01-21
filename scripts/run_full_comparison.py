@@ -11,24 +11,9 @@ Data Split (follows paper protocol):
 - Test: Session 2 Finetune (completely held out)
 
 Features:
-- Uses FingerEEGDataset with HDF5 preprocessing cache (20-40x speedup)
-- Supports both Motor Imagery (MI) and Motor Execution (ME) paradigms
-- Incremental result caching: Results saved after each subject completes
-- Resume capability: Automatically skips subjects with cached results
-- New run mode: Use --new-run to start fresh experiments without overwriting old results
-
-Cache Behavior:
-- Default (no flags): Loads the LATEST cache file (tagged or untagged), trains only
-  new subjects, saves to untagged cache. This allows incremental training as new
-  subjects are added to the data directory.
-- --new-run: Starts a fresh experiment with a datetime-tagged cache. Use this when
-  you want to preserve previous results and start a completely new experiment.
-- --force-retrain: Ignores all caches and retrains everything.
-
-Output Files (in results/ directory):
-- comparison_cache_{paradigm}_{task}.json: Incremental cache for resume capability
-- {tag}_comparison_cache_{paradigm}_{task}.json: Tagged cache for --new-run sessions
-- comparison_{paradigm}_{task}_{timestamp}.json: Final results report
+- Uses run_single_model.py for individual model training
+- Performs statistical comparison between models
+- Generates comparison visualizations
 
 Usage:
     # Run on Motor Imagery (default paradigm, plots generated automatically)
@@ -36,10 +21,6 @@ Usage:
 
     # Run on Motor Execution
     uv run python scripts/run_full_comparison.py --paradigm movement
-
-    # Incremental training: add new subjects to existing results
-    # (assumes S01-S03 already trained, S04-S05 newly added to data/)
-    uv run python scripts/run_full_comparison.py
 
     # Start a NEW experiment (preserves old results/plots with datetime tag)
     uv run python scripts/run_full_comparison.py --new-run
@@ -55,21 +36,13 @@ Usage:
 
     # Load existing results only (no training)
     uv run python scripts/run_full_comparison.py --skip-training
-
-    # Suppress plot generation
-    uv run python scripts/run_full_comparison.py --no-plot
-
-    # Combine options: ME paradigm, new run
-    uv run python scripts/run_full_comparison.py --paradigm movement --new-run
 """
 
 import argparse
 import json
 import logging
-import os
 import sys
-import tempfile
-import traceback
+import time
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
@@ -83,49 +56,36 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.utils.device import set_seed, check_cuda_available, get_device
-from src.utils.logging import YellowFormatter, SectionLogger, setup_logging
-from src.preprocessing.data_loader import discover_available_subjects
-from src.training.train_within_subject import train_subject_simple
+from src.utils.logging import SectionLogger, setup_logging
+
+# Import from scripts directory
+SCRIPTS_DIR = Path(__file__).parent
+sys.path.insert(0, str(SCRIPTS_DIR))
+
+from _training_utils import (
+    PARADIGM_CONFIG,
+    TrainingResult,
+    discover_subjects,
+    load_cache,
+    result_to_dict,
+    dict_to_result,
+)
+
+# Import single model training function
+from run_single_model import run_single_model
 
 
 setup_logging('compare')
 logger = logging.getLogger(__name__)
 
-# Section-specific loggers
 log_main = SectionLogger(logger, 'main')
-log_cache = SectionLogger(logger, 'cache')
-log_train = SectionLogger(logger, 'train')
 log_stats = SectionLogger(logger, 'stats')
 log_io = SectionLogger(logger, 'io')
 
 
-# Cache file for incremental results
-CACHE_FILENAME = 'comparison_cache_{paradigm}_{task}.json'
-CACHE_FILENAME_WITH_TAG = '{tag}_comparison_cache_{paradigm}_{task}.json'
-
-# Paradigm configurations (MI vs ME)
-PARADIGM_CONFIG = {
-    'imagery': {
-        'description': 'Motor Imagery (MI)',
-    },
-    'movement': {
-        'description': 'Motor Execution (ME)',
-    },
-}
-
-
-@dataclass
-class TrainingResult:
-    """Result from a single training run."""
-    subject_id: str
-    task_type: str
-    model_type: str
-    best_val_acc: float
-    test_acc: float
-    test_acc_majority: float
-    epochs_trained: int
-    training_time: float
-
+# ============================================================================
+# Comparison-Specific Data Classes
+# ============================================================================
 
 @dataclass
 class ComparisonResult:
@@ -148,361 +108,9 @@ class ComparisonResult:
     cbramod_median: float = 0.0
 
 
-def discover_subjects(data_root: str, paradigm: str = 'imagery', task: str = 'binary') -> List[str]:
-    """
-    Discover all available subjects in data directory.
-
-    Uses the new discover_available_subjects function which checks for
-    required test data (Session 2 Finetune).
-    """
-    return discover_available_subjects(data_root, paradigm, task)
-
-
-def get_cache_path(output_dir: str, paradigm: str, task: str, run_tag: Optional[str] = None) -> Path:
-    """Get path to cache file."""
-    if run_tag:
-        filename = CACHE_FILENAME_WITH_TAG.format(tag=run_tag, paradigm=paradigm, task=task)
-    else:
-        filename = CACHE_FILENAME.format(paradigm=paradigm, task=task)
-    return Path(output_dir) / filename
-
-
-def find_latest_cache(output_dir: str, paradigm: str, task: str) -> Optional[Path]:
-    """Find the latest cache file (tagged or untagged) for the given paradigm and task."""
-    results_dir = Path(output_dir)
-    if not results_dir.exists():
-        return None
-
-    # Pattern matches both tagged and untagged cache files
-    # Tagged: 20260110_2317_comparison_cache_imagery_binary.json
-    # Untagged: comparison_cache_imagery_binary.json
-    pattern = f'*comparison_cache_{paradigm}_{task}.json'
-    cache_files = list(results_dir.glob(pattern))
-
-    if not cache_files:
-        # Fallback: try old format without paradigm
-        old_pattern = f'*comparison_cache_{task}.json'
-        cache_files = list(results_dir.glob(old_pattern))
-
-    if not cache_files:
-        return None
-
-    # Sort by modification time, newest first
-    # Use try/except to handle race condition if file is deleted between glob and stat
-    def safe_mtime(p: Path) -> float:
-        try:
-            return p.stat().st_mtime
-        except OSError:
-            return 0.0
-
-    cache_files.sort(key=safe_mtime, reverse=True)
-    return cache_files[0]
-
-
-def load_cache(output_dir: str, paradigm: str, task: str, run_tag: Optional[str] = None, find_latest: bool = False) -> Dict[str, Dict[str, dict]]:
-    """Load cached results with backward compatibility for old cache format.
-
-    Args:
-        output_dir: Directory containing cache files
-        paradigm: 'imagery' or 'movement'
-        task: 'binary', 'ternary', or 'quaternary'
-        run_tag: Optional tag for specific run (e.g., '20260110_2317')
-        find_latest: If True and run_tag is None, find the latest cache file (tagged or untagged)
-    """
-    # If find_latest is True and no run_tag, find the most recent cache file
-    if find_latest and not run_tag:
-        latest_cache = find_latest_cache(output_dir, paradigm, task)
-        if latest_cache:
-            try:
-                with open(latest_cache, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                log_cache.info(f"Loaded latest cache: {latest_cache.name}")
-                return data.get('results', {})
-            except Exception as e:
-                log_cache.warning(f"Failed to load latest cache: {e}")
-        return {}
-
-    cache_path = get_cache_path(output_dir, paradigm, task, run_tag)
-    if cache_path.exists():
-        try:
-            with open(cache_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            log_cache.info(f"Loaded from {cache_path.name}")
-            return data.get('results', {})
-        except Exception as e:
-            log_cache.warning(f"Failed to load: {e}")
-
-    # Fallback: try old format without paradigm (backward compatibility)
-    if not run_tag:
-        old_format_path = Path(output_dir) / f'comparison_cache_{task}.json'
-        if old_format_path.exists():
-            try:
-                with open(old_format_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                log_cache.info(f"Loaded legacy {old_format_path} → new: {cache_path.name}")
-                return data.get('results', {})
-            except Exception as e:
-                log_cache.warning(f"Failed to load legacy: {e}")
-
-    return {}
-
-
-def save_cache(output_dir: str, paradigm: str, task: str, results: Dict[str, Dict[str, dict]], run_tag: Optional[str] = None):
-    """Save results to cache using atomic write to prevent corruption."""
-    cache_path = get_cache_path(output_dir, paradigm, task, run_tag)
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-
-    data = {
-        'paradigm': paradigm,
-        'task': task,
-        'run_tag': run_tag,
-        'last_updated': datetime.now().isoformat(),
-        'results': results,
-    }
-
-    # Atomic write: write to temp file, then rename
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode='w',
-            encoding='utf-8',
-            dir=cache_path.parent,
-            suffix='.tmp',
-            delete=False
-        ) as f:
-            json.dump(data, f, indent=2)
-            temp_path = f.name
-        os.replace(temp_path, cache_path)
-    except Exception as e:
-        # Fallback to direct write if atomic fails
-        log_cache.warning(f"Atomic write failed, fallback: {e}")
-        with open(cache_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2)
-
-
-def result_to_dict(result: TrainingResult) -> dict:
-    """Convert TrainingResult to serializable dict."""
-    return {
-        'subject_id': result.subject_id,
-        'task_type': result.task_type,
-        'model_type': result.model_type,
-        'best_val_acc': result.best_val_acc,
-        'test_acc': result.test_acc,
-        'test_acc_majority': result.test_acc_majority,
-        'epochs_trained': result.epochs_trained,
-        'training_time': result.training_time,
-    }
-
-
-def dict_to_result(d: dict) -> TrainingResult:
-    """Convert dict back to TrainingResult."""
-    return TrainingResult(
-        subject_id=d['subject_id'],
-        task_type=d.get('task_type', 'binary'),
-        model_type=d['model_type'],
-        best_val_acc=d['best_val_acc'],
-        test_acc=d['test_acc'],
-        test_acc_majority=d['test_acc_majority'],
-        epochs_trained=d['epochs_trained'],
-        training_time=d['training_time'],
-    )
-
-
-def print_subject_result(subject_id: str, model_type: str, result: TrainingResult):
-    """Print formatted result for a single subject."""
-    print("\n" + "=" * 60)
-    print(f" {model_type.upper()} - {subject_id} COMPLETE")
-    print("=" * 60)
-    print(f"  Validation Accuracy:  {result.best_val_acc:.2%}")
-    print(f"  Test Accuracy:        {result.test_acc_majority:.2%} (majority voting, Sess2 Finetune)")
-    print(f"  Epochs Trained:       {result.epochs_trained}")
-    print(f"  Training Time:        {result.training_time:.1f}s")
-    print("=" * 60 + "\n")
-
-
-def train_and_get_result(
-    subject_id: str,
-    model_type: str,
-    task: str,
-    paradigm: str,
-    data_root: str,
-    save_dir: str,
-    # WandB parameters
-    no_wandb: bool = False,
-    wandb_group: Optional[str] = None,
-) -> TrainingResult:
-    """
-    Train a model for a single subject and return TrainingResult.
-
-    This is a thin wrapper around train_subject_simple from train_within_subject.py.
-    It handles the conversion from the dict result to TrainingResult dataclass.
-
-    Args:
-        subject_id: Subject ID (e.g., 'S01')
-        model_type: 'eegnet' or 'cbramod'
-        task: 'binary', 'ternary', or 'quaternary'
-        paradigm: 'imagery' or 'movement'
-        data_root: Path to data directory
-        save_dir: Path to save checkpoints
-        no_wandb: Disable wandb logging
-        wandb_group: WandB run group
-
-    Returns:
-        TrainingResult with training metrics
-    """
-    # Call the unified training function
-    result_dict = train_subject_simple(
-        subject_id=subject_id,
-        model_type=model_type,
-        task=task,
-        paradigm=paradigm,
-        data_root=data_root,
-        save_dir=save_dir,
-        no_wandb=no_wandb,
-        wandb_group=wandb_group,
-    )
-
-    # Handle empty result (training failed)
-    if not result_dict:
-        raise ValueError(f"Training failed for {subject_id}")
-
-    # Convert to TrainingResult dataclass
-    return TrainingResult(
-        subject_id=subject_id,
-        task_type=task,
-        model_type=model_type,
-        best_val_acc=result_dict.get('best_val_acc', result_dict.get('val_accuracy', 0.0)),
-        test_acc=result_dict.get('test_accuracy', 0.0),
-        test_acc_majority=result_dict.get('test_accuracy_majority', result_dict.get('test_accuracy', 0.0)),
-        epochs_trained=result_dict.get('epochs_trained', result_dict.get('best_epoch', 0)),
-        training_time=result_dict.get('training_time', 0.0),
-    )
-
-
-def run_with_cache(
-    data_root: str,
-    subject_ids: List[str],
-    task: str,
-    paradigm: str,
-    model_types: List[str],
-    output_dir: str,
-    force_retrain: bool = False,
-    run_tag: Optional[str] = None,
-    # WandB parameters
-    no_wandb: bool = False,
-) -> Dict[str, List[TrainingResult]]:
-    """
-    Run experiments with incremental caching.
-
-    Uses FingerEEGDataset for preprocessing cache.
-    Results are saved after each subject completes.
-
-    Args:
-        run_tag: Optional datetime tag for new runs (e.g., "20260103_1430")
-        no_wandb: Disable wandb logging
-    """
-    device = get_device()
-
-    paradigm_config = PARADIGM_CONFIG[paradigm]
-    log_train.info(f"Paradigm: {paradigm_config['description']}")
-
-    # Generate wandb group name for grouping runs
-    if run_tag:
-        wandb_group = f"{paradigm}_{task}_{run_tag}"
-    else:
-        wandb_group = f"{paradigm}_{task}_{datetime.now().strftime('%Y%m%d_%H%M')}"
-
-    # Load existing result cache
-    if force_retrain:
-        cache = {}
-        log_train.info("Force retrain - ignoring cache")
-    elif run_tag:
-        # New run with tag - load from its own cache (supports resume)
-        cache = load_cache(output_dir, paradigm, task, run_tag)
-        if cache:
-            log_train.info(f"Resuming '{run_tag}' - {sum(len(v) for v in cache.values())} cached")
-        else:
-            log_train.info(f"New run '{run_tag}' - fresh start")
-    else:
-        # No run_tag: find the LATEST cache file (tagged or untagged) to continue from
-        cache = load_cache(output_dir, paradigm, task, find_latest=True)
-
-    # Log cache summary: show what's cached and what needs training
-    if cache and not force_retrain:
-        for model_type in model_types:
-            cached_subjects = set(cache.get(model_type, {}).keys())
-            requested_subjects = set(subject_ids)
-            already_cached = cached_subjects & requested_subjects
-            need_training = requested_subjects - cached_subjects
-            if already_cached and need_training:
-                log_train.info(f"{model_type.upper()}: {len(already_cached)} cached, {len(need_training)} to train ({', '.join(sorted(need_training))})")
-            elif already_cached and not need_training:
-                log_train.info(f"{model_type.upper()}: all {len(already_cached)} subjects cached (no training needed)")
-            elif need_training:
-                log_train.info(f"{model_type.upper()}: {len(need_training)} to train ({', '.join(sorted(need_training))})")
-
-    results: Dict[str, List[TrainingResult]] = {m: [] for m in model_types}
-
-    total_tasks = len(model_types) * len(subject_ids)
-    completed = 0
-
-    for model_type in model_types:
-        log_train.info(f"{'='*50} {model_type.upper()} {'='*50}")
-
-        if model_type not in cache:
-            cache[model_type] = {}
-
-        for subject_id in subject_ids:
-            completed += 1
-            progress = f"[{completed}/{total_tasks}]"
-
-            # Check result cache
-            if subject_id in cache[model_type] and not force_retrain:
-                log_train.info(f"{progress} {subject_id}: cached")
-                cached_result = dict_to_result(cache[model_type][subject_id])
-                results[model_type].append(cached_result)
-                print_subject_result(subject_id, model_type, cached_result)
-                continue
-
-            # Train
-            log_train.info(f"{progress} {subject_id}: training {model_type}...")
-
-            try:
-                # IMPORTANT: Reset seed before each training to ensure reproducibility
-                # Without this, the random state drifts after each subject/model,
-                # causing different results compared to running subjects individually
-                set_seed(42)
-
-                result = train_and_get_result(
-                    subject_id=subject_id,
-                    model_type=model_type,
-                    task=task,
-                    paradigm=paradigm,
-                    data_root=data_root,
-                    save_dir=output_dir,
-                    no_wandb=no_wandb,
-                    wandb_group=wandb_group,
-                )
-
-                results[model_type].append(result)
-
-                # Save to result cache immediately
-                cache[model_type][subject_id] = result_to_dict(result)
-                save_cache(output_dir, paradigm, task, cache, run_tag)
-
-                print_subject_result(subject_id, model_type, result)
-
-            except Exception as e:
-                log_train.error(f"{progress} {subject_id}: FAILED - {e}")
-                traceback.print_exc()
-                continue
-
-        # Model summary
-        if results[model_type]:
-            accs = [r.test_acc_majority for r in results[model_type]]
-            log_train.info(f"{model_type.upper()} done: {np.mean(accs):.1%}±{np.std(accs):.1%} (n={len(accs)}, best={np.max(accs):.1%})")
-
-    return results
-
+# ============================================================================
+# Statistical Comparison
+# ============================================================================
 
 def compare_models(
     eegnet_results: List[TrainingResult],
@@ -517,7 +125,6 @@ def compare_models(
     if len(common_subjects) < 2:
         raise ValueError("Need at least 2 subjects for comparison")
 
-    # Warn about small sample size
     if len(common_subjects) < 5:
         log_stats.warning(f"Small sample (n={len(common_subjects)}): stats may be unreliable")
 
@@ -535,15 +142,13 @@ def compare_models(
     # Paired t-test
     t_stat, t_pvalue = stats.ttest_rel(cbramod_accs, eegnet_accs)
 
-    # Wilcoxon signed-rank test (may fail with very small n or all-zero differences)
+    # Wilcoxon signed-rank test
     try:
         w_stat, w_pvalue = stats.wilcoxon(cbramod_accs, eegnet_accs)
     except ValueError:
-        # Wilcoxon requires n >= 10 for reliable results, may fail with smaller n
         w_stat, w_pvalue = None, None
 
     # Determine which model has higher mean accuracy
-    # NOTE: This does NOT imply statistical significance - check 'significant' field
     if np.mean(cbramod_accs) > np.mean(eegnet_accs):
         higher_mean_model = 'cbramod'
     elif np.mean(eegnet_accs) > np.mean(cbramod_accs):
@@ -565,10 +170,14 @@ def compare_models(
         paired_ttest_p=float(t_pvalue),
         wilcoxon_stat=float(w_stat) if w_stat is not None else None,
         wilcoxon_p=float(w_pvalue) if w_pvalue is not None else None,
-        better_model=higher_mean_model,  # Kept as 'better_model' for API compatibility
+        better_model=higher_mean_model,
         significant=bool(t_pvalue < 0.05),
     )
 
+
+# ============================================================================
+# Report Generation
+# ============================================================================
 
 def print_comparison_report(
     results: Dict[str, List[TrainingResult]],
@@ -656,12 +265,15 @@ def print_comparison_report(
         else:
             print(f"  No significant difference between models (p = {comparison.paired_ttest_p:.4f})")
 
-        # Add caveat for small sample sizes
         if comparison.n_subjects < 10:
             print(f"  Note: With n={comparison.n_subjects}, statistical power is limited.")
 
     print("\n" + "=" * 70)
 
+
+# ============================================================================
+# Visualization
+# ============================================================================
 
 def generate_plot(
     results: Dict[str, List[TrainingResult]],
@@ -669,17 +281,10 @@ def generate_plot(
     output_path: str,
     task_type: str = 'binary',
 ):
-    """Generate comparison plots.
-
-    Args:
-        results: Training results by model type.
-        comparison: Statistical comparison result.
-        output_path: Path to save the plot.
-        task_type: 'binary', 'ternary', or 'quaternary' - determines chance level.
-    """
-    # Calculate chance level based on task type
+    """Generate comparison plots (3-panel)."""
     chance_levels = {'binary': 0.5, 'ternary': 1/3, 'quaternary': 0.25}
     chance_level = chance_levels.get(task_type, 0.5)
+
     try:
         import matplotlib.pyplot as plt
         from matplotlib.lines import Line2D
@@ -692,12 +297,10 @@ def generate_plot(
     eegnet_results = results.get('eegnet', [])
     cbramod_results = results.get('cbramod', [])
 
-    # Match subjects
     eegnet_by_subj = {r.subject_id: r for r in eegnet_results}
     cbramod_by_subj = {r.subject_id: r for r in cbramod_results}
     common = sorted(set(eegnet_by_subj.keys()) & set(cbramod_by_subj.keys()))
 
-    # Handle empty data
     if not common:
         log_io.warning("No common subjects for plotting")
         return
@@ -722,7 +325,6 @@ def generate_plot(
     ax1.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5,
                 label=f'Chance ({chance_level*100:.1f}%)')
 
-    # Add value labels on bars
     for bar, val in zip(bars1, eegnet_accs):
         ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01,
                 f'{val*100:.1f}', ha='center', va='bottom', fontsize=7)
@@ -730,16 +332,16 @@ def generate_plot(
         ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01,
                 f'{val*100:.1f}', ha='center', va='bottom', fontsize=7)
 
-    # Plot 2: Box plot (showing both median and mean)
+    # Plot 2: Box plot
     ax2 = axes[1]
     median_color = 'black'
-    mean_color = '#E63946'  # Bright red for better contrast
+    mean_color = '#E63946'
 
     bp = ax2.boxplot([eegnet_accs, cbramod_accs], tick_labels=['EEGNet', 'CBraMod'],
                      patch_artist=True,
                      showmeans=True, meanline=True,
                      meanprops={'color': mean_color, 'linewidth': 2,
-                               'linestyle': (0, (3, 2))})  # Short dash pattern
+                               'linestyle': (0, (3, 2))})
     bp['boxes'][0].set_facecolor('steelblue')
     bp['boxes'][0].set_alpha(0.7)
     bp['boxes'][1].set_facecolor('coral')
@@ -751,13 +353,11 @@ def generate_plot(
     ax2.set_title('Accuracy Distribution')
     ax2.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5)
 
-    # Calculate mean and median
     eegnet_mean = np.mean(eegnet_accs)
     eegnet_median = np.median(eegnet_accs)
     cbramod_mean = np.mean(cbramod_accs)
     cbramod_median = np.median(cbramod_accs)
 
-    # Add value annotations next to the lines
     x_offset = 0.35
     ax2.text(1 + x_offset, eegnet_mean, f'{eegnet_mean*100:.1f}',
              ha='left', va='center', fontsize=7, color=mean_color, fontweight='bold')
@@ -768,7 +368,6 @@ def generate_plot(
     ax2.text(2 + x_offset, cbramod_median, f'{cbramod_median*100:.1f}',
              ha='left', va='center', fontsize=7, color=median_color, fontweight='bold')
 
-    # Add legend for mean/median lines
     legend_elements = [
         Line2D([0], [0], color=median_color, linewidth=2, linestyle='-', label='Median'),
         Line2D([0], [0], color=mean_color, linewidth=2, linestyle=(0, (3, 2)), label='Mean')
@@ -797,6 +396,10 @@ def generate_plot(
     log_io.info(f"Plot saved: {output_path}")
     plt.close()
 
+
+# ============================================================================
+# Result Saving
+# ============================================================================
 
 def save_full_results(
     results: Dict[str, List[TrainingResult]],
@@ -838,7 +441,6 @@ def save_full_results(
     if comparison:
         output['comparison'] = asdict(comparison)
 
-    # Use run_tag if provided, otherwise generate timestamp
     if run_tag:
         filename = f'{run_tag}_comparison_{paradigm}_{task_type}.json'
     else:
@@ -869,6 +471,10 @@ def load_existing_results(results_file: str) -> Dict[str, List[TrainingResult]]:
 
     return results
 
+
+# ============================================================================
+# Main
+# ============================================================================
 
 def main():
     parser = argparse.ArgumentParser(
@@ -952,7 +558,6 @@ Examples:
     args = parser.parse_args()
 
     # Start timer
-    import time
     start_time = time.time()
 
     # Check GPU
@@ -976,11 +581,9 @@ Examples:
     if args.skip_training:
         if args.results_file is None:
             results_dir = Path(args.output_dir)
-            # Find results matching current paradigm and task
             pattern = f'*comparison_{args.paradigm}_{args.task}*.json'
             result_files = sorted(results_dir.glob(pattern), reverse=True)
             if not result_files:
-                # Fallback to old format without paradigm
                 result_files = sorted(results_dir.glob(f'comparison_{args.task}_*.json'), reverse=True)
             if not result_files:
                 log_main.error("No results files found. Run training first.")
@@ -991,6 +594,7 @@ Examples:
         results = load_existing_results(args.results_file)
         log_io.info(f"Loaded: {args.results_file}")
     else:
+        # Discover subjects
         if args.subjects:
             subjects = args.subjects
         else:
@@ -1005,17 +609,23 @@ Examples:
         if not args.force_retrain and not args.new_run:
             log_main.info("Using cache (--new-run for fresh, --force-retrain to overwrite)")
 
-        results = run_with_cache(
-            data_root=args.data_root,
-            subject_ids=subjects,
-            task=args.task,
-            paradigm=args.paradigm,
-            model_types=args.models,
-            output_dir=args.output_dir,
-            force_retrain=args.force_retrain,
-            run_tag=run_tag,
-            no_wandb=args.no_wandb,
-        )
+        # Run training for each model using run_single_model
+        results = {}
+        for model_type in args.models:
+            log_main.info(f"{'='*50} {model_type.upper()} {'='*50}")
+
+            model_results, stats = run_single_model(
+                model_type=model_type,
+                data_root=args.data_root,
+                subject_ids=subjects,
+                task=args.task,
+                paradigm=args.paradigm,
+                output_dir=args.output_dir,
+                force_retrain=args.force_retrain,
+                run_tag=run_tag,
+                no_wandb=args.no_wandb,
+            )
+            results[model_type] = model_results
 
     # Compare models
     comparison = None

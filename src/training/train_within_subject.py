@@ -280,17 +280,17 @@ class WithinSubjectTrainer:
                 eta_min=1e-6,
             )
         elif scheduler_type == 'plateau':
-            # ReduceLROnPlateau - aligned with official implementation
+            # ReduceLROnPlateau - aggressive decay for faster convergence
             # Note: 'verbose' parameter removed in PyTorch 2.3+
             self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
                 self.optimizer,
                 mode='min',
-                factor=0.5,
-                patience=30,
+                factor=0.3,
+                patience=3,
                 min_lr=1e-6,
             )
             self.scheduler_needs_metric = True
-            log_train.info("Scheduler: ReduceLROnPlateau (factor=0.5, patience=30)")
+            log_train.info("Scheduler: ReduceLROnPlateau (factor=0.3, patience=3)")
 
         # AMP (Automatic Mixed Precision) setup
         self.use_amp = use_amp and device.type == 'cuda'
@@ -475,14 +475,16 @@ class WithinSubjectTrainer:
         training_start = time.perf_counter()
 
         # Recreate scheduler with correct T_max for per-step scheduling (CBraMod)
+        # Use T_max = total_steps / 2 for faster LR decay (reaches min at 50% of training)
         if self.scheduler_type == 'cosine' and self.model_type == 'cbramod':
             total_steps = epochs * len(train_loader)
+            t_max = total_steps // 2  # Faster decay: reach min LR at half training
             self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 self.optimizer,
-                T_max=total_steps,
+                T_max=t_max,
                 eta_min=1e-6,
             )
-            log_train.info(f"Scheduler: CosineAnnealing (T_max={total_steps})")
+            log_train.info(f"Scheduler: CosineAnnealing (T_max={t_max}, fast decay)")
 
         for epoch in range(epochs):
             epoch_timer.start_epoch()
