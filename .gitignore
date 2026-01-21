@@ -79,3 +79,4 @@ figures/
 # Temporary files
 *.tmp
 tmp.*
+results/comparison_cache_imagery_binary.json

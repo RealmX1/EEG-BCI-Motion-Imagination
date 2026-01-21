@@ -166,6 +166,28 @@ def get_device(allow_cpu: bool = False) -> torch.device:
             return torch.device('cpu')  # Never reached
 
 
+def is_blackwell_gpu() -> bool:
+    """
+    检测当前 GPU 是否为 Blackwell 架构 (sm_120+).
+
+    Blackwell 架构的 GPU (如 RTX 50 系列) 目前 torch.compile/Triton 支持有限，
+    需要跳过编译以避免兼容性问题。
+
+    Returns:
+        bool: True 如果是 Blackwell 架构 GPU
+    """
+    if not torch.cuda.is_available():
+        return False
+
+    try:
+        props = torch.cuda.get_device_properties(0)
+        # Blackwell 架构: compute capability >= 12.0 (sm_120)
+        # 参考: https://developer.nvidia.com/cuda-gpus
+        return props.major >= 12
+    except Exception:
+        return False
+
+
 def print_gpu_info():
     """Print detailed GPU information."""
     if not torch.cuda.is_available():

@@ -10,6 +10,7 @@ from .wandb_logger import (
     WandbCallback,
     create_wandb_logger,
 )
+from .table_logger import TableEpochLogger
 
 __all__ = [
     'check_cuda_available',
@@ -18,4 +19,5 @@ __all__ = [
     'WandbLogger',
     'WandbCallback',
     'create_wandb_logger',
+    'TableEpochLogger',
 ]

@@ -81,7 +81,7 @@ from src.preprocessing.data_loader import (
     get_session_folders_for_split,
     discover_available_subjects,
 )
-from src.utils.device import get_device, check_cuda_available, set_seed
+from src.utils.device import get_device, check_cuda_available, set_seed, is_blackwell_gpu
 from src.utils.logging import YellowFormatter, SectionLogger
 from src.utils.wandb_logger import (
     is_wandb_available,
@@ -99,6 +99,7 @@ from src.utils.timing import (
     colored,
     Colors,
 )
+from src.utils.table_logger import TableEpochLogger
 
 
 logger = logging.getLogger(__name__)
@@ -474,6 +475,16 @@ class WithinSubjectTrainer:
         epoch_timer = EpochTimer()
         training_start = time.perf_counter()
 
+        # Initialize table logger
+        table_logger = TableEpochLogger(
+            total_epochs=epochs,
+            model_name=self.model_type.upper(),
+            show_majority=True,
+            keep_every=10,
+            header_every=30,
+        )
+        table_logger.print_title()
+
         # Recreate scheduler with correct T_max for per-step scheduling (CBraMod)
         if self.scheduler_type == 'cosine' and self.model_type == 'cbramod':
             total_steps = epochs * len(train_loader)
@@ -519,10 +530,11 @@ class WithinSubjectTrainer:
             self.history['val_acc'].append(val_acc)
             self.history['val_majority_acc'].append(majority_acc)
 
+            # Get current learning rate (used by WandB and table logger)
+            current_lr = self.optimizer.param_groups[0]['lr']
+
             # WandB callback
-            # Note: majority_acc always has the last computed value (from history or fresh computation)
             if wandb_callback is not None:
-                current_lr = self.optimizer.param_groups[0]['lr']
                 wandb_callback.on_epoch_end(
                     epoch=epoch + 1,
                     train_loss=train_loss,
@@ -533,15 +545,8 @@ class WithinSubjectTrainer:
                     learning_rate=current_lr,
                 )
 
-            # Logging with timing (every 10 epochs or first epoch)
-            if (epoch + 1) % 10 == 0 or epoch == 0:
-                epoch_timer.print_epoch_summary()
-                print(
-                    f"    {colored('Metrics:', Colors.DIM)} "
-                    f"loss={colored(f'{train_loss:.4f}', Colors.WHITE)}/{colored(f'{val_loss:.4f}', Colors.CYAN)} "
-                    f"acc={colored(f'{train_acc:.3f}', Colors.WHITE)}/{colored(f'{val_acc:.3f}', Colors.CYAN)} "
-                    f"maj={colored(f'{majority_acc:.3f}', Colors.BRIGHT_GREEN if majority_acc > 0.6 else Colors.YELLOW)}"
-                )
+            # Determine if this epoch improved
+            is_best_epoch = False
 
             # Early stopping: reset patience when EITHER segment acc OR majority acc improves
             # Save model when either metric reaches new high
@@ -558,6 +563,7 @@ class WithinSubjectTrainer:
                 self.best_epoch = epoch + 1
                 self.best_state = self.model.state_dict().copy()
                 no_improve = 0
+                is_best_epoch = True
 
                 if save_path:
                     torch.save({
@@ -570,9 +576,24 @@ class WithinSubjectTrainer:
                     log_train.debug(f"Best model saved (val_acc={val_acc:.4f}, maj_acc={majority_acc:.4f})")
             else:
                 no_improve += 1
-                if no_improve >= patience:
-                    print(colored(f"\n  Early stopping at epoch {epoch + 1}", Colors.YELLOW))
-                    break
+
+            # Log epoch with table logger
+            table_logger.on_epoch_end(
+                epoch=epoch + 1,
+                train_loss=train_loss,
+                train_acc=train_acc,
+                val_loss=val_loss,
+                val_acc=val_acc,
+                majority_acc=majority_acc,
+                lr=current_lr,
+                epoch_time=epoch_timer.current_epoch.get('total', 0.0),
+                is_best=is_best_epoch,
+                event="BEST" if is_best_epoch else None,
+            )
+
+            # Early stopping check
+            if no_improve >= patience:
+                break
 
         # Restore best model (prefer disk checkpoint if available)
         if save_path and (save_path / 'best.pt').exists():
@@ -583,17 +604,9 @@ class WithinSubjectTrainer:
             self.model.load_state_dict(self.best_state)
 
         training_time = time.perf_counter() - training_start
-        print()
-        print(colored("─" * 50, Colors.DIM))
-        print(f"  {colored('Training complete', Colors.GREEN, bold=True)}")
-        print(f"  Best epoch: {colored(str(self.best_epoch), Colors.CYAN)} | "
-              f"Val acc: {colored(f'{self.best_val_acc:.4f}', Colors.BRIGHT_GREEN)} | "
-              f"Maj acc: {colored(f'{self.best_majority_acc:.4f}', Colors.BRIGHT_GREEN)} | "
-              f"Val loss: {colored(f'{self.best_val_loss:.4f}', Colors.CYAN)}")
-        print(f"  Total time: {format_time(training_time)}")
 
-        # Print epoch timing summary
-        epoch_timer.print_summary()
+        # Print training summary using table logger
+        table_logger.print_summary()
 
         return self.history
 
@@ -977,15 +990,24 @@ def train_single_subject(
     print_metric("Parameters", f"{model.count_parameters():,}", Colors.CYAN)
     print_metric("Device", str(device), Colors.GREEN)
 
+    # ========== TF32 矩阵乘法优化 ==========
+    # TF32 在 Ampere+ GPU 上提供更快的矩阵乘法，精度损失可忽略
+    if device.type == 'cuda' and hasattr(torch, 'set_float32_matmul_precision'):
+        torch.set_float32_matmul_precision('high')
+        print_metric("TF32 matmul", "enabled (high precision)", Colors.GREEN)
+
     # ========== MODEL COMPILATION (PyTorch 2.0+) ==========
     # torch.compile() requires Triton which is only available on Linux
-    # Skip compilation on Windows to avoid TritonMissing errors
+    # Skip compilation on Windows and Blackwell GPUs (sm_120+) to avoid compatibility issues
     import platform
     use_compile = config.get('training', {}).get('use_compile', True)
     is_windows = platform.system() == 'Windows'
+    is_blackwell = is_blackwell_gpu()
 
     if is_windows:
         print_metric("torch.compile", "skipped (Windows)", Colors.DIM)
+    elif is_blackwell:
+        print_metric("torch.compile", "skipped (Blackwell GPU)", Colors.DIM)
     elif use_compile and hasattr(torch, 'compile') and device.type == 'cuda':
         try:
             compile_mode = 'reduce-overhead' if model_type == 'eegnet' else 'default'

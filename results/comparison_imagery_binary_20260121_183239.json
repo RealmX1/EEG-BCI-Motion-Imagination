@@ -1,0 +1,93 @@
+{
+  "metadata": {
+    "paradigm": "imagery",
+    "paradigm_description": "Motor Imagery (MI)",
+    "task_type": "binary",
+    "run_tag": null,
+    "timestamp": "2026-01-21T18:32:39.953139",
+    "n_subjects": 7
+  },
+  "models": {
+    "cbramod": {
+      "subjects": [
+        {
+          "subject_id": "S01",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.6716799091940976,
+          "test_acc": 0.7625,
+          "test_acc_majority": 0.7625,
+          "epochs_trained": 8,
+          "training_time": 296.49558762299785
+        },
+        {
+          "subject_id": "S02",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7320465512347432,
+          "test_acc": 0.925,
+          "test_acc_majority": 0.925,
+          "epochs_trained": 13,
+          "training_time": 466.54339188499944
+        },
+        {
+          "subject_id": "S03",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7734241908006815,
+          "test_acc": 0.9125,
+          "test_acc_majority": 0.9125,
+          "epochs_trained": 16,
+          "training_time": 549.0461928329969
+        },
+        {
+          "subject_id": "S04",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.6621141764545206,
+          "test_acc": 0.85625,
+          "test_acc_majority": 0.85625,
+          "epochs_trained": 13,
+          "training_time": 460.7108433389949
+        },
+        {
+          "subject_id": "S05",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.6502192982456141,
+          "test_acc": 0.84375,
+          "test_acc_majority": 0.84375,
+          "epochs_trained": 8,
+          "training_time": 291.92410345900134
+        },
+        {
+          "subject_id": "S06",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.702489134729356,
+          "test_acc": 0.71875,
+          "test_acc_majority": 0.71875,
+          "epochs_trained": 14,
+          "training_time": 345.5122402069974
+        },
+        {
+          "subject_id": "S07",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7386363636363636,
+          "test_acc": 0.74375,
+          "test_acc_majority": 0.74375,
+          "epochs_trained": 16,
+          "training_time": 542.8141740760038
+        }
+      ],
+      "summary": {
+        "mean": 0.8232142857142858,
+        "std": 0.0763066450686482,
+        "min": 0.71875,
+        "max": 0.925
+      }
+    }
+  },
+  "comparison": null
+}
