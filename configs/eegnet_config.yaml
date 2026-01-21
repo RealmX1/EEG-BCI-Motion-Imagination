@@ -41,8 +41,8 @@ training:
   patience: 10           # Stop if no improvement for 10 epochs
   min_delta: 0.001
 
-  # Learning rate scheduler (aligned with official implementation)
-  scheduler: plateau    # ReduceLROnPlateau: factor=0.5, patience=30
+  # Learning rate scheduler (aggressive decay for faster convergence)
+  scheduler: plateau    # ReduceLROnPlateau: factor=0.3, patience=3
 
 # Data split for cross-subject experiments (NOT used for within-subject)
 subjects:
