@@ -747,6 +747,7 @@ def train_single_subject(
     cbramod_channels: int = 128,
     # WandB parameters
     no_wandb: bool = False,
+    upload_model: bool = False,
     wandb_project: str = 'eeg-bci',
     wandb_entity: Optional[str] = None,
     wandb_group: Optional[str] = None,
@@ -771,6 +772,7 @@ def train_single_subject(
         cbramod_channels: Number of channels for CBraMod (19 or 128).
             128 uses ACPE adaptation for full BioSemi channels.
         no_wandb: Disable wandb logging
+        upload_model: Upload model artifacts (.pt) to WandB (default: False)
         wandb_project: WandB project name
         wandb_entity: WandB entity (team/username)
         wandb_group: WandB run group
@@ -801,6 +803,7 @@ def train_single_subject(
         project=wandb_project,
         entity=wandb_entity,
         group=wandb_group,
+        log_model=upload_model,
     )
 
     wandb_callback = WandbCallback(wandb_logger) if wandb_logger.enabled else None
@@ -1263,6 +1266,7 @@ def main(args):
                     cbramod_channels=args.cbramod_channels,
                     # WandB parameters
                     no_wandb=args.no_wandb,
+                    upload_model=args.upload_model,
                     wandb_project=args.wandb_project,
                     wandb_entity=args.wandb_entity,
                     wandb_group=args.wandb_group,
@@ -1411,6 +1415,7 @@ def train_subject_simple(
     cbramod_channels: int = 128,
     # WandB parameters
     no_wandb: bool = False,
+    upload_model: bool = False,
     wandb_project: str = 'eeg-bci',
     wandb_entity: Optional[str] = None,
     wandb_group: Optional[str] = None,
@@ -1432,6 +1437,7 @@ def train_subject_simple(
         cbramod_channels: Number of channels for CBraMod (19 or 128).
             128 uses ACPE adaptation for full BioSemi channels.
         no_wandb: Disable wandb logging
+        upload_model: Upload model artifacts (.pt) to WandB (default: False)
         wandb_project: WandB project name
         wandb_entity: WandB entity (team/username)
         wandb_group: WandB run group
@@ -1464,6 +1470,7 @@ def train_subject_simple(
         cbramod_channels=cbramod_channels,
         # WandB parameters
         no_wandb=no_wandb,
+        upload_model=upload_model,
         wandb_project=wandb_project,
         wandb_entity=wandb_entity,
         wandb_group=wandb_group,
@@ -1529,6 +1536,10 @@ if __name__ == '__main__':
     parser.add_argument(
         '--no-wandb', action='store_true',
         help='Disable wandb logging (default: enabled if wandb is installed)'
+    )
+    parser.add_argument(
+        '--upload-model', action='store_true',
+        help='Upload model artifacts (.pt files) to WandB (default: disabled to save bandwidth)'
     )
     parser.add_argument(
         '--wandb-project', type=str, default='eeg-bci',

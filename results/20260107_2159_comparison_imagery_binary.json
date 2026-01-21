@@ -1,0 +1,147 @@
+{
+  "metadata": {
+    "paradigm": "imagery",
+    "paradigm_description": "Motor Imagery (MI)",
+    "task_type": "binary",
+    "run_tag": "20260107_2159",
+    "timestamp": "2026-01-07T22:22:22.768751",
+    "n_subjects": 5
+  },
+  "models": {
+    "eegnet": {
+      "subjects": [
+        {
+          "subject_id": "S01",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7059474412171508,
+          "test_acc": 0.8875,
+          "test_acc_majority": 0.8875,
+          "epochs_trained": 9,
+          "training_time": 24.96081199999753
+        },
+        {
+          "subject_id": "S02",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7874516307352128,
+          "test_acc": 1.0,
+          "test_acc_majority": 1.0,
+          "epochs_trained": 23,
+          "training_time": 56.15977710000152
+        },
+        {
+          "subject_id": "S03",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7161415146489774,
+          "test_acc": 0.96875,
+          "test_acc_majority": 0.96875,
+          "epochs_trained": 29,
+          "training_time": 74.87106399999902
+        },
+        {
+          "subject_id": "S04",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.6181333333333333,
+          "test_acc": 0.96875,
+          "test_acc_majority": 0.96875,
+          "epochs_trained": 16,
+          "training_time": 42.23812980000366
+        },
+        {
+          "subject_id": "S05",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.655724579663731,
+          "test_acc": 0.83125,
+          "test_acc_majority": 0.83125,
+          "epochs_trained": 19,
+          "training_time": 51.096576600000844
+        }
+      ],
+      "summary": {
+        "mean": 0.93125,
+        "std": 0.06237487474937324,
+        "min": 0.83125,
+        "max": 1.0
+      }
+    },
+    "cbramod": {
+      "subjects": [
+        {
+          "subject_id": "S01",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.6453665283540803,
+          "test_acc": 0.8625,
+          "test_acc_majority": 0.8625,
+          "epochs_trained": 8,
+          "training_time": 93.43728150000243
+        },
+        {
+          "subject_id": "S02",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.6824212271973465,
+          "test_acc": 0.98125,
+          "test_acc_majority": 0.98125,
+          "epochs_trained": 24,
+          "training_time": 301.6095337000006
+        },
+        {
+          "subject_id": "S03",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7003869541182974,
+          "test_acc": 0.9625,
+          "test_acc_majority": 0.9625,
+          "epochs_trained": 20,
+          "training_time": 225.64822500000446
+        },
+        {
+          "subject_id": "S04",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.6544,
+          "test_acc": 0.9875,
+          "test_acc_majority": 0.9875,
+          "epochs_trained": 28,
+          "training_time": 329.51856260000204
+        },
+        {
+          "subject_id": "S05",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.5729917267147051,
+          "test_acc": 0.9,
+          "test_acc_majority": 0.9,
+          "epochs_trained": 15,
+          "training_time": 172.65412890000152
+        }
+      ],
+      "summary": {
+        "mean": 0.9387500000000001,
+        "std": 0.04911720676097124,
+        "min": 0.8625,
+        "max": 0.9875
+      }
+    }
+  },
+  "comparison": {
+    "n_subjects": 5,
+    "eegnet_mean": 0.93125,
+    "eegnet_std": 0.06237487474937324,
+    "cbramod_mean": 0.9387500000000001,
+    "cbramod_std": 0.04911720676097124,
+    "difference_mean": 0.007500000000000018,
+    "difference_std": 0.03409545424246463,
+    "paired_ttest_t": 0.4399413450640611,
+    "paired_ttest_p": 0.6827060250409889,
+    "wilcoxon_stat": 7.5,
+    "wilcoxon_p": 1.0,
+    "better_model": "cbramod",
+    "significant": false
+  }
+}

@@ -554,6 +554,10 @@ Examples:
         '--no-wandb', action='store_true',
         help='Disable wandb logging (default: enabled if wandb is installed)'
     )
+    parser.add_argument(
+        '--upload-model', action='store_true',
+        help='Upload model artifacts (.pt files) to WandB (default: disabled to save bandwidth)'
+    )
 
     args = parser.parse_args()
 
@@ -624,6 +628,7 @@ Examples:
                 force_retrain=args.force_retrain,
                 run_tag=run_tag,
                 no_wandb=args.no_wandb,
+                upload_model=args.upload_model,
             )
             results[model_type] = model_results
 

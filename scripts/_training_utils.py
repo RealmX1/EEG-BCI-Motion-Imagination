@@ -280,6 +280,7 @@ def train_and_get_result(
     data_root: str,
     save_dir: str,
     no_wandb: bool = False,
+    upload_model: bool = False,
     wandb_group: Optional[str] = None,
 ) -> TrainingResult:
     """
@@ -295,6 +296,7 @@ def train_and_get_result(
         data_root=data_root,
         save_dir=save_dir,
         no_wandb=no_wandb,
+        upload_model=upload_model,
         wandb_group=wandb_group,
     )
 

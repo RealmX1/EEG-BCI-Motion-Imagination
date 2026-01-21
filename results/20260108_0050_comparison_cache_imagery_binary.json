@@ -1,0 +1,40 @@
+{
+  "paradigm": "imagery",
+  "task": "binary",
+  "run_tag": "20260108_0050",
+  "last_updated": "2026-01-08T00:52:50.783388",
+  "results": {
+    "eegnet": {
+      "S01": {
+        "subject_id": "S01",
+        "task_type": "binary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.7042876901798064,
+        "test_acc": 0.8875,
+        "test_acc_majority": 0.8875,
+        "epochs_trained": 9,
+        "training_time": 27.637404900000547
+      },
+      "S02": {
+        "subject_id": "S02",
+        "task_type": "binary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.7877280265339967,
+        "test_acc": 1.0,
+        "test_acc_majority": 1.0,
+        "epochs_trained": 23,
+        "training_time": 60.97720169999957
+      },
+      "S03": {
+        "subject_id": "S03",
+        "task_type": "binary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.7183526810392482,
+        "test_acc": 0.975,
+        "test_acc_majority": 0.975,
+        "epochs_trained": 27,
+        "training_time": 71.6595656999998
+      }
+    }
+  }
+}

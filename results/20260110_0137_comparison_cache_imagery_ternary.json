@@ -1,0 +1,20 @@
+{
+  "paradigm": "imagery",
+  "task": "ternary",
+  "run_tag": "20260110_0137",
+  "last_updated": "2026-01-10T01:38:49.461669",
+  "results": {
+    "eegnet": {
+      "S01": {
+        "subject_id": "S01",
+        "task_type": "ternary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.46478613569321536,
+        "test_acc": 0.4041666666666667,
+        "test_acc_majority": 0.4041666666666667,
+        "epochs_trained": 15,
+        "training_time": 65.83006459999888
+      }
+    }
+  }
+}

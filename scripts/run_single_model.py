@@ -88,6 +88,7 @@ def run_single_model(
     force_retrain: bool = False,
     run_tag: Optional[str] = None,
     no_wandb: bool = False,
+    upload_model: bool = False,
 ) -> Tuple[List[TrainingResult], Dict]:
     """
     Train a single model on all specified subjects.
@@ -102,6 +103,7 @@ def run_single_model(
         force_retrain: If True, ignore cache and retrain all
         run_tag: Optional datetime tag for new runs
         no_wandb: Disable wandb logging
+        upload_model: Upload model artifacts (.pt) to WandB (default: False)
 
     Returns:
         Tuple of (results_list, statistics_dict)
@@ -174,6 +176,7 @@ def run_single_model(
                 data_root=data_root,
                 save_dir=output_dir,
                 no_wandb=no_wandb,
+                upload_model=upload_model,
                 wandb_group=wandb_group,
             )
 
@@ -495,6 +498,10 @@ Examples:
         help='Disable wandb logging'
     )
     parser.add_argument(
+        '--upload-model', action='store_true',
+        help='Upload model artifacts (.pt files) to WandB (default: disabled to save bandwidth)'
+    )
+    parser.add_argument(
         '--seed', type=int, default=42,
         help='Random seed (default: 42)'
     )
@@ -562,6 +569,7 @@ Examples:
             force_retrain=args.force_retrain,
             run_tag=run_tag,
             no_wandb=args.no_wandb,
+            upload_model=args.upload_model,
         )
 
     # Print summary

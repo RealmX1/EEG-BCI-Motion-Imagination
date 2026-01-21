@@ -68,7 +68,7 @@ class WandbLogger:
         job_type: Optional[str] = None,
         notes: Optional[str] = None,
         enabled: bool = True,
-        log_model: bool = True,
+        log_model: bool = False,
         log_system: bool = True,
     ):
         """
@@ -84,7 +84,7 @@ class WandbLogger:
             job_type: job type (e.g., "train", "eval")
             notes: run notes
             enabled: whether to enable wandb (False uses no-op)
-            log_model: whether to log model artifacts
+            log_model: whether to log model artifacts (.pt files). Default False to save bandwidth.
             log_system: whether to monitor system metrics (GPU usage, etc.)
         """
         self._enabled = enabled and is_wandb_available()
@@ -414,6 +414,7 @@ def create_wandb_logger(
     project: str = "eeg-bci",
     entity: Optional[str] = None,
     group: Optional[str] = None,
+    log_model: bool = False,
     **kwargs,
 ) -> WandbLogger:
     """
@@ -429,6 +430,7 @@ def create_wandb_logger(
         project: wandb project name
         entity: wandb entity (team/username)
         group: wandb run group
+        log_model: Whether to upload model artifacts (.pt files). Default False.
         **kwargs: Additional arguments passed to WandbLogger
 
     Returns:
@@ -463,5 +465,6 @@ def create_wandb_logger(
         group=group,
         job_type="train",
         enabled=enabled,
+        log_model=log_model,
         **kwargs,
     )

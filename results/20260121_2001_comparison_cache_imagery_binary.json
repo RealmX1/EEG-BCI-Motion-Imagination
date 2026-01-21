@@ -1,0 +1,40 @@
+{
+  "paradigm": "imagery",
+  "task": "binary",
+  "run_tag": "20260121_2001",
+  "last_updated": "2026-01-21T20:13:11.554616",
+  "results": {
+    "cbramod": {
+      "S01": {
+        "subject_id": "S01",
+        "task_type": "binary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.6796254256526674,
+        "test_acc": 0.7625,
+        "test_acc_majority": 0.7625,
+        "epochs_trained": 12,
+        "training_time": 181.65659070000015
+      },
+      "S02": {
+        "subject_id": "S02",
+        "task_type": "binary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.7456713028668748,
+        "test_acc": 0.93125,
+        "test_acc_majority": 0.93125,
+        "epochs_trained": 10,
+        "training_time": 148.10100880000005
+      },
+      "S03": {
+        "subject_id": "S03",
+        "task_type": "binary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.7708688245315162,
+        "test_acc": 0.875,
+        "test_acc_majority": 0.875,
+        "epochs_trained": 17,
+        "training_time": 246.48301500000002
+      }
+    }
+  }
+}

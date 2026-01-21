@@ -1,0 +1,189 @@
+{
+  "metadata": {
+    "paradigm": "imagery",
+    "paradigm_description": "Motor Imagery (MI)",
+    "task_type": "binary",
+    "run_tag": "20260114_2117",
+    "timestamp": "2026-01-14T21:48:11.483208",
+    "n_subjects": 7
+  },
+  "models": {
+    "eegnet": {
+      "subjects": [
+        {
+          "subject_id": "S01",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7052599758162031,
+          "test_acc": 0.68125,
+          "test_acc_majority": 0.68125,
+          "epochs_trained": 10,
+          "training_time": 59.858024600000135
+        },
+        {
+          "subject_id": "S02",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7738131236770487,
+          "test_acc": 0.91875,
+          "test_acc_majority": 0.91875,
+          "epochs_trained": 14,
+          "training_time": 44.96123810000063
+        },
+        {
+          "subject_id": "S03",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7504537205081669,
+          "test_acc": 0.775,
+          "test_acc_majority": 0.775,
+          "epochs_trained": 10,
+          "training_time": 44.76678030000039
+        },
+        {
+          "subject_id": "S04",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.6220541169624673,
+          "test_acc": 0.95625,
+          "test_acc_majority": 0.95625,
+          "epochs_trained": 18,
+          "training_time": 74.2058765999991
+        },
+        {
+          "subject_id": "S05",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7231308411214953,
+          "test_acc": 0.86875,
+          "test_acc_majority": 0.86875,
+          "epochs_trained": 22,
+          "training_time": 74.22368170000118
+        },
+        {
+          "subject_id": "S06",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.6522105263157895,
+          "test_acc": 0.70625,
+          "test_acc_majority": 0.70625,
+          "epochs_trained": 10,
+          "training_time": 33.47415010000077
+        },
+        {
+          "subject_id": "S07",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.8002421307506054,
+          "test_acc": 0.75625,
+          "test_acc_majority": 0.75625,
+          "epochs_trained": 23,
+          "training_time": 66.63485349999974
+        }
+      ],
+      "summary": {
+        "mean": 0.8089285714285713,
+        "std": 0.09864354246167234,
+        "min": 0.68125,
+        "max": 0.95625
+      }
+    },
+    "cbramod": {
+      "subjects": [
+        {
+          "subject_id": "S01",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.6779228149829739,
+          "test_acc": 0.7375,
+          "test_acc_majority": 0.7375,
+          "epochs_trained": 7,
+          "training_time": 119.91601450000053
+        },
+        {
+          "subject_id": "S02",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7436843599205223,
+          "test_acc": 0.925,
+          "test_acc_majority": 0.925,
+          "epochs_trained": 9,
+          "training_time": 141.68040570000085
+        },
+        {
+          "subject_id": "S03",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7856331629755821,
+          "test_acc": 0.9,
+          "test_acc_majority": 0.9,
+          "epochs_trained": 9,
+          "training_time": 140.31283339999936
+        },
+        {
+          "subject_id": "S04",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.660475279978148,
+          "test_acc": 0.95,
+          "test_acc_majority": 0.95,
+          "epochs_trained": 9,
+          "training_time": 141.2551319000013
+        },
+        {
+          "subject_id": "S05",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.6595394736842105,
+          "test_acc": 0.9,
+          "test_acc_majority": 0.9,
+          "epochs_trained": 10,
+          "training_time": 156.2331215999984
+        },
+        {
+          "subject_id": "S06",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7088107467404188,
+          "test_acc": 0.73125,
+          "test_acc_majority": 0.73125,
+          "epochs_trained": 11,
+          "training_time": 129.37780349999957
+        },
+        {
+          "subject_id": "S07",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7298295454545455,
+          "test_acc": 0.75625,
+          "test_acc_majority": 0.75625,
+          "epochs_trained": 9,
+          "training_time": 135.50890889999937
+        }
+      ],
+      "summary": {
+        "mean": 0.8428571428571429,
+        "std": 0.08929464241075893,
+        "min": 0.73125,
+        "max": 0.95
+      }
+    }
+  },
+  "comparison": {
+    "n_subjects": 7,
+    "eegnet_mean": 0.8089285714285713,
+    "eegnet_std": 0.09864354246167234,
+    "cbramod_mean": 0.8428571428571429,
+    "cbramod_std": 0.08929464241075893,
+    "difference_mean": 0.03392857142857142,
+    "difference_std": 0.04210652186625571,
+    "paired_ttest_t": 1.9737485790336633,
+    "paired_ttest_p": 0.09585087875935566,
+    "wilcoxon_stat": 1.5,
+    "wilcoxon_p": 0.09375,
+    "better_model": "cbramod",
+    "significant": false,
+    "eegnet_median": 0.775,
+    "cbramod_median": 0.9
+  }
+}

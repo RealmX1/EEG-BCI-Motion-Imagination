@@ -1,0 +1,147 @@
+{
+  "metadata": {
+    "paradigm": "imagery",
+    "paradigm_description": "Motor Imagery (MI)",
+    "task_type": "binary",
+    "run_tag": "20260110_0139",
+    "timestamp": "2026-01-10T01:55:42.242856",
+    "n_subjects": 5
+  },
+  "models": {
+    "eegnet": {
+      "subjects": [
+        {
+          "subject_id": "S01",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.6961325966850829,
+          "test_acc": 0.625,
+          "test_acc_majority": 0.625,
+          "epochs_trained": 10,
+          "training_time": 42.951312700002745
+        },
+        {
+          "subject_id": "S02",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7739707101409229,
+          "test_acc": 0.91875,
+          "test_acc_majority": 0.91875,
+          "epochs_trained": 10,
+          "training_time": 43.39302849999876
+        },
+        {
+          "subject_id": "S03",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7719734660033167,
+          "test_acc": 0.8125,
+          "test_acc_majority": 0.8125,
+          "epochs_trained": 10,
+          "training_time": 45.80068779999783
+        },
+        {
+          "subject_id": "S04",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.6199095022624435,
+          "test_acc": 0.95,
+          "test_acc_majority": 0.95,
+          "epochs_trained": 10,
+          "training_time": 45.46021290000135
+        },
+        {
+          "subject_id": "S05",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7288995726495726,
+          "test_acc": 0.8875,
+          "test_acc_majority": 0.8875,
+          "epochs_trained": 15,
+          "training_time": 58.024150699999154
+        }
+      ],
+      "summary": {
+        "mean": 0.8387500000000001,
+        "std": 0.11621639299169456,
+        "min": 0.625,
+        "max": 0.95
+      }
+    },
+    "cbramod": {
+      "subjects": [
+        {
+          "subject_id": "S01",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.6367403314917127,
+          "test_acc": 0.625,
+          "test_acc_majority": 0.625,
+          "epochs_trained": 11,
+          "training_time": 140.74654839999857
+        },
+        {
+          "subject_id": "S02",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7018513401492125,
+          "test_acc": 0.775,
+          "test_acc_majority": 0.775,
+          "epochs_trained": 13,
+          "training_time": 173.05191730000297
+        },
+        {
+          "subject_id": "S03",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7111663902708679,
+          "test_acc": 0.8625,
+          "test_acc_majority": 0.8625,
+          "epochs_trained": 8,
+          "training_time": 113.90760450000016
+        },
+        {
+          "subject_id": "S04",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.6393398988554698,
+          "test_acc": 0.95,
+          "test_acc_majority": 0.95,
+          "epochs_trained": 15,
+          "training_time": 200.45087989999956
+        },
+        {
+          "subject_id": "S05",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.5830564784053156,
+          "test_acc": 0.775,
+          "test_acc_majority": 0.775,
+          "epochs_trained": 8,
+          "training_time": 111.79520609999963
+        }
+      ],
+      "summary": {
+        "mean": 0.7975000000000001,
+        "std": 0.1079351657246145,
+        "min": 0.625,
+        "max": 0.95
+      }
+    }
+  },
+  "comparison": {
+    "n_subjects": 5,
+    "eegnet_mean": 0.8387500000000001,
+    "eegnet_std": 0.11621639299169456,
+    "cbramod_mean": 0.7975000000000001,
+    "cbramod_std": 0.1079351657246145,
+    "difference_mean": -0.04124999999999997,
+    "difference_std": 0.07390872749547239,
+    "paired_ttest_t": -1.1162416509613677,
+    "paired_ttest_p": 0.3268460199861964,
+    "wilcoxon_stat": 1.0,
+    "wilcoxon_p": 0.5,
+    "better_model": "eegnet",
+    "significant": false
+  }
+}
