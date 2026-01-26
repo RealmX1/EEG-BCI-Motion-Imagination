@@ -1,5 +1,120 @@
 # 开发变更记录
 
+## 2026-01-25
+
+### CBraMod 预处理 ML Engineering 实验框架
+
+实现系统性评估不同预处理参数对 CBraMod 性能影响的实验框架。
+
+**新增文件**:
+- `src/preprocessing/experiment_config.py`: 实验配置类，定义 15 个实验配置
+- `scripts/run_preproc_experiment.py`: 实验执行脚本
+- `scripts/compile_preproc_report.py`: 报告生成脚本（统计分析 + 可视化）
+
+**修改文件**:
+- `src/preprocessing/cache_manager.py`: 支持 experiment_tag 参数，实验数据独立缓存
+- `src/preprocessing/data_loader.py`: 新增 `extra_normalize` 字段和 `from_experiment()` 工厂方法
+- `src/utils/wandb_logger.py`: 支持实验元数据和标签
+
+**实验设计**:
+- A 组 (6 配置): 滤波参数（带通、陷波）
+- C 组 (4 配置): 归一化策略（额外 z-score、robust 等）
+- D 组 (3 配置): 滑动窗口步长
+- F 组 (2 配置): 数据质量控制阈值
+
+**固定参数** (CBraMod 论文约束):
+- 采样率: 200 Hz
+- Patch 长度: 1 秒
+- 归一化: ÷100 (强制)
+- 通道数: 128
+
+**运行命令**:
+```bash
+uv run python scripts/run_preproc_experiment.py --list       # 列出配置
+uv run python scripts/run_preproc_experiment.py --prototype  # 原型验证
+uv run python scripts/run_preproc_experiment.py --all        # 完整实验
+uv run python scripts/compile_preproc_report.py              # 生成报告
+```
+
+### 训练框架重构
+
+将 `train_within_subject.py` 从 CLI 脚本重构为 API 模块。
+
+**主要变更**:
+- 移除 `main()` 函数和 `argparse` CLI 代码
+- 新增 `train_subject_simple()` 简化 API，用于程序调用
+- 新增 `get_default_config()` 函数，集中管理默认配置
+
+**训练参数调整**:
+- CBraMod epochs: 50 → 30 (配合 WSD 调度器快速收敛)
+- EEGNet epochs: 300 → 30 (实验发现早期收敛，配合 early stopping)
+- Early stopping patience: 统一为 5 (之前 EEGNet 是 20)
+
+### WSD (Warmup-Stable-Decay) 学习率调度器
+
+新增 CBraMod 论文原生的学习率调度策略。
+
+**实现特点**:
+- 三阶段调度: warmup (10%) → stable (50%) → decay (40%)
+- 线性 warmup + 恒定 + cosine decay
+- 支持状态保存/恢复
+- 默认用于 CBraMod 训练
+
+**Combined Score 模型选择**:
+- 综合 segment 准确率和 majority voting 准确率
+- 公式: `0.7 * val_acc + 0.3 * majority_val_acc`
+- 更稳定的最佳模型选择
+
+### CosineDecayRestarts 学习率调度器
+
+新增带递减峰值的 cosine warm restarts 调度器。
+
+**问题背景**:
+- PyTorch 原生 `CosineAnnealingLR` 在周期结束后会恢复到相同的初始 LR
+- 当 `T_max = total_steps // 5` 时，训练后期 (80%) LR 会突然跳回初始值
+- 这可能破坏已学习的特征，导致训练不稳定
+
+**解决方案**:
+- `CosineDecayRestarts` 调度器在每个周期后按 `decay_factor` 递减峰值 LR
+- 默认 `decay_factor=0.7`，每周期峰值减少 30%
+
+**LR 递减示例** (5 个周期):
+| 周期 | 峰值 LR |
+|------|---------|
+| 0 | 1.0e-4 |
+| 1 | 7.0e-5 (-30%) |
+| 2 | 4.9e-5 (-30%) |
+| 3 | 3.4e-5 (-30%) |
+| 4 | 2.4e-5 (-30%) |
+
+**使用方式**:
+```python
+# 在 get_default_config() 或 config_overrides 中设置
+config['training']['scheduler'] = 'cosine_decay'
+```
+
+### 彩色日志系统
+
+增强训练过程的可读性。
+
+**新增组件**:
+- `TableEpochLogger`: 表格式 epoch 日志，自动颜色编码
+- `ColoredFormatter`: 通用彩色日志格式器
+- 保留 `YellowFormatter` 别名，向后兼容
+
+### 配置文件弃用
+
+YAML 配置文件转为硬编码默认值。
+
+**弃用文件**:
+- `configs/cbramod_config.yaml` → `.deprecated`
+- `configs/eegnet_config.yaml` → `.deprecated`
+- `configs/experiment_config.yaml` → 删除
+
+**设计决策**:
+- 简化部署，避免配置与代码不同步
+- 配置通过 `get_default_config()` 和函数参数覆盖
+
 ## 2026-01-11
 
 ### 增量缓存加载修复
@@ -74,4 +189,4 @@
 
 ## 待完成
 
-- 完整 21 被试数据训练 (当前有 S01-S05)
+- 完整 21 被试数据训练 (当前有 S01-S07)

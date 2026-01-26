@@ -117,6 +117,11 @@ class PreprocessConfig:
     normalize_by: float = 100.0  # Divide by this (only for 'divide' method)
     reject_threshold: float = -1.0  # Negative = no rejection (paper doesn't reject)
 
+    # Extra normalization (for ML engineering experiments)
+    # Applied AFTER primary normalization (e.g., after divide by 100)
+    # Options: None, 'zscore_time', 'zscore_channel', 'robust'
+    extra_normalize: Optional[str] = None
+
     # Common Average Reference (paper applies CAR first)
     apply_car: bool = True
 
@@ -126,6 +131,20 @@ class PreprocessConfig:
 
     # Filter padding (paper uses zero padding to avoid edge effects)
     filter_padding: int = 100  # samples to pad before filtering
+
+    # Experiment tracking (for ML engineering experiments)
+    # When set, caches are isolated per experiment in separate directories
+    experiment_id: Optional[str] = None
+
+    def get_experiment_cache_tag(self) -> Optional[str]:
+        """Get cache tag for experiment isolation.
+
+        Returns:
+            Cache tag string (e.g., 'data_preproc_ml_eng/A1') or None
+        """
+        if self.experiment_id:
+            return f"data_preproc_ml_eng/{self.experiment_id}"
+        return None
 
     @classmethod
     def paper_aligned(cls, n_class: int = 2) -> 'PreprocessConfig':
@@ -176,8 +195,12 @@ class PreprocessConfig:
         - 0.3-75 Hz bandpass
         - Divide by 100 normalization
 
+        Optimized based on ML engineering experiments (2026-01):
+        - 500ms sliding step (D3 config): 3x faster training, +1% accuracy
+        - Notch filter removed (A6 config): no impact on performance
+
         Args:
-            use_sliding_window: If True, use sliding window (1s, 125ms step) for
+            use_sliding_window: If True, use sliding window (1s, 500ms step) for
                 more training data. If False, use whole trials as patches.
                 Default True for fair comparison with EEGNet.
             full_channels: If True (default), use all 128 channels. If False, use
@@ -195,11 +218,11 @@ class PreprocessConfig:
             target_fs=200,
             bandpass_low=0.3,
             bandpass_high=75.0,
-            notch_freq=60.0,
+            notch_freq=None,  # A6: notch filter has no impact on CBraMod
             filter_order=4,
             channel_strategy=channel_strategy,
             segment_length=1.0,  # 1s segments (= 200 samples @ 200Hz)
-            segment_step_samples=128,  # 125ms step @ 1024 Hz (same as EEGNet)
+            segment_step_samples=512,  # D3: 500ms step @ 1024 Hz (3x faster, +1% acc)
             use_sliding_window=use_sliding_window,
             normalize_method='divide',
             normalize_by=100.0,
@@ -230,6 +253,46 @@ class PreprocessConfig:
             PreprocessConfig for CBraMod with 128 channels
         """
         return cls.for_cbramod(use_sliding_window=use_sliding_window, full_channels=True)
+
+    @classmethod
+    def from_experiment(cls, exp_config: 'ExperimentPreprocessConfig') -> 'PreprocessConfig':
+        """
+        Create PreprocessConfig from an ExperimentPreprocessConfig.
+
+        This is used for ML engineering experiments to convert experiment
+        configurations into preprocessing configurations.
+
+        Args:
+            exp_config: ExperimentPreprocessConfig instance
+
+        Returns:
+            PreprocessConfig for the experiment
+        """
+        # Import here to avoid circular imports
+        from .experiment_config import ExperimentPreprocessConfig
+
+        return cls(
+            target_model='cbramod_128ch',
+            original_fs=exp_config.original_fs,
+            target_fs=exp_config.target_fs,
+            bandpass_low=exp_config.bandpass_low,
+            bandpass_high=exp_config.bandpass_high,
+            notch_freq=exp_config.notch_freq,
+            filter_order=exp_config.filter_order,
+            channel_strategy='C',  # All 128 channels
+            trial_duration=5.0,  # Offline trials
+            online_trial_duration=3.0,  # Online trials
+            segment_length=exp_config.segment_length,
+            segment_step_samples=exp_config.segment_step_samples,
+            use_sliding_window=True,
+            normalize_method='divide',
+            normalize_by=exp_config.normalize_by,
+            reject_threshold=exp_config.amplitude_threshold if exp_config.amplitude_threshold else -1.0,
+            apply_car=True,
+            filter_padding=100,
+            extra_normalize=exp_config.extra_normalize,
+            experiment_id=exp_config.experiment_id,  # For cache isolation
+        )
 
 
 def load_mat_file(mat_path: str) -> Tuple[np.ndarray, List[Dict], Dict]:
@@ -984,6 +1047,30 @@ def preprocess_run_to_trials(
     return trials, labels
 
 
+def apply_robust_normalize(data: np.ndarray, axis: int = -1) -> np.ndarray:
+    """
+    Apply robust normalization (x - median) / IQR.
+
+    More robust to outliers than z-score normalization.
+
+    Args:
+        data: EEG data array
+        axis: Axis along which to compute statistics
+
+    Returns:
+        Robustly normalized data
+    """
+    median = np.median(data, axis=axis, keepdims=True)
+    q75 = np.percentile(data, 75, axis=axis, keepdims=True)
+    q25 = np.percentile(data, 25, axis=axis, keepdims=True)
+    iqr = q75 - q25
+
+    # Avoid division by zero
+    iqr = np.where(iqr == 0, 1.0, iqr)
+
+    return (data - median) / iqr
+
+
 def trials_to_segments(
     trials: np.ndarray,
     labels: np.ndarray,
@@ -998,7 +1085,8 @@ def trials_to_segments(
     Pipeline:
     1. Sliding window segmentation (at target_fs)
     2. Bandpass filter
-    3. Z-score normalization
+    3. Primary normalization (z-score or divide)
+    4. Extra normalization (optional, for ML engineering experiments)
 
     Args:
         trials: [n_trials x channels x trial_samples] at target_fs
@@ -1038,8 +1126,26 @@ def trials_to_segments(
         padding=config.filter_padding
     )
 
-    # Step 3: Z-score normalize (per segment, along time axis)
-    segments = apply_zscore_per_segment(segments, axis=-1)
+    # Step 3: Primary normalization
+    if config.normalize_method == 'divide':
+        # CBraMod: divide by normalize_by (default 100)
+        segments = segments / config.normalize_by
+    elif config.normalize_method == 'zscore_time':
+        # EEGNet: z-score along time axis
+        segments = apply_zscore_per_segment(segments, axis=-1)
+    elif config.normalize_method == 'zscore_channel':
+        segments = apply_zscore_per_segment(segments, axis=1)
+    # 'none' = no normalization
+
+    # Step 4: Extra normalization (for ML engineering experiments)
+    # Applied after primary normalization
+    if config.extra_normalize:
+        if config.extra_normalize == 'zscore_time':
+            segments = apply_zscore_per_segment(segments, axis=-1)
+        elif config.extra_normalize == 'zscore_channel':
+            segments = apply_zscore_per_segment(segments, axis=1)
+        elif config.extra_normalize == 'robust':
+            segments = apply_robust_normalize(segments, axis=-1)
 
     return segments, seg_labels, trial_indices
 
@@ -1325,7 +1431,8 @@ class FingerEEGDataset(Dataset):
                         parent_folder,  # Use folder name, not task_type
                         self.config,
                         str(mat_path),
-                        cache_target_classes  # None for Offline, actual for Online
+                        cache_target_classes,  # None for Offline, actual for Online
+                        experiment_tag=self.config.get_experiment_cache_tag(),
                     )
                     if has_cache:
                         needs_processing = False
@@ -1346,7 +1453,8 @@ class FingerEEGDataset(Dataset):
                     session_info['run'],
                     parent_folder,  # Use folder name
                     self.config,
-                    cache_target_classes  # None for Offline
+                    cache_target_classes,  # None for Offline
+                    experiment_tag=self.config.get_experiment_cache_tag(),
                 )
 
                 # Offline data: filter to target_classes before sliding window
@@ -1396,6 +1504,10 @@ class FingerEEGDataset(Dataset):
             n_cache_misses = len(uncached_files)
 
         total_time = time.perf_counter() - total_start
+
+        # Store cache stats as instance attributes for external access
+        self.n_cache_hits = n_cache_hits
+        self.n_cache_misses = n_cache_misses
 
         # Log summary
         log_load.debug(f"Load time: {format_time(total_time)} ({n_cache_hits} hits, {n_cache_misses} miss, {self.parallel_workers}w)")
@@ -1521,7 +1633,8 @@ class FingerEEGDataset(Dataset):
                         parent_folder,  # Use folder name
                         self.config,
                         trials, labels,  # v3.0: trials, not segments
-                        path, cache_target_classes
+                        path, cache_target_classes,
+                        experiment_tag=self.config.get_experiment_cache_tag(),
                     )
 
                 # Use ThreadPoolExecutor for I/O-bound cache saving
@@ -1596,7 +1709,8 @@ class FingerEEGDataset(Dataset):
             self.cache.save(
                 subject, run_id, parent_folder, self.config,
                 trials, labels,  # v3.0: trials, not segments
-                str(mat_path), cache_target_classes
+                str(mat_path), cache_target_classes,
+                experiment_tag=self.config.get_experiment_cache_tag(),
             )
 
         # Offline data: filter to target_classes before sliding window

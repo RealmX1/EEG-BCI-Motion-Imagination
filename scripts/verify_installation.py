@@ -230,7 +230,6 @@ def check_project_structure() -> bool:
         "src/preprocessing/data_loader.py",
         "src/models/eegnet.py",
         "src/training/train_within_subject.py",
-        "configs/eegnet_config.yaml",
     ]
 
     all_ok = True

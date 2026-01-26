@@ -264,6 +264,7 @@ class PreprocessingCache:
         session_folder: str,
         config: Any,
         target_classes: Optional[List[int]] = None,
+        experiment_tag: Optional[str] = None,
     ) -> str:
         """
         Generate unique cache key based on all relevant parameters.
@@ -274,6 +275,8 @@ class PreprocessingCache:
             session_folder: Session folder name (e.g., 'OfflineImagery', 'OnlineImagery_Sess01_2class_Base')
             config: PreprocessConfig instance or dict
             target_classes: Target classes for filtering (e.g., [1, 4] for binary)
+            experiment_tag: Optional experiment tag for ML engineering experiments
+                           (e.g., 'data_preproc_ml_eng/A2')
 
         Returns:
             MD5 hash string as cache key
@@ -333,15 +336,35 @@ class PreprocessingCache:
             "config": relevant_config,
             # v2.1: Offline uses None (all fingers), Online uses actual target_classes
             "target_classes": cache_target_classes,
+            # v3.1: Support for ML engineering experiments
+            "experiment_tag": experiment_tag,
         }
 
         key_str = json.dumps(key_data, sort_keys=True)
         return hashlib.md5(key_str.encode()).hexdigest()
 
-    def _get_cache_path(self, cache_key: str) -> Path:
-        """Get path for cache file."""
+    def _get_cache_path(self, cache_key: str, experiment_tag: Optional[str] = None) -> Path:
+        """
+        Get path for cache file.
+
+        Args:
+            cache_key: MD5 hash cache key
+            experiment_tag: Optional experiment tag (e.g., 'data_preproc_ml_eng/A2')
+                           If provided, creates subdirectory structure.
+
+        Returns:
+            Path to cache file
+        """
         ext = ".h5" if self.use_h5py else ".npz"
-        return self.cache_dir / f"{cache_key}{ext}"
+
+        if experiment_tag:
+            # Create subdirectory for experiment
+            # e.g., 'data_preproc_ml_eng/A2' -> caches/preprocessed/data_preproc_ml_eng/A2/{key}.h5
+            exp_dir = self.cache_dir / experiment_tag
+            exp_dir.mkdir(parents=True, exist_ok=True)
+            return exp_dir / f"{cache_key}{ext}"
+        else:
+            return self.cache_dir / f"{cache_key}{ext}"
 
     # ==================== Memory Cache Methods ====================
 
@@ -493,6 +516,7 @@ class PreprocessingCache:
         config: Any,
         mat_file_path: str,
         target_classes: Optional[List[int]] = None,
+        experiment_tag: Optional[str] = None,
     ) -> bool:
         """
         Check if valid cache exists for given parameters.
@@ -509,6 +533,7 @@ class PreprocessingCache:
             config: PreprocessConfig
             mat_file_path: Path to source .mat file
             target_classes: Target classes
+            experiment_tag: Optional experiment tag for ML engineering experiments
 
         Returns:
             True if valid cache exists
@@ -516,8 +541,8 @@ class PreprocessingCache:
         if not self.enabled:
             return False
 
-        cache_key = self.get_cache_key(subject, run, session_folder, config, target_classes)
-        cache_path = self._get_cache_path(cache_key)
+        cache_key = self.get_cache_key(subject, run, session_folder, config, target_classes, experiment_tag)
+        cache_path = self._get_cache_path(cache_key, experiment_tag)
 
         # Check if cache file exists
         if not cache_path.exists():
@@ -551,6 +576,7 @@ class PreprocessingCache:
         session_folder: str,
         config: Any,
         target_classes: Optional[List[int]] = None,
+        experiment_tag: Optional[str] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Load preprocessed trials from cache.
@@ -566,6 +592,7 @@ class PreprocessingCache:
             session_folder: Session folder name (e.g., 'OfflineImagery')
             config: PreprocessConfig
             target_classes: Target classes
+            experiment_tag: Optional experiment tag for ML engineering experiments
 
         Returns:
             Tuple of (trials, labels)
@@ -576,7 +603,7 @@ class PreprocessingCache:
             FileNotFoundError: If cache doesn't exist
             IOError: If cache file is corrupted
         """
-        cache_key = self.get_cache_key(subject, run, session_folder, config, target_classes)
+        cache_key = self.get_cache_key(subject, run, session_folder, config, target_classes, experiment_tag)
 
         # Try memory cache first (fast path)
         memory_result = self._get_from_memory_cache(cache_key)
@@ -585,7 +612,7 @@ class PreprocessingCache:
             return memory_result
 
         # Fall back to disk cache
-        cache_path = self._get_cache_path(cache_key)
+        cache_path = self._get_cache_path(cache_key, experiment_tag)
 
         if not cache_path.exists():
             raise FileNotFoundError(f"Cache not found: {cache_path}")
@@ -623,6 +650,7 @@ class PreprocessingCache:
         labels: np.ndarray,
         mat_file_path: str,
         target_classes: Optional[List[int]] = None,
+        experiment_tag: Optional[str] = None,
     ) -> None:
         """
         Save preprocessed trials to cache.
@@ -639,12 +667,13 @@ class PreprocessingCache:
             labels: Labels array [n_trials]
             mat_file_path: Path to source .mat file
             target_classes: Target classes
+            experiment_tag: Optional experiment tag for ML engineering experiments
         """
         if not self.enabled:
             return
 
-        cache_key = self.get_cache_key(subject, run, session_folder, config, target_classes)
-        cache_path = self._get_cache_path(cache_key)
+        cache_key = self.get_cache_key(subject, run, session_folder, config, target_classes, experiment_tag)
+        cache_path = self._get_cache_path(cache_key, experiment_tag)
 
         # Parse session folder and extract model info for metadata
         session_info = parse_session_folder(session_folder)
@@ -738,6 +767,8 @@ class PreprocessingCache:
                     "collection_paradigm": session_info['collection_paradigm'],
                     "subject_task_type": session_info['subject_task_type'],
                     "n_classes": n_classes,
+                    # v3.1: experiment tracking
+                    "experiment_tag": experiment_tag,
                     # Additional metadata
                     "source_file": str(mat_file_path),
                     "created_at": time.time(),
@@ -867,6 +898,88 @@ class PreprocessingCache:
             "by_subject_task_type": task_types,
             "by_n_classes": n_classes_counts,
         }
+
+    def get_experiment_stats(self, experiment_tag: Optional[str] = None) -> Dict:
+        """
+        Get cache statistics for ML engineering experiments.
+
+        Args:
+            experiment_tag: Filter by experiment tag (e.g., 'data_preproc_ml_eng/A2').
+                           If None, returns stats for all experiments.
+
+        Returns:
+            Dict with experiment-specific cache statistics
+        """
+        entries = self.metadata.get("entries", {})
+
+        # Filter by experiment tag if specified
+        if experiment_tag:
+            entries = {k: v for k, v in entries.items()
+                      if v.get("experiment_tag") == experiment_tag}
+
+        # Group by experiment tag
+        by_experiment = {}
+        for entry in entries.values():
+            exp_tag = entry.get("experiment_tag")
+            if exp_tag:
+                if exp_tag not in by_experiment:
+                    by_experiment[exp_tag] = {"count": 0, "size_mb": 0}
+                by_experiment[exp_tag]["count"] += 1
+                by_experiment[exp_tag]["size_mb"] += entry.get("size_mb", 0)
+
+        # Calculate totals
+        total_entries = sum(e["count"] for e in by_experiment.values())
+        total_size_mb = sum(e["size_mb"] for e in by_experiment.values())
+
+        return {
+            "total_experiment_entries": total_entries,
+            "total_experiment_size_mb": round(total_size_mb, 2),
+            "by_experiment": by_experiment,
+        }
+
+    def clear_experiment(self, experiment_tag: str) -> int:
+        """
+        Clear cache for a specific experiment.
+
+        Thread-safe: all operations are performed within a single lock to
+        prevent race conditions during concurrent access.
+
+        Args:
+            experiment_tag: Experiment tag (e.g., 'data_preproc_ml_eng/A2')
+
+        Returns:
+            Number of cache files removed
+        """
+        count = 0
+
+        with self._lock:
+            # Collect entries to remove while holding the lock
+            entries_to_remove = [
+                (cache_key, entry.get("experiment_tag"))
+                for cache_key, entry in self.metadata.get("entries", {}).items()
+                if entry.get("experiment_tag") == experiment_tag
+            ]
+
+            # Remove cache files and metadata entries
+            for cache_key, exp_tag in entries_to_remove:
+                cache_path = self._get_cache_path(cache_key, exp_tag)
+
+                if cache_path.exists():
+                    try:
+                        cache_path.unlink()
+                        count += 1
+                    except PermissionError:
+                        logger.warning(f"Could not delete cache file: {cache_path}")
+
+                if cache_key in self.metadata.get("entries", {}):
+                    del self.metadata["entries"][cache_key]
+
+            # Save metadata once after all deletions
+            if entries_to_remove:
+                self._save_metadata()
+
+        logger.info(f"Cleared {count} cache files for experiment {experiment_tag}")
+        return count
 
 
 # Global cache instance (lazy initialization with thread safety)

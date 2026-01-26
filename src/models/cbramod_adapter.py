@@ -70,9 +70,6 @@ def get_cbramod_model():
         spec.loader.exec_module(cbramod_module)
 
         CBraMod = cbramod_module.CBraMod
-        logger.info(f"Successfully imported official CBraMod from {cbramod_file}")
-        logger.info("CBraMod includes: ACPE (Asymmetric Conditional Positional Encoding), "
-                   "Criss-Cross Attention, Time-Frequency Patch Encoding")
         return CBraMod
 
     except Exception as e:
@@ -291,8 +288,8 @@ class CBraModForFingerBCI(nn.Module):
 
         # Warn about memory usage for high channel counts
         if n_channels > 64:
-            logger.info(f"Using {n_channels} channels - attention map size: {n_channels}x{n_channels}={n_channels**2:,}")
-            logger.info("Consider reducing batch_size if OOM occurs")
+            logger.debug(f"Using {n_channels} channels - attention map size: {n_channels}x{n_channels}={n_channels**2:,}")
+            logger.debug("Consider reducing batch_size if OOM occurs")
 
     def _load_pretrained(self, pretrained_path: str):
         """Load pretrained backbone weights."""

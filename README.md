@@ -1,41 +1,39 @@
 # EEG-BCI: Foundation Model for Finger-Level BCI Decoding
 
-本项目基于 "EEG-based brain-computer interface enables real-time robotic hand control at individual finger level" 论文的 FINGER-EEG-BCI 数据集，对比验证 EEG 基座模型（Foundation Model）在精细手指运动解码任务中的有效性。
+本项目基于 FINGER-EEG-BCI 数据集，对比验证 EEG 基座模型（CBraMod）与传统 CNN（EEGNet）在单指级别运动解码任务中的性能。
+
+**当前状态**: Phase 3 训练进行中，框架已完成，当前有 7/21 被试数据 (S01-S07)。
 
 ## 项目概述
 
 ### 研究目标
 
-1. **基座模型的迁移能力**：验证预训练知识能否有效迁移到手指级 BCI 任务
-2. **低资源场景优势**：探索小样本微调下的性能表现
-3. **实时可行性**：评估推理延迟是否满足实时控制需求（<100ms）
+1. **基座模型的迁移能力**：验证 CBraMod 预训练知识能否有效迁移到手指级 BCI 任务
+2. **系统性参数评估**：ML Engineering 实验框架评估预处理参数对性能的影响
+3. **公平对比**：严格遵循论文协议，确保 EEGNet 与 CBraMod 的可比性
 
 ### 模型对比
 
-| 特性 | EEGNet-8,2 (基线) | CBraMod (待验证) |
-|------|-------------------|------------------|
+| 特性 | EEGNet-8,2 (基线) | CBraMod |
+|------|-------------------|---------|
 | 类型 | 紧凑 CNN | Criss-Cross Transformer |
 | 参数量 | ~2.5K | ~4.0M |
-| 预训练 | ❌ 无 | ✅ 9000+ 小时 TUEG |
-| 输入采样率 | 100Hz | 200Hz |
-| 输入通道数 | 128 通道 | 19 通道 (10-20) |
+| 预训练 | 无 | 9000+ 小时 TUEG |
+| 采样率 | 100 Hz | 200 Hz |
+| 通道数 | 128 | 128 (或 19 via ACPE) |
+| 滤波 | 4-40 Hz | 0.3-75 Hz |
+| 归一化 | Z-score | ÷100 |
 
-### 数据预处理
+### 支持的范式和任务
 
-本项目实现了与原论文完全对齐的预处理管线:
+**实验范式 (Paradigm)**:
+- `imagery` - Motor Imagery (MI)，运动想象，默认
+- `movement` - Motor Execution (ME)，运动执行
 
-**EEGNet (论文对齐)**:
-```
-原始 EEG (128ch, 1024Hz) → CAR (per-trial) → 滑动窗口 (1s, 125ms step) →
-降采样 100Hz → 4-40Hz 滤波 → Z-score (per-segment)
-```
-
-**CBraMod**:
-```
-原始 EEG (128ch, 1024Hz) → 0.3-75Hz 滤波 → 60Hz 陷波 → 降采样 200Hz → ÷100
-```
-
-**重要提示**: 使用滑动窗口时，必须在 **trial 级别**（而非 segment 级别）分割训练集和验证集，以防止数据泄露。详见 `docs/bugfix_trial_index_deduplication.md`。
+**分类任务 (Task)**:
+- `binary` - 拇指 vs 小指 (类别 1, 4)
+- `ternary` - 拇指 vs 食指 vs 小指 (类别 1, 2, 4)
+- `quaternary` - 全部四指 (类别 1, 2, 3, 4)，仅 Offline 数据
 
 ## 安装
 
@@ -43,20 +41,17 @@
 
 | 要求 | 说明 |
 |------|------|
-| **操作系统** | Windows 10+, Linux (Ubuntu 20.04+), macOS |
 | **Python** | 3.9+ (推荐 3.11.x) |
-| **GPU** | NVIDIA GPU (必须)，CPU 模式已禁用 |
+| **GPU** | NVIDIA GPU **必须**，CPU 模式已禁用 |
 | **显存** | 8GB+ (EEGNet) / 12GB+ (CBraMod 128ch) |
-| **CUDA** | 12.1+ (RTX 30/40), 12.8 nightly (RTX 50) |
-| **包管理器** | [uv](https://docs.astral.sh/uv/) (推荐) 或 pip |
+| **包管理器** | [uv](https://docs.astral.sh/uv/) (推荐) |
 
 ### GPU 兼容性
 
 | GPU 系列 | CUDA 版本 | PyTorch 安装命令 |
 |----------|-----------|-----------------|
-| RTX 50xx | 12.8 (nightly) | `uv pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu128` |
-| RTX 40xx | 12.4 | `uv pip install torch --index-url https://download.pytorch.org/whl/cu124` |
-| RTX 30xx | 12.4 / 12.1 | `uv pip install torch --index-url https://download.pytorch.org/whl/cu124` |
+| RTX 50xx (Blackwell) | 12.8 nightly | `uv pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu128` |
+| RTX 40xx / 30xx | 12.4 | `uv pip install torch --index-url https://download.pytorch.org/whl/cu124` |
 
 ### 安装步骤
 
@@ -65,48 +60,19 @@
 git clone https://github.com/yourusername/EEG-BCI.git
 cd EEG-BCI
 
-# 使用 uv 安装（推荐）
-uv sync                    # 安装基础依赖
+# 安装依赖
+uv sync
 
-# 安装 PyTorch with CUDA
-# RTX 50 系列 (5070/5080/5090) 需要 CUDA 12.8 nightly:
+# 安装 PyTorch (RTX 50 系列)
 uv pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu128
-
-# RTX 40 系列及更早使用稳定版:
-# uv pip install torch --index-url https://download.pytorch.org/whl/cu124
-
-# 可选依赖
-uv sync --extra dev        # 开发依赖
-uv sync --extra viz        # 可视化依赖
 
 # (可选) 安装 CBraMod
 git clone https://github.com/wjq-learning/CBraMod.git
 uv pip install -e CBraMod/
-```
 
-### 验证安装
-
-运行验证脚本检查环境是否正确配置：
-
-```bash
+# 验证安装
 uv run python scripts/verify_installation.py
 ```
-
-成功时输出示例：
-```
-[Python 版本]
-  ✓ Python 3.11.9
-
-[PyTorch & CUDA]
-  ✓ PyTorch 2.6.0+cu128
-  ✓ CUDA 12.8
-  ✓ GPU 0: NVIDIA GeForce RTX 5080 (16.0 GB)
-  ✓ GPU 张量计算正常
-
-环境检查通过
-```
-
-如果遇到问题，请参考 [故障排除指南](docs/TROUBLESHOOTING.md)。
 
 ### 数据准备
 
@@ -115,158 +81,318 @@ uv run python scripts/verify_installation.py
 ```
 data/
 ├── S01/
-│   ├── OfflineImagery/
+│   ├── OfflineImagery/                    # 离线训练 (30 runs)
 │   │   └── S01_OfflineImagery_R01.mat
 │   ├── OnlineImagery_Sess01_2class_Base/
-│   └── ...
-├── S02/
-├── ...
-├── S21/
-├── biosemi128.ELC
-└── README.txt
+│   ├── OnlineImagery_Sess01_2class_Finetune/
+│   ├── OnlineImagery_Sess02_2class_Base/
+│   └── OnlineImagery_Sess02_2class_Finetune/  # 测试集 (独立)
+├── S02/ ... S21/
+├── biosemi128.ELC                         # 电极位置文件
+└── channel_mapping.json                   # 通道映射 (可选)
+```
+
+## 快速开始
+
+```bash
+# 1. 验证环境
+uv run python scripts/verify_installation.py
+
+# 2. 预处理数据 (ZIP → 缓存)
+uv run python scripts/preprocess_zip.py
+
+# 3. 运行全被试模型对比
+uv run python scripts/run_full_comparison.py
 ```
 
 ## 使用方法
 
-### 运行实验
-
-推荐使用 `scripts/run_full_comparison.py` 进行全被试模型对比：
+### 全被试模型对比 (推荐)
 
 ```bash
-# 运行离线对比实验 (默认)
+# 默认: Motor Imagery, Binary, 双模型对比
 uv run python scripts/run_full_comparison.py
 
-# 仅运行 EEGNet
-uv run python scripts/run_full_comparison.py --models eegnet
+# 新实验 (保留历史结果)
+uv run python scripts/run_full_comparison.py --new-run
 
-# 运行 Motor Execution (ME) 范式
+# Motor Execution 范式
 uv run python scripts/run_full_comparison.py --paradigm movement
+
+# 仅查看已有结果
+uv run python scripts/run_full_comparison.py --skip-training
+
+# 指定模型
+uv run python scripts/run_full_comparison.py --models eegnet
+uv run python scripts/run_full_comparison.py --models cbramod
+
+# 启用 WandB 追踪
+uv run python scripts/run_full_comparison.py --wandb
 ```
 
-### 训练模型
+### 单模型训练
 
 ```bash
-# 训练 EEGNet（被试内）- 推荐
-uv run python -m src.training.train_within_subject --subject S01 --task binary
+# 训练 EEGNet
+uv run python scripts/run_single_model.py --model eegnet
 
-# 训练所有被试
-uv run python -m src.training.train_within_subject --all-subjects --task binary
+# 训练 CBraMod
+uv run python scripts/run_single_model.py --model cbramod
+
+# 指定被试和任务
+uv run python scripts/run_single_model.py --model eegnet --subjects S01 S02 --task ternary
+
+# 启用 WandB (交互式提示)
+uv run python scripts/run_single_model.py --model eegnet --wandb
+
+# 禁用交互式提示
+uv run python scripts/run_single_model.py --model eegnet --wandb --no-wandb-interactive
 ```
 
-### 数据验证
+### 数据预处理
 
 ```bash
-# 验证 trial-level split 无数据泄露
-uv run python scripts/verify_trial_split.py --subject S01
+# 处理所有 ZIP (Motor Imagery)
+uv run python scripts/preprocess_zip.py
+
+# Motor Execution 范式
+uv run python scripts/preprocess_zip.py --paradigm movement
+
+# 仅解压，跳过预处理
+uv run python scripts/preprocess_zip.py --extract-only
+
+# 仅预处理已解压数据
+uv run python scripts/preprocess_zip.py --preprocess-only --subject S01
+
+# 指定模型/任务
+uv run python scripts/preprocess_zip.py --models cbramod --tasks binary
 ```
 
 ### 缓存管理
-
-预处理结果会缓存到 `caches/preprocessed/` 以加速后续加载。当预处理逻辑更新时，需要清理受影响的缓存：
 
 ```bash
 # 查看缓存统计
 uv run python scripts/cache_helper.py --stats
 
-# 按条件过滤查看 (干运行)
-uv run python scripts/cache_helper.py --paradigm offline --model eegnet
+# 按条件过滤 (干运行)
+uv run python scripts/cache_helper.py --model cbramod
 uv run python scripts/cache_helper.py --subject S01 --n-classes 2
 
 # 删除匹配的缓存
+uv run python scripts/cache_helper.py --model cbramod --execute
 uv run python scripts/cache_helper.py --paradigm offline --execute
-uv run python scripts/cache_helper.py --model cbramod --task-type movement --execute
+```
 
-# 清空所有缓存 (需要确认)
-uv run python scripts/cache_helper.py --all --execute
+### 结果可视化
+
+```bash
+# 从比较结果生成图表
+uv run python scripts/visualize_comparison.py results/comparison_*.json
+
+# 指定输出目录
+uv run python scripts/visualize_comparison.py results/comparison_*.json --output figures/
+```
+
+## 预处理 ML Engineering 实验
+
+系统性评估不同预处理参数对 CBraMod 性能的影响。
+
+### 实验组设计
+
+| 组 | 参数 | 配置 | 说明 |
+|----|------|------|------|
+| **A** | 滤波 | A1, A6 | 带通/陷波变体 |
+| **C** | 归一化 | C1, C2 | ÷100 后的额外归一化 |
+| **D** | 窗口 | D1, D2, D3 | 滑动步长 (125/250/500ms) |
+| **F** | 质量 | F1, F2 | 振幅阈值控制 |
+
+**固定参数** (CBraMod 论文约束):
+- 采样率: 200 Hz
+- Patch 长度: 1 秒
+- 归一化: ÷100 (强制)
+- 通道数: 128
+
+### 运行实验
+
+```bash
+# 列出所有实验
+uv run python scripts/run_preproc_experiment.py --list
+
+# 运行单个实验
+uv run python scripts/run_preproc_experiment.py --exp A2
+
+# 运行整个实验组
+uv run python scripts/run_preproc_experiment.py --group A
+
+# 原型验证 (S01-S03, 快速测试)
+uv run python scripts/run_preproc_experiment.py --prototype
+
+# 完整实验 + EEGNet 基线
+uv run python scripts/run_preproc_experiment.py --all --eegnet-baseline
+
+# 生成实验报告
+uv run python scripts/compile_preproc_report.py
+```
+
+## 数据划分协议
+
+遵循原论文的严格数据分割协议，防止数据泄露。
+
+### 训练/验证/测试划分
+
+| 数据来源 | 用途 |
+|----------|------|
+| `Offline*` + `Online*_Sess01_*` + `Online*_Sess02_*_Base` | **训练** (时序分割 80/20) |
+| 训练数据最后 20% | **验证** |
+| `Online*_Sess02_*_Finetune` | **测试** (完全独立) |
+
+### Trial-Level 分割的重要性
+
+使用滑动窗口时，同一试次 (trial) 会产生多个段 (segment)。**必须**在试次级别分割数据，防止同一试次的 segment 出现在训练集和验证集中。
+
+```
+Trial 1 ──► [Seg1, Seg2, Seg3, Seg4, ...] ──► 全部进入 Train 或 Val
+Trial 2 ──► [Seg5, Seg6, Seg7, Seg8, ...] ──► 全部进入 Train 或 Val
+...
+```
+
+### Quaternary 特殊处理
+
+四分类任务仅使用 Offline 数据 (Online 数据不存在 4class 文件夹)：
+- 训练: 60%
+- 验证: 20%
+- 测试: 20%
+
+## 预处理管线
+
+### EEGNet (论文对齐)
+
+```
+原始 EEG (128ch, 1024Hz)
+    ↓ CAR (per-trial)
+    ↓ 滑动窗口 (1s, 125ms step)
+    ↓ 降采样 100Hz
+    ↓ 4-40Hz 带通滤波
+    ↓ Z-score (per-segment)
+输出: [n_segments, 128, 100]
+```
+
+### CBraMod
+
+```
+原始 EEG (128ch, 1024Hz)
+    ↓ 0.3-75Hz 带通滤波
+    ↓ 60Hz 陷波 (可选)
+    ↓ 降采样 200Hz
+    ↓ ÷100 归一化
+    ↓ [可选] 额外归一化
+输出: [n_trials, 128, 200]
+```
+
+**关键区别**:
+- EEGNet: 降采样 → 滤波
+- CBraMod: 滤波 → 降采样
+- CBraMod 缓存 trials，segment 在加载时应用
+
+## 缓存系统 (v3.0)
+
+采用 **trial 级别** HDF5 缓存，相比 segment 级别减少约 **5-6 倍**存储空间。
+
+### 缓存策略
+
+- **Offline 数据**: 缓存全部 4 指，加载时过滤到目标类别
+- **Online 数据**: 按 target_classes 分类缓存
+- **实验隔离**: ML Engineering 实验使用独立缓存目录
+
+### 缓存目录结构
+
+```
+caches/preprocessed/
+├── {hash}.h5                      # 标准缓存
+├── data_preproc_ml_eng/           # 实验隔离
+│   ├── A1/
+│   ├── A6/
+│   └── ...
+└── .cache_index.json              # 元数据索引
 ```
 
 ## 项目结构
 
 ```
 EEG-BCI/
-├── configs/                    # 配置文件
-│   ├── eegnet_config.yaml     # EEGNet 训练配置
-│   ├── cbramod_config.yaml    # CBraMod 训练配置
-│   └── experiment_config.yaml # 实验规划配置
-├── data/                       # 数据目录 (不纳入版本控制)
-│   ├── S01-S21/               # 被试数据
-│   └── biosemi128.ELC         # 电极位置文件
-├── src/                        # 源代码
-│   ├── preprocessing/         # 数据预处理
-│   │   ├── data_loader.py     # 核心数据加载和预处理
-│   │   ├── cache_manager.py   # HDF5 缓存管理
-│   │   ├── channel_selection.py
-│   │   ├── filtering.py
-│   │   └── resampling.py
-│   ├── models/                # 模型定义
-│   │   ├── eegnet.py          # EEGNet-8,2 实现
-│   │   └── cbramod_adapter.py # CBraMod 适配器
-│   ├── training/              # 训练脚本
-│   │   └── train_within_subject.py # 核心训练脚本
-│   ├── evaluation/            # 评估工具
-│   │   └── metrics.py
-│   └── utils/                 # 工具函数
-│       ├── device.py          # GPU 检测
-│       ├── logging.py         # 日志格式化
-│       └── timing.py          # 性能计时
-├── scripts/                   # 实验脚本
-│   ├── run_full_comparison.py # 全被试模型对比
-│   ├── preprocess_zip.py      # ZIP 预处理
-│   ├── cache_helper.py        # 缓存管理工具
-│   ├── visualize_comparison.py # 结果可视化
-│   └── verify_trial_split.py  # 数据分割验证
-├── tests/                     # 测试
-│   └── test_stratified_split.py
-├── docs/                      # 文档
-│   ├── experiment_plan_v1.md  # 实验计划
-│   ├── bugfix_*.md            # Bug 修复记录
-│   └── archive/               # 归档文档
-├── references/                # 参考论文
-├── checkpoints/               # 模型检查点 (不纳入版本控制)
-├── results/                   # 输出结果 (不纳入版本控制)
-├── pyproject.toml             # 项目配置与依赖
-├── CLAUDE.md                  # Claude Code 项目指南
+├── src/
+│   ├── preprocessing/
+│   │   ├── data_loader.py         # 核心数据加载和预处理
+│   │   ├── cache_manager.py       # HDF5 缓存管理 (v3.0)
+│   │   ├── experiment_config.py   # ML Engineering 实验配置
+│   │   ├── filtering.py           # 滤波器实现
+│   │   ├── resampling.py          # 重采样
+│   │   └── channel_selection.py   # 通道选择
+│   ├── models/
+│   │   ├── eegnet.py              # EEGNet-8,2 实现
+│   │   └── cbramod_adapter.py     # CBraMod 适配器
+│   ├── training/
+│   │   └── train_within_subject.py # 被试内训练 API
+│   └── utils/
+│       ├── table_logger.py        # 彩色表格式 Epoch 日志
+│       ├── wandb_logger.py        # WandB 集成
+│       ├── device.py              # GPU 检测
+│       ├── logging.py             # 日志格式化
+│       └── timing.py              # 性能计时
+├── scripts/
+│   ├── run_full_comparison.py     # 全被试模型对比
+│   ├── run_single_model.py        # 单模型训练
+│   ├── preprocess_zip.py          # ZIP 解压 + 缓存生成
+│   ├── run_preproc_experiment.py  # ML Engineering 实验
+│   ├── compile_preproc_report.py  # 实验报告生成
+│   ├── cache_helper.py            # 缓存管理工具
+│   ├── visualize_comparison.py    # 结果可视化
+│   └── verify_installation.py     # 环境验证
+├── docs/
+│   ├── preprocessing_architecture.md
+│   ├── TROUBLESHOOTING.md
+│   └── dev_log/changelog.md
+├── data/                          # 数据目录 (不纳入版本控制)
+├── caches/                        # 预处理缓存 (不纳入版本控制)
+├── checkpoints/                   # 模型检查点 (不纳入版本控制)
+├── results/                       # 实验结果 (不纳入版本控制)
+├── CLAUDE.md                      # Claude Code 项目指南
 └── README.md
 ```
 
-## 实验设计
+## WandB 实验追踪
 
-### 实验一：标准离线性能对比
+```bash
+# 首次使用需登录
+wandb login
 
-在离线数据上对比 EEGNet 与 CBraMod 的分类性能。
+# 启用追踪 (默认交互式提示)
+uv run python scripts/run_single_model.py --model eegnet --wandb
 
-| 任务 | 类别 | EEGNet 基线 |
-|------|------|-------------|
-| 二分类 | 拇指 vs 小指 | 80.56% |
-| 三分类 | 拇指 vs 食指 vs 小指 | 60.61% |
-| 四分类 | 全部四指 | ~45% |
+# 禁用交互式提示
+uv run python scripts/run_single_model.py --model eegnet --wandb --no-wandb-interactive
 
-### 实验二：低资源/快速校准
+# 上传模型文件 (默认不上传以节省带宽)
+uv run python scripts/run_single_model.py --model eegnet --wandb --upload-model
+```
 
-验证基座模型在小样本下的优势：
-
-- 10% 训练数据（约 1-2 个 Run）
-- 30% 训练数据（约 10 个 Run）
-- 100% 训练数据（全部）
-
-### 实验三：在线微调策略对比
-
-复现原论文的在线微调流程，对比两模型的适应性。
-
-### 实验四：收敛速度分析
-
-量化基座模型的训练效率优势。
+**交互式模式字段**:
+- **Run name**: 运行名称
+- **Goal**: 实验目标
+- **Hypothesis**: 研究假设
+- **Notes**: 额外备注
 
 ## 评估指标
 
-- **二分类**：Balanced Accuracy, AUROC, AUC-PR
-- **多分类**：Balanced Accuracy, Cohen's Kappa, Weighted F1
+- **Segment-Level Accuracy**: 原始段精度
+- **Trial-Level Majority Voting**: 主要指标，每个 trial 的 segment 预测投票
+- **Combined Score**: `(val_acc + majority_acc) / 2`，用于 early stopping
 
 ## 参考资料
 
-1. **Finger-BCI 论文**: "EEG-based brain-computer interface enables real-time robotic hand control at individual finger level"
-2. **CBraMod 论文**: Wang et al., "CBraMod: A Criss-Cross Brain Foundation Model for EEG Decoding", ICLR 2025
-3. **EEG Foundation Models 综述**: "A Simple Review of EEG Foundation Models" (arXiv:2504.20069v2)
+1. **Finger-BCI 数据集**: "EEG-based brain-computer interface enables real-time robotic hand control at individual finger level"
+2. **CBraMod**: Wang et al., "CBraMod: A Criss-Cross Brain Foundation Model for EEG Decoding", ICLR 2025
+3. **EEGNet**: Lawhern et al., "EEGNet: A Compact Convolutional Neural Network for EEG-based Brain-Computer Interfaces"
 
 ## 许可证
 

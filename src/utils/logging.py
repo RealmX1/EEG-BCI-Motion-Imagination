@@ -1,7 +1,8 @@
 """
 Shared logging utilities for EEG-BCI project.
 
-Provides yellow-colored, compact log formatting with section tags.
+Provides colored, compact log formatting with section tags.
+Different log levels have different colors for better visibility.
 
 Usage:
     from src.utils.logging import get_logger, SectionLogger
@@ -18,11 +19,22 @@ import logging
 from typing import Optional
 
 
-class YellowFormatter(logging.Formatter):
-    """Formatter that outputs yellow-colored logs with compact format."""
-    YELLOW = '\033[93m'
+class ColoredFormatter(logging.Formatter):
+    """Formatter that outputs colored logs based on level with compact format."""
+    # ANSI color codes
     RESET = '\033[0m'
     DIM = '\033[2m'
+    BOLD = '\033[1m'
+
+    # Level colors
+    COLORS = {
+        'DEBUG': '\033[36m',    # Cyan
+        'INFO': '\033[32m',     # Green
+        'WARNING': '\033[93m',  # Yellow
+        'WARN': '\033[93m',     # Yellow
+        'ERROR': '\033[91m',    # Red
+        'CRITICAL': '\033[95m', # Magenta
+    }
 
     def __init__(self, module_name: str = 'eeg'):
         super().__init__()
@@ -33,7 +45,12 @@ class YellowFormatter(logging.Formatter):
         time_str = self.formatTime(record, '%H:%M:%S')
         level = record.levelname[:4]
         msg = record.getMessage()
-        return f"{self.YELLOW}{time_str} {level}:{self.DIM}[{self.module_name}:{section}]{self.RESET}{self.YELLOW} {msg}{self.RESET}"
+        color = self.COLORS.get(record.levelname, '\033[37m')  # Default: white
+        return f"{color}{time_str} {level}:{self.DIM}[{self.module_name}:{section}]{self.RESET}{color} {msg}{self.RESET}"
+
+
+# Alias for backwards compatibility
+YellowFormatter = ColoredFormatter
 
 
 class SectionLogger:

@@ -1,0 +1,178 @@
+{
+  "metadata": {
+    "experiment_type": "data_preproc_ml_eng",
+    "paradigm": "imagery",
+    "timestamp": "2026-01-25T13:54:53.275865",
+    "n_experiments": 12
+  },
+  "experiments": {
+    "A1_binary": {
+      "experiment_id": "A1",
+      "experiment_group": "A",
+      "task": "binary",
+      "subjects": [],
+      "statistics": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "median": 0.0,
+        "n_subjects": 0
+      }
+    },
+    "A1_ternary": {
+      "experiment_id": "A1",
+      "experiment_group": "A",
+      "task": "ternary",
+      "subjects": [],
+      "statistics": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "median": 0.0,
+        "n_subjects": 0
+      }
+    },
+    "A2_binary": {
+      "experiment_id": "A2",
+      "experiment_group": "A",
+      "task": "binary",
+      "subjects": [],
+      "statistics": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "median": 0.0,
+        "n_subjects": 0
+      }
+    },
+    "A2_ternary": {
+      "experiment_id": "A2",
+      "experiment_group": "A",
+      "task": "ternary",
+      "subjects": [],
+      "statistics": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "median": 0.0,
+        "n_subjects": 0
+      }
+    },
+    "A5_binary": {
+      "experiment_id": "A5",
+      "experiment_group": "A",
+      "task": "binary",
+      "subjects": [],
+      "statistics": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "median": 0.0,
+        "n_subjects": 0
+      }
+    },
+    "A5_ternary": {
+      "experiment_id": "A5",
+      "experiment_group": "A",
+      "task": "ternary",
+      "subjects": [],
+      "statistics": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "median": 0.0,
+        "n_subjects": 0
+      }
+    },
+    "C2_binary": {
+      "experiment_id": "C2",
+      "experiment_group": "C",
+      "task": "binary",
+      "subjects": [],
+      "statistics": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "median": 0.0,
+        "n_subjects": 0
+      }
+    },
+    "C2_ternary": {
+      "experiment_id": "C2",
+      "experiment_group": "C",
+      "task": "ternary",
+      "subjects": [],
+      "statistics": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "median": 0.0,
+        "n_subjects": 0
+      }
+    },
+    "D2_binary": {
+      "experiment_id": "D2",
+      "experiment_group": "D",
+      "task": "binary",
+      "subjects": [],
+      "statistics": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "median": 0.0,
+        "n_subjects": 0
+      }
+    },
+    "D2_ternary": {
+      "experiment_id": "D2",
+      "experiment_group": "D",
+      "task": "ternary",
+      "subjects": [],
+      "statistics": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "median": 0.0,
+        "n_subjects": 0
+      }
+    },
+    "F2_binary": {
+      "experiment_id": "F2",
+      "experiment_group": "F",
+      "task": "binary",
+      "subjects": [],
+      "statistics": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "median": 0.0,
+        "n_subjects": 0
+      }
+    },
+    "F2_ternary": {
+      "experiment_id": "F2",
+      "experiment_group": "F",
+      "task": "ternary",
+      "subjects": [],
+      "statistics": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "median": 0.0,
+        "n_subjects": 0
+      }
+    }
+  }
+}

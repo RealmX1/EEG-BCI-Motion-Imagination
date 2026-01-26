@@ -67,15 +67,11 @@ torch.cuda.OutOfMemoryError: CUDA out of memory. Tried to allocate X.XX GiB
 **解决方案**:
 
 1. **减小 batch size**:
-   修改配置文件 `configs/eegnet_config.yaml` 或 `configs/cbramod_config.yaml`:
-   ```yaml
-   batch_size: 16  # 从 32 减小到 16
-   ```
+   修改 `src/training/train_within_subject.py` 中 `get_default_config()` 的 batch_size 值，
+   或在调用 `train_single_subject()` 时传入自定义 config。
 
 2. **使用 19 通道 CBraMod** (显存需求较低):
-   ```bash
-   uv run python -m src.training.train_within_subject --model cbramod --cbramod-channels 19
-   ```
+   需要修改代码中的 `cbramod_channels` 参数 (默认 128)。
 
 3. **关闭其他占用 GPU 的程序**:
    ```bash
@@ -329,7 +325,7 @@ Val Acc: 0.0000 或 nan
    二分类任务应该有大致相等的正负样本
 
 3. 降低学习率:
-   修改配置文件中的 `learning_rate`
+   修改 `src/training/train_within_subject.py` 中 `get_default_config()` 的 `learning_rate` 值
 
 ### CBraMod 模型未找到
 

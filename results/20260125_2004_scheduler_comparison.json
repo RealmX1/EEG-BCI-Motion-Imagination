@@ -1,0 +1,29 @@
+{
+  "timestamp": "2026-01-25T20:04:43.125147",
+  "task": "binary",
+  "paradigm": "imagery",
+  "subjects": [
+    "S01"
+  ],
+  "results": [
+    {
+      "subject": "S01",
+      "task": "binary",
+      "paradigm": "imagery",
+      "schedulers": {
+        "wsd": {
+          "epochs": 50,
+          "test_acc": 0.8,
+          "test_majority_acc": 0.8,
+          "best_val_acc": 0.6963677639046538,
+          "best_epoch": 5,
+          "training_time": 125.61290519999966
+        }
+      }
+    }
+  ],
+  "summary": {
+    "avg_cosine": 0.0,
+    "avg_wsd": 0.8
+  }
+}

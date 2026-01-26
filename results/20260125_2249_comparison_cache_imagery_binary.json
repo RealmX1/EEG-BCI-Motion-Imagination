@@ -1,0 +1,80 @@
+{
+  "paradigm": "imagery",
+  "task": "binary",
+  "run_tag": "20260125_2249",
+  "last_updated": "2026-01-25T23:10:21.069893",
+  "results": {
+    "cbramod": {
+      "S01": {
+        "subject_id": "S01",
+        "task_type": "binary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.695800227014756,
+        "test_acc": 0.725,
+        "test_acc_majority": 0.725,
+        "epochs_trained": 9,
+        "training_time": 134.75959069999953
+      },
+      "S02": {
+        "subject_id": "S02",
+        "task_type": "binary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.7581606585296622,
+        "test_acc": 0.90625,
+        "test_acc_majority": 0.90625,
+        "epochs_trained": 11,
+        "training_time": 158.54511990000174
+      },
+      "S03": {
+        "subject_id": "S03",
+        "task_type": "binary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.7932992617830777,
+        "test_acc": 0.93125,
+        "test_acc_majority": 0.93125,
+        "epochs_trained": 13,
+        "training_time": 187.22293199999694
+      },
+      "S04": {
+        "subject_id": "S04",
+        "task_type": "binary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.6591095329145042,
+        "test_acc": 0.9375,
+        "test_acc_majority": 0.9375,
+        "epochs_trained": 17,
+        "training_time": 238.58264269999927
+      },
+      "S05": {
+        "subject_id": "S05",
+        "task_type": "binary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.6932565789473685,
+        "test_acc": 0.89375,
+        "test_acc_majority": 0.89375,
+        "epochs_trained": 10,
+        "training_time": 147.89595190000546
+      },
+      "S06": {
+        "subject_id": "S06",
+        "task_type": "binary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.7131568549980245,
+        "test_acc": 0.73125,
+        "test_acc_majority": 0.73125,
+        "epochs_trained": 19,
+        "training_time": 183.84721379999974
+      },
+      "S07": {
+        "subject_id": "S07",
+        "task_type": "binary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.7497159090909091,
+        "test_acc": 0.75625,
+        "test_acc_majority": 0.75625,
+        "epochs_trained": 16,
+        "training_time": 215.43800680000277
+      }
+    }
+  }
+}

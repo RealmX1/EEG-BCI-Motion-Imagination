@@ -89,6 +89,7 @@ def run_single_model(
     run_tag: Optional[str] = None,
     no_wandb: bool = False,
     upload_model: bool = False,
+    wandb_interactive: bool = False,
 ) -> Tuple[List[TrainingResult], Dict]:
     """
     Train a single model on all specified subjects.
@@ -104,6 +105,7 @@ def run_single_model(
         run_tag: Optional datetime tag for new runs
         no_wandb: Disable wandb logging
         upload_model: Upload model artifacts (.pt) to WandB (default: False)
+        wandb_interactive: Prompt for run details interactively (only prompts once for batch training)
 
     Returns:
         Tuple of (results_list, statistics_dict)
@@ -131,18 +133,30 @@ def run_single_model(
     else:
         cache = load_cache(output_dir, paradigm, task, find_latest=True)
 
+    # Determine which subjects need training
+    cached_subjects = set(cache.get(model_type, {}).keys()) if cache else set()
+    requested_subjects = set(subject_ids)
+    subjects_to_train = requested_subjects - cached_subjects if not force_retrain else requested_subjects
+
     # Log cache summary
     if cache and not force_retrain:
-        cached_subjects = set(cache.get(model_type, {}).keys())
-        requested_subjects = set(subject_ids)
         already_cached = cached_subjects & requested_subjects
-        need_training = requested_subjects - cached_subjects
-        if already_cached and need_training:
-            log_train.info(f"{len(already_cached)} cached, {len(need_training)} to train ({', '.join(sorted(need_training))})")
-        elif already_cached and not need_training:
+        if already_cached and subjects_to_train:
+            log_train.info(f"{len(already_cached)} cached, {len(subjects_to_train)} to train ({', '.join(sorted(subjects_to_train))})")
+        elif already_cached and not subjects_to_train:
             log_train.info(f"All {len(already_cached)} subjects cached (no training needed)")
-        elif need_training:
-            log_train.info(f"{len(need_training)} to train ({', '.join(sorted(need_training))})")
+        elif subjects_to_train:
+            log_train.info(f"{len(subjects_to_train)} to train ({', '.join(sorted(subjects_to_train))})")
+
+    # Interactive mode: prompt once ONLY if training is needed
+    shared_wandb_metadata = None
+    if wandb_interactive and not no_wandb and subjects_to_train and sys.stdin.isatty():
+        from src.utils.wandb_logger import _prompt_run_details
+        paradigm_short = "MI" if paradigm == "imagery" else "ME"
+        default_name = f"{model_type}_{task}_{paradigm_short}"
+        shared_wandb_metadata = _prompt_run_details(default_name=default_name)
+        # Don't prompt again for individual subjects
+        wandb_interactive = False
 
     results: List[TrainingResult] = []
 
@@ -178,6 +192,8 @@ def run_single_model(
                 no_wandb=no_wandb,
                 upload_model=upload_model,
                 wandb_group=wandb_group,
+                wandb_interactive=wandb_interactive,
+                wandb_metadata=shared_wandb_metadata,
             )
 
             results.append(result)
@@ -502,6 +518,10 @@ Examples:
         help='Upload model artifacts (.pt files) to WandB (default: disabled to save bandwidth)'
     )
     parser.add_argument(
+        '--no-wandb-interactive', action='store_true',
+        help='Disable interactive prompts for WandB run details (prompts are enabled by default)'
+    )
+    parser.add_argument(
         '--seed', type=int, default=42,
         help='Random seed (default: 42)'
     )
@@ -570,6 +590,7 @@ Examples:
             run_tag=run_tag,
             no_wandb=args.no_wandb,
             upload_model=args.upload_model,
+            wandb_interactive=not args.no_wandb_interactive,
         )
 
     # Print summary

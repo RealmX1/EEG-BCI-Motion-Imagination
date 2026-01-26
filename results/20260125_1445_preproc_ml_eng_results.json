@@ -1,0 +1,35 @@
+{
+  "metadata": {
+    "experiment_type": "data_preproc_ml_eng",
+    "paradigm": "imagery",
+    "timestamp": "2026-01-25T14:45:03.243563",
+    "n_experiments": 1
+  },
+  "experiments": {
+    "A1_binary": {
+      "experiment_id": "A1",
+      "experiment_group": "A",
+      "task": "binary",
+      "subjects": [
+        {
+          "subject_id": "S01",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.6365085691510562,
+          "test_acc": 0.6526479750778816,
+          "test_acc_majority": 0.74375,
+          "epochs_trained": 2,
+          "training_time": 587.8781516551971
+        }
+      ],
+      "statistics": {
+        "mean": 0.74375,
+        "std": 0.0,
+        "min": 0.74375,
+        "max": 0.74375,
+        "median": 0.74375,
+        "n_subjects": 1
+      }
+    }
+  }
+}
