@@ -102,7 +102,7 @@ class TableEpochLogger:
         task_name: str = "",
         subject: str = "",
         device: str = "",
-        keep_every: int = 5,
+        keep_every: int = 1,
         header_every: int = 25,
         show_majority: bool = True,
         use_color: bool = True,
@@ -116,7 +116,7 @@ class TableEpochLogger:
             task_name: 任务名称
             subject: 被试 ID
             device: 设备名称（如 "cuda:0"）
-            keep_every: 每 N 个 epoch 保留一行（不覆盖）
+            keep_every: 每 N 个 epoch 打印一行（默认 1 = 打印所有）
             header_every: 每 N 行重新打印表头
             show_majority: 是否显示 Majority Voting Accuracy 列
             use_color: 是否启用颜色输出
@@ -199,13 +199,6 @@ class TableEpochLogger:
                 color = Colors.BRIGHT_GREEN
             elif declined:
                 indicator = "↓"
-                color = Colors.BRIGHT_RED
-
-        # 条件色彩（accuracy 特有）
-        if mode == "max" and prev_value is not None:
-            if value >= 0.7:
-                color = Colors.BRIGHT_GREEN
-            elif value < 0.5:
                 color = Colors.BRIGHT_RED
 
         # 组合结果
@@ -545,6 +538,7 @@ class TableEpochLogger:
         # 总结行
         summary_parts = [
             self._c("Training Complete", Colors.CYAN, bold=True),
+            f"Epochs: {self.current_epoch}/{self.total_epochs}",
             f"Best: Epoch {self.best_epoch}",
             f"Val Acc: {self.best_val_acc:.4f}",
         ]
