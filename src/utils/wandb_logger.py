@@ -27,14 +27,94 @@ Usage:
     logger.finish()
 """
 
+from __future__ import annotations
+
 import logging
+import sys
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 import numpy as np
 
+if TYPE_CHECKING:
+    from src.preprocessing.experiment_config import ExperimentPreprocessConfig
+
 logger = logging.getLogger(__name__)
+
+
+def _prompt_run_details(
+    default_name: Optional[str] = None,
+    default_notes: Optional[str] = None,
+    default_hypothesis: Optional[str] = None,
+    default_goal: Optional[str] = None,
+) -> Dict[str, Optional[str]]:
+    """
+    Prompt researcher for run details interactively.
+
+    Args:
+        default_name: Default run name to prefill
+        default_notes: Default notes to prefill
+        default_hypothesis: Default hypothesis to prefill
+        default_goal: Default goal to prefill
+
+    Returns:
+        Dictionary with user inputs (name, notes, hypothesis, goal)
+    """
+    print("\n" + "=" * 60)
+    print("  WandB Run Configuration")
+    print("=" * 60)
+    print("Press Enter to accept default/skip optional fields.\n")
+
+    def _get_input(prompt: str, default: Optional[str] = None, optional: bool = False) -> Optional[str]:
+        """Get input with default value support."""
+        opt_marker = " (optional)" if optional else ""
+        if default:
+            display = f"{prompt}{opt_marker} [{default}]: "
+        else:
+            display = f"{prompt}{opt_marker}: "
+
+        try:
+            user_input = input(display).strip()
+            if user_input:
+                return user_input
+            return default
+        except (EOFError, KeyboardInterrupt):
+            print("\n(Skipped)")
+            return default
+
+    # 1. Run name (required - has default)
+    name = _get_input("Run name", default_name)
+
+    # 2. Goal - optional
+    goal = _get_input(
+        "Goal",
+        default_goal,
+        optional=True,
+    )
+
+    # 3. Hypothesis - optional
+    hypothesis = _get_input(
+        "Hypothesis",
+        default_hypothesis,
+        optional=True,
+    )
+
+    # 4. Notes - optional
+    notes = _get_input(
+        "Notes",
+        default_notes,
+        optional=True,
+    )
+
+    print("-" * 60 + "\n")
+
+    return {
+        "name": name,
+        "notes": notes,
+        "hypothesis": hypothesis,
+        "goal": goal,
+    }
 
 
 def is_wandb_available() -> bool:
@@ -70,6 +150,7 @@ class WandbLogger:
         enabled: bool = True,
         log_model: bool = False,
         log_system: bool = True,
+        interactive: bool = False,
     ):
         """
         Initialize WandB logger.
@@ -86,6 +167,7 @@ class WandbLogger:
             enabled: whether to enable wandb (False uses no-op)
             log_model: whether to log model artifacts (.pt files). Default False to save bandwidth.
             log_system: whether to monitor system metrics (GPU usage, etc.)
+            interactive: whether to prompt for run details interactively
         """
         self._enabled = enabled and is_wandb_available()
         self._run = None
@@ -99,6 +181,25 @@ class WandbLogger:
             return
 
         import wandb
+
+        # Interactive mode: prompt for run details (skip if called directly with single subject)
+        # Note: For batch training, prompting is handled at the batch level in run_single_model()
+        # and metadata is passed via create_wandb_logger(). This branch is for direct WandbLogger usage.
+        if interactive and sys.stdin.isatty():
+            run_details = _prompt_run_details(
+                default_name=name,
+                default_notes=notes,
+            )
+            name = run_details["name"]
+            notes = run_details["notes"]
+
+            # Add hypothesis and goal to config
+            if config is None:
+                config = {}
+            if run_details["hypothesis"]:
+                config["hypothesis"] = run_details["hypothesis"]
+            if run_details["goal"]:
+                config["goal"] = run_details["goal"]
 
         # Initialize wandb run
         self._run = wandb.init(
@@ -415,6 +516,11 @@ def create_wandb_logger(
     entity: Optional[str] = None,
     group: Optional[str] = None,
     log_model: bool = False,
+    experiment_id: Optional[str] = None,
+    experiment_config: Optional[Dict[str, Any]] = None,
+    extra_tags: Optional[List[str]] = None,
+    interactive: bool = False,
+    metadata: Optional[Dict[str, str]] = None,
     **kwargs,
 ) -> WandbLogger:
     """
@@ -431,14 +537,25 @@ def create_wandb_logger(
         entity: wandb entity (team/username)
         group: wandb run group
         log_model: Whether to upload model artifacts (.pt files). Default False.
+        experiment_id: Optional experiment ID for ML engineering experiments (e.g., "A2")
+        experiment_config: Optional experiment configuration dict (from ExperimentPreprocessConfig)
+        extra_tags: Optional additional tags to add
+        interactive: Whether to prompt for run details interactively
+        metadata: Pre-collected metadata (name, goal, hypothesis, notes) for batch training
         **kwargs: Additional arguments passed to WandbLogger
 
     Returns:
         WandbLogger instance
     """
     paradigm_short = "MI" if paradigm == "imagery" else "ME"
-    name = f"{subject_id}_{model_type}_{task}_{paradigm_short}"
 
+    # Build run name
+    if experiment_id:
+        name = f"{subject_id}_{model_type}_{task}_{paradigm_short}_exp{experiment_id}"
+    else:
+        name = f"{subject_id}_{model_type}_{task}_{paradigm_short}"
+
+    # Build tags
     tags = [
         f"subject:{subject_id}",
         f"model:{model_type}",
@@ -447,14 +564,50 @@ def create_wandb_logger(
         "within-subject",
     ]
 
+    # Add experiment tags
+    if experiment_id:
+        tags.extend([
+            "preproc-ml-eng",
+            f"exp:{experiment_id}",
+        ])
+        # Extract group from experiment_id (e.g., "A2" -> "A")
+        if experiment_id and len(experiment_id) >= 1:
+            exp_group = experiment_id[0]
+            tags.append(f"group:{exp_group}")
+
+    # Add extra tags
+    if extra_tags:
+        tags.extend(extra_tags)
+
+    # Build config
     full_config = {
         "subject_id": subject_id,
         "model_type": model_type,
         "task": task,
         "paradigm": paradigm,
     }
+
+    # Add experiment config
+    if experiment_id:
+        full_config["experiment_id"] = experiment_id
+    if experiment_config:
+        full_config["experiment"] = experiment_config
+
     if config:
         full_config.update(config)
+
+    # Handle pre-collected metadata from batch training
+    notes = None
+    if metadata:
+        # Add goal and hypothesis to config
+        if metadata.get("goal"):
+            full_config["goal"] = metadata["goal"]
+        if metadata.get("hypothesis"):
+            full_config["hypothesis"] = metadata["hypothesis"]
+        # Use notes directly
+        notes = metadata.get("notes")
+        # Disable interactive mode since metadata was already collected at batch level
+        interactive = False
 
     return WandbLogger(
         project=project,
@@ -464,7 +617,57 @@ def create_wandb_logger(
         tags=tags,
         group=group,
         job_type="train",
+        notes=notes,
         enabled=enabled,
         log_model=log_model,
+        interactive=interactive,
+        **kwargs,
+    )
+
+
+def create_experiment_wandb_logger(
+    subject_id: str,
+    task: str,
+    experiment_config: ExperimentPreprocessConfig,
+    paradigm: str = "imagery",
+    enabled: bool = True,
+    project: str = "eeg-bci",
+    entity: Optional[str] = None,
+    log_model: bool = False,
+    interactive: bool = False,
+    **kwargs,
+) -> WandbLogger:
+    """
+    Convenience function to create a wandb logger for ML engineering experiments.
+
+    Args:
+        subject_id: Subject ID (e.g., "S01")
+        task: Task type ("binary", "ternary", "quaternary")
+        experiment_config: ExperimentPreprocessConfig instance
+        paradigm: Paradigm ("imagery" or "movement")
+        enabled: Whether to enable wandb
+        project: wandb project name
+        entity: wandb entity (team/username)
+        log_model: Whether to upload model artifacts (.pt files). Default False.
+        interactive: Whether to prompt for run details interactively
+        **kwargs: Additional arguments passed to WandbLogger
+
+    Returns:
+        WandbLogger instance with experiment metadata
+    """
+    return create_wandb_logger(
+        subject_id=subject_id,
+        model_type="cbramod",  # ML engineering experiments always use CBraMod
+        task=task,
+        paradigm=paradigm,
+        enabled=enabled,
+        project=project,
+        entity=entity,
+        group=f"preproc_ml_eng_{experiment_config.experiment_group}",
+        log_model=log_model,
+        experiment_id=experiment_config.experiment_id,
+        experiment_config=experiment_config.get_wandb_config(),
+        extra_tags=experiment_config.get_wandb_tags(),
+        interactive=interactive,
         **kwargs,
     )

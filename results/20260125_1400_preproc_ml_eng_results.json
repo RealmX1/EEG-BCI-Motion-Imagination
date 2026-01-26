@@ -1,0 +1,24 @@
+{
+  "metadata": {
+    "experiment_type": "data_preproc_ml_eng",
+    "paradigm": "imagery",
+    "timestamp": "2026-01-25T14:00:46.850825",
+    "n_experiments": 1
+  },
+  "experiments": {
+    "A1_binary": {
+      "experiment_id": "A1",
+      "experiment_group": "A",
+      "task": "binary",
+      "subjects": [],
+      "statistics": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "median": 0.0,
+        "n_subjects": 0
+      }
+    }
+  }
+}

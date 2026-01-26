@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "paradigm": "imagery",
+    "paradigm_description": "Motor Imagery (MI)",
+    "task_type": "binary",
+    "run_tag": "20260121_2239",
+    "timestamp": "2026-01-21T22:39:29.699618",
+    "n_subjects": 0
+  },
+  "models": {
+    "cbramod": {
+      "subjects": [],
+      "summary": {
+        "mean": 0,
+        "std": 0,
+        "min": 0,
+        "max": 0
+      }
+    }
+  },
+  "comparison": null
+}

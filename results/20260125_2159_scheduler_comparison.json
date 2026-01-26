@@ -1,0 +1,37 @@
+{
+  "timestamp": "2026-01-25T21:59:29.187616",
+  "task": "binary",
+  "paradigm": "imagery",
+  "subjects": [
+    "S01"
+  ],
+  "results": [
+    {
+      "subject": "S01",
+      "task": "binary",
+      "paradigm": "imagery",
+      "schedulers": {
+        "cosine": {
+          "epochs": 25,
+          "test_acc": 0.775,
+          "test_majority_acc": 0.775,
+          "best_val_acc": 0.6943813847900113,
+          "best_epoch": 7,
+          "training_time": 149.49771699999837
+        },
+        "wsd": {
+          "epochs": 50,
+          "test_acc": 0.7625,
+          "test_majority_acc": 0.7625,
+          "best_val_acc": 0.6983541430192962,
+          "best_epoch": 9,
+          "training_time": 163.60758019999776
+        }
+      }
+    }
+  ],
+  "summary": {
+    "avg_cosine": 0.775,
+    "avg_wsd": 0.7625
+  }
+}

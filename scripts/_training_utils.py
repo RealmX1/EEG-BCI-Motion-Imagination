@@ -27,7 +27,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.utils.device import set_seed
 from src.utils.logging import SectionLogger, setup_logging
-from src.preprocessing.data_loader import discover_available_subjects
+from src.preprocessing.data_loader import discover_available_subjects, PreprocessConfig
 from src.training.train_within_subject import train_subject_simple
 
 
@@ -282,11 +282,28 @@ def train_and_get_result(
     no_wandb: bool = False,
     upload_model: bool = False,
     wandb_group: Optional[str] = None,
+    preprocess_config: Optional[PreprocessConfig] = None,
+    wandb_interactive: bool = False,
+    wandb_metadata: Optional[Dict] = None,
 ) -> TrainingResult:
     """
     Train a model for a single subject and return TrainingResult.
 
     This is a thin wrapper around train_subject_simple from train_within_subject.py.
+
+    Args:
+        subject_id: Subject ID (e.g., 'S01')
+        model_type: 'eegnet' or 'cbramod'
+        task: 'binary', 'ternary', or 'quaternary'
+        paradigm: 'imagery' or 'movement'
+        data_root: Path to data directory
+        save_dir: Path to save checkpoints
+        no_wandb: Disable wandb logging
+        upload_model: Upload model to WandB
+        wandb_group: WandB run group
+        preprocess_config: Optional custom PreprocessConfig for ML engineering experiments
+        wandb_interactive: Prompt for run details interactively
+        wandb_metadata: Pre-collected metadata (goal, hypothesis, notes) for batch training
     """
     result_dict = train_subject_simple(
         subject_id=subject_id,
@@ -298,6 +315,9 @@ def train_and_get_result(
         no_wandb=no_wandb,
         upload_model=upload_model,
         wandb_group=wandb_group,
+        preprocess_config=preprocess_config,
+        wandb_interactive=wandb_interactive,
+        wandb_metadata=wandb_metadata,
     )
 
     if not result_dict:

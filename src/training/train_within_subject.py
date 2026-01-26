@@ -1,5 +1,5 @@
 """
-Within-subject training script for FINGER-EEG-BCI.
+Within-subject training module for FINGER-EEG-BCI.
 
 Supports both EEGNet and CBraMod models, and both Motor Imagery (MI) and
 Motor Execution (ME) paradigms.
@@ -9,36 +9,36 @@ Data Split (follows paper protocol):
 - Validation: Last 20% of training data (temporal split)
 - Test: Session 2 Finetune (completely held out)
 
-EEGNet (default):
+EEGNet:
 - 128 channels, 100 Hz sampling rate
 - 4-40 Hz bandpass filter (4th order Butterworth)
 - Z-score normalization per segment
 - 1-second sliding window with 125ms step
 - Majority voting for trial prediction
-- Pre-training: 300 epochs on offline data
+- Training: 300 epochs with ReduceLROnPlateau
 
 CBraMod:
 - 19 or 128 channels, 200 Hz sampling rate
 - 0.3-75 Hz bandpass, 60 Hz notch filter
 - Divide by 100 normalization
 - Patch-based processing (1s patches)
-- Pre-training: 50 epochs with cosine annealing
+- Training: 50 epochs with cosine annealing
 
-Usage:
-    # Train EEGNet on Motor Imagery (default)
-    uv run python -m src.training.train_within_subject --subject S01 --task binary --model eegnet
+Usage (programmatic API):
+    from src.training.train_within_subject import train_subject_simple
 
-    # Train on Motor Execution
-    uv run python -m src.training.train_within_subject --subject S01 --task binary --model eegnet --paradigm movement
+    # Train EEGNet
+    results = train_subject_simple('S01', 'eegnet', 'binary')
 
-    # Train CBraMod for subject S01 (default 128 channels)
-    uv run python -m src.training.train_within_subject --subject S01 --task binary --model cbramod
+    # Train CBraMod
+    results = train_subject_simple('S01', 'cbramod', 'binary')
 
-    # Train CBraMod with 19 channels (10-20 system, less memory)
-    uv run python -m src.training.train_within_subject --subject S01 --task binary --model cbramod --cbramod-channels 19
+    # Train on Motor Execution paradigm
+    results = train_subject_simple('S01', 'eegnet', 'binary', paradigm='movement')
 
-    # Train all subjects with both models
-    uv run python -m src.training.train_within_subject --all-subjects --task binary --model both
+For batch training across subjects, use the scripts:
+    uv run python scripts/run_single_model.py --model eegnet
+    uv run python scripts/run_full_comparison.py
 """
 
 # Suppress RuntimeWarning from multiprocessing workers when using -m flag
@@ -50,9 +50,7 @@ warnings.filterwarnings(
     category=RuntimeWarning,
 )
 
-import argparse
 import logging
-import yaml
 import json
 from pathlib import Path
 from collections import Counter
@@ -213,13 +211,299 @@ def majority_vote_accuracy(
     return accuracy, results
 
 
+class WSDScheduler:
+    """
+    Warmup-Stable-Decay (WSD) Learning Rate Scheduler.
+
+    Four-phase learning rate schedule:
+    1. Warmup: Linear increase from eta_min to peak_lr
+    2. Stable: Maintain constant peak_lr (can be 0)
+    3. Decay: Cosine decay from peak_lr to eta_min
+    4. Minimum: Stay at eta_min for remaining steps
+
+    This scheduler is designed for foundation model fine-tuning,
+    as described in various papers including MiniCPM and similar works.
+
+    Args:
+        optimizer: PyTorch optimizer
+        total_steps: Total number of training steps
+        warmup_ratio: Fraction of total steps for warmup phase (default: 0.1)
+        stable_ratio: Fraction of total steps for stable phase (default: 0)
+        decay_ratio: Fraction of total steps for decay phase (default: 0.2)
+        eta_min: Minimum learning rate at end of decay (default: 1e-6)
+
+    Schedule:
+        - Steps [0, warmup_steps): Linear warmup from eta_min to peak_lr
+        - Steps [warmup_steps, warmup_steps + stable_steps): Constant at peak_lr
+        - Steps [warmup+stable, warmup+stable+decay): Cosine decay to eta_min
+        - Steps [warmup+stable+decay, total_steps): Constant at eta_min
+    """
+
+    def __init__(
+        self,
+        optimizer: torch.optim.Optimizer,
+        total_steps: int,
+        warmup_ratio: float = 0.1,
+        stable_ratio: float = 0.0,
+        decay_ratio: float = 0.2,
+        eta_min: float = 1e-6,
+    ):
+        self.optimizer = optimizer
+        self.total_steps = total_steps
+        self.eta_min = eta_min
+
+        # Calculate phase boundaries
+        self.warmup_steps = int(total_steps * warmup_ratio)
+        self.stable_steps = int(total_steps * stable_ratio)
+        self.decay_steps = int(total_steps * decay_ratio)
+        # Remaining steps stay at minimum
+        self.min_steps = total_steps - self.warmup_steps - self.stable_steps - self.decay_steps
+
+        # Store initial learning rates (peak LR for each param group)
+        self.base_lrs = [group['lr'] for group in optimizer.param_groups]
+
+        self.current_step = 0
+        self._last_lr = [0.0] * len(self.base_lrs)
+
+        # Initialize to zero (warmup starts from 0)
+        self._update_lr()
+
+    def _get_lr_scale(self, step: int) -> float:
+        """Calculate LR scale factor for a given step."""
+        import math
+
+        if step < self.warmup_steps:
+            # Warmup phase: linear increase from 0 to 1
+            return step / max(1, self.warmup_steps)
+
+        elif step < self.warmup_steps + self.stable_steps:
+            # Stable phase: constant at 1
+            return 1.0
+
+        elif step < self.warmup_steps + self.stable_steps + self.decay_steps:
+            # Decay phase: cosine decay from 1 to 0
+            decay_step = step - self.warmup_steps - self.stable_steps
+            progress = decay_step / max(1, self.decay_steps)
+            return (1 + math.cos(math.pi * progress)) / 2
+
+        else:
+            # Minimum phase: stay at eta_min
+            return 0.0
+
+    def _update_lr(self):
+        """Update learning rates in optimizer."""
+        scale = self._get_lr_scale(self.current_step)
+
+        for i, (group, base_lr) in enumerate(zip(self.optimizer.param_groups, self.base_lrs)):
+            # Scale between eta_min and base_lr
+            new_lr = self.eta_min + (base_lr - self.eta_min) * scale
+            group['lr'] = new_lr
+            self._last_lr[i] = new_lr
+
+    def step(self):
+        """Advance scheduler by one step."""
+        self.current_step += 1
+        self._update_lr()
+
+    def get_last_lr(self) -> List[float]:
+        """Return last computed learning rates."""
+        return self._last_lr
+
+    def get_phase(self) -> str:
+        """Return current phase name: 'warmup', 'stable', 'decay', or 'minimum'."""
+        if self.current_step < self.warmup_steps:
+            return 'warmup'
+        elif self.current_step < self.warmup_steps + self.stable_steps:
+            return 'stable'
+        elif self.current_step < self.warmup_steps + self.stable_steps + self.decay_steps:
+            return 'decay'
+        else:
+            return 'minimum'
+
+    def get_phase_progress(self) -> Tuple[str, float]:
+        """
+        Return current phase and progress within that phase.
+
+        Returns:
+            Tuple of (phase_name, progress_ratio) where progress_ratio is 0.0-1.0
+        """
+        if self.current_step < self.warmup_steps:
+            progress = self.current_step / max(1, self.warmup_steps)
+            return ('warmup', progress)
+        elif self.current_step < self.warmup_steps + self.stable_steps:
+            progress = (self.current_step - self.warmup_steps) / max(1, self.stable_steps)
+            return ('stable', progress)
+        elif self.current_step < self.warmup_steps + self.stable_steps + self.decay_steps:
+            decay_step = self.current_step - self.warmup_steps - self.stable_steps
+            progress = decay_step / max(1, self.decay_steps)
+            return ('decay', min(1.0, progress))
+        else:
+            min_step = self.current_step - self.warmup_steps - self.stable_steps - self.decay_steps
+            progress = min_step / max(1, self.min_steps)
+            return ('minimum', min(1.0, progress))
+
+    def state_dict(self) -> dict:
+        """Return scheduler state for checkpointing."""
+        return {
+            'current_step': self.current_step,
+            'total_steps': self.total_steps,
+            'warmup_steps': self.warmup_steps,
+            'stable_steps': self.stable_steps,
+            'decay_steps': self.decay_steps,
+            'min_steps': self.min_steps,
+            'base_lrs': self.base_lrs,
+            'eta_min': self.eta_min,
+        }
+
+    def load_state_dict(self, state_dict: dict):
+        """Load scheduler state from checkpoint."""
+        self.current_step = state_dict['current_step']
+        self.total_steps = state_dict['total_steps']
+        self.warmup_steps = state_dict['warmup_steps']
+        self.stable_steps = state_dict['stable_steps']
+        self.decay_steps = state_dict['decay_steps']
+        self.min_steps = state_dict.get('min_steps', 0)
+        self.base_lrs = state_dict['base_lrs']
+        self.eta_min = state_dict['eta_min']
+        self._update_lr()
+
+
+class CosineDecayRestarts:
+    """
+    Cosine Annealing with Warm Restarts and Decaying Peaks.
+
+    Unlike PyTorch's CosineAnnealingWarmRestarts which maintains the same peak LR
+    after each restart, this scheduler reduces the peak LR by a decay factor
+    after each cycle. This provides a more aggressive LR reduction over training.
+
+    Schedule visualization (decay_factor=0.7, T_0=20):
+        Cycle 0: LR oscillates between 1.0 and eta_min
+        Cycle 1: LR oscillates between 0.7 and eta_min
+        Cycle 2: LR oscillates between 0.49 and eta_min
+        ...
+
+    Args:
+        optimizer: PyTorch optimizer
+        T_0: Number of steps for the first (and subsequent) cycles
+        decay_factor: Multiplicative factor to reduce peak LR after each cycle (default: 0.7)
+        eta_min: Minimum learning rate (default: 1e-6)
+
+    Example:
+        >>> scheduler = CosineDecayRestarts(optimizer, T_0=100, decay_factor=0.7)
+        >>> for step in range(500):
+        ...     train(...)
+        ...     scheduler.step()
+    """
+
+    def __init__(
+        self,
+        optimizer: torch.optim.Optimizer,
+        T_0: int,
+        decay_factor: float = 0.7,
+        eta_min: float = 1e-6,
+    ):
+        self.optimizer = optimizer
+        self.T_0 = T_0
+        self.decay_factor = decay_factor
+        self.eta_min = eta_min
+
+        # Store initial learning rates (peak LR for each param group)
+        self.base_lrs = [group['lr'] for group in optimizer.param_groups]
+
+        self.current_step = 0
+        self._last_lr = list(self.base_lrs)
+
+    def _get_lr_scale(self, step: int) -> float:
+        """Calculate LR scale factor for a given step."""
+        import math
+
+        cycle = step // self.T_0
+        step_in_cycle = step % self.T_0
+
+        # Peak decays each cycle: 1.0, 0.7, 0.49, 0.343, ...
+        peak = self.decay_factor ** cycle
+
+        # Cosine within cycle: starts at peak, decays to eta_min ratio
+        # cos(0) = 1 (start of cycle, at peak)
+        # cos(pi) = -1 (end of cycle, at minimum)
+        cosine_factor = 0.5 * (1 + math.cos(math.pi * step_in_cycle / self.T_0))
+
+        # Scale factor relative to base_lr
+        # At cycle start: scale = peak
+        # At cycle end: scale = eta_min / base_lr (approximately 0)
+        return peak * cosine_factor
+
+    def _update_lr(self):
+        """Update learning rates in optimizer."""
+        scale = self._get_lr_scale(self.current_step)
+
+        for i, (group, base_lr) in enumerate(zip(self.optimizer.param_groups, self.base_lrs)):
+            # Interpolate between eta_min and scaled base_lr
+            new_lr = self.eta_min + (base_lr - self.eta_min) * scale
+            group['lr'] = new_lr
+            self._last_lr[i] = new_lr
+
+    def step(self):
+        """Advance scheduler by one step.
+
+        PyTorch convention: step() is called AFTER optimizer.step(),
+        and sets the LR for the NEXT training step.
+        """
+        self.current_step += 1
+        self._update_lr()
+
+    def get_last_lr(self) -> List[float]:
+        """Return last computed learning rates."""
+        return self._last_lr
+
+    def get_cycle(self) -> int:
+        """Return current cycle number (0-indexed)."""
+        return self.current_step // self.T_0
+
+    def get_cycle_progress(self) -> Tuple[int, float]:
+        """
+        Return current cycle and progress within that cycle.
+
+        Returns:
+            Tuple of (cycle_number, progress_ratio) where progress_ratio is 0.0-1.0
+        """
+        cycle = self.current_step // self.T_0
+        step_in_cycle = self.current_step % self.T_0
+        progress = step_in_cycle / self.T_0
+        return (cycle, progress)
+
+    def get_current_peak(self) -> float:
+        """Return the peak LR for the current cycle."""
+        cycle = self.current_step // self.T_0
+        return self.base_lrs[0] * (self.decay_factor ** cycle)
+
+    def state_dict(self) -> dict:
+        """Return scheduler state for checkpointing."""
+        return {
+            'current_step': self.current_step,
+            'T_0': self.T_0,
+            'decay_factor': self.decay_factor,
+            'base_lrs': self.base_lrs,
+            'eta_min': self.eta_min,
+        }
+
+    def load_state_dict(self, state_dict: dict):
+        """Load scheduler state from checkpoint."""
+        self.current_step = state_dict['current_step']
+        self.T_0 = state_dict['T_0']
+        self.decay_factor = state_dict['decay_factor']
+        self.base_lrs = state_dict['base_lrs']
+        self.eta_min = state_dict['eta_min']
+        self._update_lr()
+
+
 class WithinSubjectTrainer:
     """
     Trainer for within-subject model training (EEGNet or CBraMod).
 
     Follows the paper's training protocol:
-    - EEGNet: Pre-train on offline data for 300 epochs, Adam optimizer
-    - CBraMod: Pre-train for 50 epochs, AdamW with different LR for backbone/classifier
+    - EEGNet: Pre-train on offline data for 50 epochs, Adam optimizer
+    - CBraMod: Pre-train for 25 epochs, AdamW with different LR for backbone/classifier
     - Early stopping on validation loss
     - Fine-tuning freezes early layers
     """
@@ -275,23 +559,46 @@ class WithinSubjectTrainer:
         self.scheduler = None
         self.scheduler_needs_metric = False  # For ReduceLROnPlateau
         if scheduler_type == 'cosine':
-            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                self.optimizer,
-                T_max=50,  # Will be updated in train() for CBraMod
-                eta_min=1e-6,
-            )
+            # For CBraMod, scheduler is created in train() with correct T_max
+            # Creating here would cause PyTorch warning about step order
+            if model_type != 'cbramod':
+                self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                    self.optimizer,
+                    T_max=50,
+                    eta_min=1e-6,
+                )
         elif scheduler_type == 'plateau':
-            # ReduceLROnPlateau - aggressive decay for faster convergence
+            # ReduceLROnPlateau - uses combined score (val_acc + majority_acc) / 2
+            # mode='max' because we want to maximize the combined accuracy score
             # Note: 'verbose' parameter removed in PyTorch 2.3+
             self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
                 self.optimizer,
-                mode='min',
+                mode='max',  # Maximize combined accuracy score
                 factor=0.3,
-                patience=3,
+                patience=2,
                 min_lr=1e-6,
             )
             self.scheduler_needs_metric = True
-            log_train.info("Scheduler: ReduceLROnPlateau (factor=0.3, patience=3)")
+            log_train.info("Scheduler: ReduceLROnPlateau (mode=max, factor=0.3, patience=2, metric=combined_score)")
+        elif scheduler_type == 'wsd':
+            # WSD scheduler will be created in train() when total_steps is known
+            self.scheduler = None  # Placeholder, created in train()
+            log_train.info("Scheduler: WSD (will be initialized in train())")
+        elif scheduler_type == 'cosine_decay':
+            # CosineDecayRestarts scheduler will be created in train() when total_steps is known
+            self.scheduler = None  # Placeholder, created in train()
+            log_train.info("Scheduler: CosineDecayRestarts (will be initialized in train())")
+
+        # WSD-specific parameters (stored for later initialization)
+        # Schedule: 5 epochs warmup -> 10 epochs decay -> rest at minimum
+        self.wsd_warmup_ratio = 0.1   # 10% = 5 epochs (warmup)
+        self.wsd_stable_ratio = 0.0   # 0% = no stable phase
+        self.wsd_decay_ratio = 0.3    # 20% = 10 epochs (decay)
+
+        # CosineDecayRestarts-specific parameters
+        # With 30 epochs and T_0 = total_steps // 5, we get 5 cycles with decaying peaks
+        self.cosine_decay_factor = 0.7  # Peak reduces by 30% each cycle
+        self.cosine_decay_cycles = 5    # Number of cycles (T_0 = total_steps // cycles)
 
         # AMP (Automatic Mixed Precision) setup
         self.use_amp = use_amp and device.type == 'cuda'
@@ -310,10 +617,12 @@ class WithinSubjectTrainer:
             'val_loss': [],
             'val_acc': [],
             'val_majority_acc': [],
+            'val_combined_score': [],  # (val_acc + majority_acc) / 2
         }
         self.best_val_loss = float('inf')
         self.best_val_acc = 0.0  # Track best validation accuracy (segment-level)
         self.best_majority_acc = 0.0  # Track best validation accuracy (trial-level majority voting)
+        self.best_combined_score = 0.0  # Combined score = (val_acc + majority_acc) / 2
         self.best_epoch = 0
         self.best_state = None
 
@@ -450,7 +759,7 @@ class WithinSubjectTrainer:
         self,
         train_loader: DataLoader,
         val_loader: DataLoader,
-        epochs: int = 300,
+        epochs: int = 30,
         patience: int = 20,
         save_path: Optional[Path] = None,
         wandb_callback: Optional['WandbCallback'] = None,
@@ -486,16 +795,66 @@ class WithinSubjectTrainer:
         table_logger.print_title()
 
         # Recreate scheduler with correct T_max for per-step scheduling (CBraMod)
-        # Use T_max = total_steps / 2 for faster LR decay (reaches min at 50% of training)
+        # Use T_max = total_steps / 5 for faster LR decay (reaches min at 50% of training)
         if self.scheduler_type == 'cosine' and self.model_type == 'cbramod':
             total_steps = epochs * len(train_loader)
-            t_max = total_steps // 2  # Faster decay: reach min LR at half training
+            t_max = total_steps // 5  # Faster decay: reach min LR at 20% of training
+            # Log T_max overwrite (config value is ignored, hardcoded to total_steps // 5)
+            log_train.info(
+                f"{Colors.BRIGHT_YELLOW}T_max overwrite: "
+                f"config value ignored -> {t_max} (total_steps // 5, CBraMod hardcoded){Colors.RESET}"
+            )
             self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 self.optimizer,
                 T_max=t_max,
                 eta_min=1e-6,
             )
             log_train.info(f"Scheduler: CosineAnnealing (T_max={t_max}, fast decay)")
+
+        # Create WSD scheduler for CBraMod
+        if self.scheduler_type == 'wsd' and self.model_type == 'cbramod':
+            total_steps = epochs * len(train_loader)
+            warmup_steps = int(total_steps * self.wsd_warmup_ratio)
+            stable_steps = int(total_steps * self.wsd_stable_ratio)
+            decay_steps = total_steps - warmup_steps - stable_steps
+            log_train.info(
+                f"{Colors.BRIGHT_YELLOW}WSD Scheduler: "
+                f"warmup={warmup_steps} ({self.wsd_warmup_ratio*100:.0f}%) | "
+                f"stable={stable_steps} ({self.wsd_stable_ratio*100:.0f}%) | "
+                f"decay={decay_steps} ({(1-self.wsd_warmup_ratio-self.wsd_stable_ratio)*100:.0f}%)"
+                f"{Colors.RESET}"
+            )
+            self.scheduler = WSDScheduler(
+                self.optimizer,
+                total_steps=total_steps,
+                warmup_ratio=self.wsd_warmup_ratio,
+                stable_ratio=self.wsd_stable_ratio,
+                decay_ratio=self.wsd_decay_ratio,
+                eta_min=1e-6,
+            )
+            log_train.info(f"Scheduler: WSD (total_steps={total_steps}, warmup={self.wsd_warmup_ratio}, decay={self.wsd_decay_ratio})")
+
+        # Create CosineDecayRestarts scheduler for CBraMod
+        if self.scheduler_type == 'cosine_decay' and self.model_type == 'cbramod':
+            total_steps = epochs * len(train_loader)
+            t_0 = total_steps // self.cosine_decay_cycles  # Cycle length
+            log_train.info(
+                f"{Colors.BRIGHT_YELLOW}CosineDecayRestarts Scheduler: "
+                f"T_0={t_0} ({100/self.cosine_decay_cycles:.0f}% per cycle) | "
+                f"decay_factor={self.cosine_decay_factor} | "
+                f"cycles={self.cosine_decay_cycles}"
+                f"{Colors.RESET}"
+            )
+            self.scheduler = CosineDecayRestarts(
+                self.optimizer,
+                T_0=t_0,
+                decay_factor=self.cosine_decay_factor,
+                eta_min=1e-6,
+            )
+            # Show peak LR progression
+            peaks = [self.cosine_decay_factor ** i for i in range(self.cosine_decay_cycles)]
+            peak_str = " -> ".join([f"{p:.2f}" for p in peaks])
+            log_train.info(f"Scheduler: CosineDecayRestarts (peak progression: {peak_str})")
 
         for epoch in range(epochs):
             epoch_timer.start_epoch()
@@ -516,14 +875,11 @@ class WithinSubjectTrainer:
                     use_amp=self.use_amp
                 )
 
-            # Update scheduler (only for EEGNet - CBraMod uses per-step scheduling in train_epoch)
-            if self.scheduler is not None and self.model_type != 'cbramod':
-                if self.scheduler_needs_metric:
-                    self.scheduler.step(val_loss)  # ReduceLROnPlateau needs metric
-                else:
-                    self.scheduler.step()
-
             epoch_timer.end_epoch()
+
+            # Combined score: average of segment accuracy and majority voting accuracy
+            # Early stopping and best model selection based on this combined metric
+            combined_score = (val_acc + majority_acc) / 2.0
 
             # Update history
             self.history['train_loss'].append(train_loss)
@@ -531,6 +887,7 @@ class WithinSubjectTrainer:
             self.history['val_loss'].append(val_loss)
             self.history['val_acc'].append(val_acc)
             self.history['val_majority_acc'].append(majority_acc)
+            self.history['val_combined_score'].append(combined_score)
 
             # Get current learning rate (used by WandB and table logger)
             current_lr = self.optimizer.param_groups[0]['lr']
@@ -550,17 +907,18 @@ class WithinSubjectTrainer:
             # Determine if this epoch improved
             is_best_epoch = False
 
-            # Early stopping: reset patience when EITHER segment acc OR majority acc improves
-            # Save model when either metric reaches new high
-            improved = False
-            if val_acc > self.best_val_acc:
-                self.best_val_acc = val_acc
-                improved = True
-            if majority_acc > self.best_majority_acc:
-                self.best_majority_acc = majority_acc
-                improved = True
+            # Update scheduler (only for EEGNet - CBraMod uses per-step scheduling in train_epoch)
+            # ReduceLROnPlateau uses combined_score (mode='max') to decide LR reduction
+            if self.scheduler is not None and self.model_type != 'cbramod':
+                if self.scheduler_needs_metric:
+                    self.scheduler.step(combined_score)  # ReduceLROnPlateau uses combined score
+                else:
+                    self.scheduler.step()
 
-            if improved:
+            if combined_score > self.best_combined_score:
+                self.best_combined_score = combined_score
+                self.best_val_acc = val_acc
+                self.best_majority_acc = majority_acc
                 self.best_val_loss = val_loss
                 self.best_epoch = epoch + 1
                 self.best_state = self.model.state_dict().copy()
@@ -573,11 +931,23 @@ class WithinSubjectTrainer:
                         'epoch': self.best_epoch,
                         'val_acc': self.best_val_acc,
                         'val_majority_acc': self.best_majority_acc,
+                        'combined_score': self.best_combined_score,
                         'val_loss': self.best_val_loss,
                     }, save_path / 'best.pt')
-                    log_train.debug(f"Best model saved (val_acc={val_acc:.4f}, maj_acc={majority_acc:.4f})")
+                    log_train.debug(f"Best model saved (combined={combined_score:.4f}, val_acc={val_acc:.4f}, maj_acc={majority_acc:.4f})")
             else:
                 no_improve += 1
+
+            # Check if early stopping will trigger
+            will_stop = no_improve >= patience
+
+            # Determine event: BEST takes priority, then STOP
+            if is_best_epoch:
+                event = "BEST"
+            elif will_stop:
+                event = "STOP"
+            else:
+                event = None
 
             # Log epoch with table logger
             table_logger.on_epoch_end(
@@ -590,18 +960,18 @@ class WithinSubjectTrainer:
                 lr=current_lr,
                 epoch_time=epoch_timer.current_epoch.get('total', 0.0),
                 is_best=is_best_epoch,
-                event="BEST" if is_best_epoch else None,
+                event=event,
             )
 
             # Early stopping check
-            if no_improve >= patience:
+            if will_stop:
                 break
 
         # Restore best model (prefer disk checkpoint if available)
         if save_path and (save_path / 'best.pt').exists():
             checkpoint = torch.load(save_path / 'best.pt', map_location=self.device, weights_only=True)
             self.model.load_state_dict(checkpoint['model_state_dict'])
-            log_train.info(f"Loaded best (val_acc={checkpoint.get('val_acc', 'N/A')})")
+            log_train.info(f"Loaded best (combined_score={checkpoint.get('combined_score', 'N/A')})")
         elif self.best_state is not None:
             self.model.load_state_dict(self.best_state)
 
@@ -745,12 +1115,16 @@ def train_single_subject(
     model_type: str = 'eegnet',
     paradigm: str = 'imagery',
     cbramod_channels: int = 128,
+    # Custom preprocessing config (for ML engineering experiments)
+    preprocess_config: Optional[PreprocessConfig] = None,
     # WandB parameters
     no_wandb: bool = False,
     upload_model: bool = False,
     wandb_project: str = 'eeg-bci',
     wandb_entity: Optional[str] = None,
     wandb_group: Optional[str] = None,
+    wandb_interactive: bool = False,
+    wandb_metadata: Optional[Dict[str, str]] = None,
 ) -> Dict:
     """
     Train model for a single subject.
@@ -771,11 +1145,15 @@ def train_single_subject(
         paradigm: 'imagery' (MI) or 'movement' (ME)
         cbramod_channels: Number of channels for CBraMod (19 or 128).
             128 uses ACPE adaptation for full BioSemi channels.
+        preprocess_config: Optional custom PreprocessConfig. If None, uses
+            default config for the model type. Used by ML engineering experiments.
         no_wandb: Disable wandb logging
         upload_model: Upload model artifacts (.pt) to WandB (default: False)
         wandb_project: WandB project name
         wandb_entity: WandB entity (team/username)
         wandb_group: WandB run group
+        wandb_interactive: Prompt for run details interactively
+        wandb_metadata: Pre-collected metadata (goal, hypothesis, notes) for batch training
 
     Returns:
         Results dict with accuracy and history
@@ -804,6 +1182,8 @@ def train_single_subject(
         entity=wandb_entity,
         group=wandb_group,
         log_model=upload_model,
+        interactive=wandb_interactive,
+        metadata=wandb_metadata,
     )
 
     wandb_callback = WandbCallback(wandb_logger) if wandb_logger.enabled else None
@@ -835,8 +1215,13 @@ def train_single_subject(
     print(colored(f"  Train folders: {task_patterns['train']}", Colors.DIM))
     print(colored(f"  Test folders: {task_patterns['test']}", Colors.DIM))
 
-    # Select preprocessing config based on model type
-    if model_type == 'cbramod':
+    # Select preprocessing config based on model type (unless custom config provided)
+    if preprocess_config is not None:
+        # Use custom config (e.g., from ML engineering experiments)
+        log_data.info(f"Preprocess: Custom config ({preprocess_config.target_fs}Hz, "
+                      f"{preprocess_config.bandpass_low}-{preprocess_config.bandpass_high}Hz)")
+        print(colored(f"  Custom preprocessing config provided", Colors.CYAN))
+    elif model_type == 'cbramod':
         # Check if using 128 channels (ACPE adaptation)
         use_full_channels = (cbramod_channels == 128)
         preprocess_config = PreprocessConfig.for_cbramod(full_channels=use_full_channels)
@@ -869,7 +1254,21 @@ def train_single_subject(
         return {}
 
     print_metric("Train segments (total)", len(train_dataset), Colors.CYAN)
-    print_metric("Cache status", "enabled" if train_dataset.cache else "disabled", Colors.GREEN)
+    # Show detailed cache status with hit/miss counts
+    if train_dataset.cache:
+        hits = getattr(train_dataset, 'n_cache_hits', 0)
+        misses = getattr(train_dataset, 'n_cache_misses', 0)
+        if misses == 0 and hits > 0:
+            cache_status = f"hit ({hits} files)"
+        elif hits == 0 and misses > 0:
+            cache_status = f"miss ({misses} files)"
+        elif hits > 0 and misses > 0:
+            cache_status = f"partial ({hits} hit, {misses} miss)"
+        else:
+            cache_status = "enabled"
+        print_metric("Cache", cache_status, Colors.GREEN)
+    else:
+        print_metric("Cache", "disabled", Colors.DIM)
 
     # Load TEST data (Session 2 Finetune - completely held out)
     print(colored("\n  Loading test data (Session 2 Finetune)...", Colors.DIM))
@@ -886,6 +1285,19 @@ def train_single_subject(
         print(colored(f"  WARNING: No test data found for subject {subject_id}", Colors.YELLOW))
 
     print_metric("Test segments", len(test_dataset) if test_dataset else 0, Colors.MAGENTA)
+    # Show test data cache status
+    if test_dataset and test_dataset.cache:
+        hits = getattr(test_dataset, 'n_cache_hits', 0)
+        misses = getattr(test_dataset, 'n_cache_misses', 0)
+        if misses == 0 and hits > 0:
+            cache_status = f"hit ({hits} files)"
+        elif hits == 0 and misses > 0:
+            cache_status = f"miss ({misses} files)"
+        elif hits > 0 and misses > 0:
+            cache_status = f"partial ({hits} hit, {misses} miss)"
+        else:
+            cache_status = "enabled"
+        print_metric("Cache", cache_status, Colors.GREEN)
 
     # ========== DATA SPLITTING (Temporal) ==========
     print_section_header("Data Splitting (Temporal - Last 20% for Validation)")
@@ -1036,7 +1448,10 @@ def train_single_subject(
         if model_type == 'cbramod':
             learning_rate = train_config.get('backbone_lr', 1e-4)
             weight_decay = train_config.get('weight_decay', 0.05)
-            scheduler_type = 'cosine'
+            # Default to WSD scheduler (Warmup-Stable-Decay) for CBraMod
+            if scheduler_type is None:
+                scheduler_type = 'wsd'
+                log_train.info(f"Scheduler: wsd (CBraMod default)")
 
         # Performance optimizations
         use_amp = True  # Enable AMP for both models
@@ -1120,6 +1535,7 @@ def train_single_subject(
         'val_accuracy': val_acc,
         'best_val_acc': trainer.best_val_acc,  # Val segment accuracy at best epoch
         'best_majority_acc': trainer.best_majority_acc,  # Val majority accuracy at best epoch
+        'best_combined_score': trainer.best_combined_score,  # (val_acc + majority_acc) / 2 at best epoch
         'test_accuracy': test_acc,  # This is the main metric (Phase 3)
         'test_accuracy_majority': test_acc,  # Alias for compatibility with run_full_comparison
         'final_accuracy': test_acc if test_acc > 0 else val_acc,  # For backwards compatibility
@@ -1179,163 +1595,17 @@ def train_single_subject(
     return results
 
 
-def main(args):
-    # Setup logging with yellow formatter
-    handler = logging.StreamHandler()
-    handler.setFormatter(YellowFormatter('train'))
-    logging.root.handlers = [handler]
-    logging.root.setLevel(logging.INFO)
-
-    # Check CUDA
-    if args.device == 'cuda':
-        check_cuda_available(required=True)
-    device = get_device(allow_cpu=(args.device == 'cpu'))
-    log_train.info(f"Device: {device}")
-
-    # Load configuration
-    try:
-        with open(args.config) as f:
-            config = yaml.safe_load(f)
-    except FileNotFoundError:
-        log_train.error(f"Config not found: {args.config}")
-        log_train.info("Available: configs/eegnet_config.yaml, configs/cbramod_config.yaml")
-        sys.exit(1)
-    except yaml.YAMLError as e:
-        log_train.error(f"Invalid YAML: {e}")
-        sys.exit(1)
-
-    config['task'] = args.task
-    paradigm_desc = "MI" if args.paradigm == 'imagery' else "ME"
-    log_train.info(f"Paradigm: {paradigm_desc} | Task: {args.task}")
-
-    # Determine model types to train
-    if args.model == 'both':
-        model_types = ['eegnet', 'cbramod']
-    else:
-        model_types = [args.model]
-
-    log_model.info(f"Models: {model_types}")
-
-    # Paths
-    data_root = PROJECT_ROOT / 'data'
-    elc_path = data_root / 'biosemi128.ELC'
-
-    # Determine subjects to train
-    if args.all_subjects:
-        # Find all subjects with required data (including test set)
-        subjects = discover_available_subjects(str(data_root), args.paradigm, args.task)
-    else:
-        subjects = [args.subject]
-
-    log_data.info(f"Subjects: {subjects}")
-
-    # Train each combination of model and subject
-    all_results = {}
-    for model_type in model_types:
-        log_train.info(f"{'='*40} {model_type.upper()} {'='*40}")
-
-        # Load model-specific config (auto-select based on model type)
-        if args.config == 'configs/eegnet_config.yaml' and model_type == 'cbramod':
-            # User didn't specify config, use model-appropriate default
-            model_config_path = PROJECT_ROOT / 'configs' / 'cbramod_config.yaml'
-            log_model.info(f"Auto-config: {model_config_path.name}")
-        elif args.config == 'configs/cbramod_config.yaml' and model_type == 'eegnet':
-            model_config_path = PROJECT_ROOT / 'configs' / 'eegnet_config.yaml'
-            log_model.info(f"Auto-config: {model_config_path.name}")
-        else:
-            model_config_path = args.config
-
-        with open(model_config_path) as f:
-            model_config = yaml.safe_load(f)
-        model_config['task'] = args.task
-
-        save_dir = PROJECT_ROOT / 'checkpoints' / f'{model_type}_within_subject' / args.task
-        model_results = {}
-
-        for subject_id in subjects:
-            try:
-                results = train_single_subject(
-                    subject_id=subject_id,
-                    config=model_config,
-                    data_root=data_root,
-                    elc_path=elc_path,
-                    save_dir=save_dir,
-                    device=device,
-                    model_type=model_type,
-                    paradigm=args.paradigm,
-                    cbramod_channels=args.cbramod_channels,
-                    # WandB parameters
-                    no_wandb=args.no_wandb,
-                    upload_model=args.upload_model,
-                    wandb_project=args.wandb_project,
-                    wandb_entity=args.wandb_entity,
-                    wandb_group=args.wandb_group,
-                )
-                model_results[subject_id] = results
-
-                if results:
-                    test_acc = results.get('test_accuracy', 0)
-                    val_acc = results.get('val_accuracy', results.get('final_accuracy', 0))
-                    log_eval.info(f"{subject_id}: Test={test_acc:.4f} Val={val_acc:.4f}")
-            except Exception as e:
-                log_train.error(f"{subject_id} {model_type} failed: {e}")
-                import traceback
-                traceback.print_exc()
-
-        all_results[model_type] = model_results
-
-    # Summary per model type
-    for model_type, model_results in all_results.items():
-        test_accuracies = [r.get('test_accuracy', 0) for r in model_results.values() if r]
-        val_accuracies = [r.get('val_accuracy', r.get('final_accuracy', 0)) for r in model_results.values() if r]
-
-        if len(test_accuracies) > 1:
-            log_eval.info(f"{'='*50}")
-            log_eval.info(f"{model_type.upper()} Summary (n={len(test_accuracies)})")
-            log_eval.info(f"  TEST: {np.mean(test_accuracies):.4f}+/-{np.std(test_accuracies):.4f} [{np.min(test_accuracies):.4f}-{np.max(test_accuracies):.4f}]")
-            log_eval.info(f"  VAL:  {np.mean(val_accuracies):.4f}")
-
-        # Save summary per model
-        save_dir = PROJECT_ROOT / 'checkpoints' / f'{model_type}_within_subject' / args.task
-        summary_path = save_dir / 'summary.json'
-        with open(summary_path, 'w') as f:
-            json.dump({
-                'task': args.task,
-                'model': model_type,
-                'protocol': 'three_phase',
-                'subjects': list(model_results.keys()),
-                # Test accuracies (Phase 3 - main metric)
-                'test_accuracies': {s: r.get('test_accuracy', None) for s, r in model_results.items()},
-                'mean_test_accuracy': float(np.mean(test_accuracies)) if test_accuracies else None,
-                'std_test_accuracy': float(np.std(test_accuracies)) if len(test_accuracies) > 1 else None,
-                # Val accuracies (for reference)
-                'val_accuracies': {s: r.get('val_accuracy', None) for s, r in model_results.items()},
-                'mean_val_accuracy': float(np.mean(val_accuracies)) if val_accuracies else None,
-                # Backwards compatibility
-                'accuracies': {s: r.get('test_accuracy', r.get('final_accuracy', None)) for s, r in model_results.items()},
-                'mean_accuracy': float(np.mean(test_accuracies)) if test_accuracies else None,
-                'std_accuracy': float(np.std(test_accuracies)) if len(test_accuracies) > 1 else None,
-            }, f, indent=2)
-
-        log_train.info(f"{model_type.upper()} saved: {save_dir}")
-
-
 def get_default_config(model_type: str, task: str) -> dict:
     """
     Get default configuration for a model type and task.
 
-    This function provides hardcoded default configurations for programmatic use,
-    enabling training without loading YAML configuration files. These defaults
-    are aligned with the values in configs/eegnet_config.yaml and
-    configs/cbramod_config.yaml at the time of implementation.
+    This function provides the canonical training configurations used by all
+    training scripts. These are the single source of truth for model hyperparameters.
 
-    IMPORTANT: If you modify the YAML config files, these hardcoded values will
-    NOT automatically update. For full config file support, use the CLI interface:
-        uv run python -m src.training.train_within_subject --config <path>
-
-    This function is primarily used by:
+    Used by:
     - train_subject_simple(): Simplified API for external callers
-    - scripts/run_full_comparison.py: Batch training without config files
+    - scripts/run_full_comparison.py: Batch training
+    - scripts/run_single_model.py: Single model training
 
     Args:
         model_type: 'eegnet' or 'cbramod'
@@ -1365,14 +1635,14 @@ def get_default_config(model_type: str, task: str) -> dict:
                 'freeze_backbone': False,
             },
             'training': {
-                'epochs': 50,
+                'epochs': 30,
                 'batch_size': 128,
                 'learning_rate': 1e-4,
                 'backbone_lr': 1e-4,
                 'classifier_lr': 5e-4,
                 'weight_decay': 0.05,
                 'patience': 5,
-                'scheduler': 'cosine',
+                'scheduler': 'wsd',  # Warmup-Stable-Decay (CBraMod default)
             },
             'data': {},
             'tasks': tasks,
@@ -1389,7 +1659,7 @@ def get_default_config(model_type: str, task: str) -> dict:
                 'dropout_rate': 0.5,
             },
             'training': {
-                'epochs': 300,
+                'epochs': 30,
                 'batch_size': 64,
                 'learning_rate': 1e-3,
                 'weight_decay': 0,
@@ -1413,12 +1683,18 @@ def train_subject_simple(
     save_dir: str = 'checkpoints',
     device: Optional[torch.device] = None,
     cbramod_channels: int = 128,
+    # Custom preprocessing config (for ML engineering experiments)
+    preprocess_config: Optional[PreprocessConfig] = None,
+    # Config overrides (for scheduler comparison experiments)
+    config_overrides: Optional[Dict] = None,
     # WandB parameters
     no_wandb: bool = False,
     upload_model: bool = False,
     wandb_project: str = 'eeg-bci',
     wandb_entity: Optional[str] = None,
     wandb_group: Optional[str] = None,
+    wandb_interactive: bool = False,
+    wandb_metadata: Optional[Dict[str, str]] = None,
 ) -> Dict:
     """
     Simplified training function for programmatic use.
@@ -1436,11 +1712,15 @@ def train_subject_simple(
         device: Device to use (auto-detect if None)
         cbramod_channels: Number of channels for CBraMod (19 or 128).
             128 uses ACPE adaptation for full BioSemi channels.
+        preprocess_config: Optional custom PreprocessConfig. If None, uses
+            default config for the model type. Used by ML engineering experiments.
         no_wandb: Disable wandb logging
         upload_model: Upload model artifacts (.pt) to WandB (default: False)
         wandb_project: WandB project name
         wandb_entity: WandB entity (team/username)
         wandb_group: WandB run group
+        wandb_interactive: Prompt for run details interactively
+        wandb_metadata: Pre-collected metadata (goal, hypothesis, notes) for batch training
 
     Returns:
         Results dict with keys:
@@ -1458,6 +1738,14 @@ def train_subject_simple(
 
     config = get_default_config(model_type, task)
 
+    # Apply config overrides (for scheduler comparison experiments)
+    if config_overrides:
+        for section, overrides in config_overrides.items():
+            if section in config and isinstance(overrides, dict):
+                config[section].update(overrides)
+            else:
+                config[section] = overrides
+
     return train_single_subject(
         subject_id=subject_id,
         config=config,
@@ -1468,95 +1756,13 @@ def train_subject_simple(
         model_type=model_type,
         paradigm=paradigm,
         cbramod_channels=cbramod_channels,
+        preprocess_config=preprocess_config,
         # WandB parameters
         no_wandb=no_wandb,
         upload_model=upload_model,
         wandb_project=wandb_project,
         wandb_entity=wandb_entity,
         wandb_group=wandb_group,
+        wandb_interactive=wandb_interactive,
+        wandb_metadata=wandb_metadata,
     )
-
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(
-        description='Within-subject training for EEGNet and CBraMod (paper-aligned)'
-    )
-
-    parser.add_argument(
-        '--config', type=str,
-        default='configs/eegnet_config.yaml',
-        help='Path to configuration file'
-    )
-    parser.add_argument(
-        '--subject', type=str,
-        default='S01',
-        help='Subject ID (e.g., S01)'
-    )
-    parser.add_argument(
-        '--all-subjects', action='store_true',
-        help='Train all subjects'
-    )
-    parser.add_argument(
-        '--task', type=str,
-        default='binary',
-        choices=['binary', 'ternary', 'quaternary'],
-        help='Classification task'
-    )
-    parser.add_argument(
-        '--model', type=str,
-        default='both',
-        choices=['eegnet', 'cbramod', 'both'],
-        help='Model type to train (eegnet, cbramod, or both)'
-    )
-    parser.add_argument(
-        '--paradigm', type=str,
-        default='imagery',
-        choices=['imagery', 'movement'],
-        help='Experiment paradigm: imagery (MI) or movement (ME) (default: imagery)'
-    )
-    parser.add_argument(
-        '--device', type=str,
-        default='cuda',
-        help='Device to use (cuda or cpu)'
-    )
-    parser.add_argument(
-        '--seed', type=int,
-        default=42,
-        help='Random seed for reproducibility (default: 42)'
-    )
-    parser.add_argument(
-        '--cbramod-channels', type=int,
-        choices=[19, 128],
-        default=128,
-        help='Number of channels for CBraMod (19=10-20 system, 128=full BioSemi). '
-             'Default 128 uses all channels with ACPE adaptation. Requires more GPU memory.'
-    )
-
-    # WandB arguments
-    parser.add_argument(
-        '--no-wandb', action='store_true',
-        help='Disable wandb logging (default: enabled if wandb is installed)'
-    )
-    parser.add_argument(
-        '--upload-model', action='store_true',
-        help='Upload model artifacts (.pt files) to WandB (default: disabled to save bandwidth)'
-    )
-    parser.add_argument(
-        '--wandb-project', type=str, default='eeg-bci',
-        help='WandB project name (default: eeg-bci)'
-    )
-    parser.add_argument(
-        '--wandb-entity', type=str, default=None,
-        help='WandB entity (team/username)'
-    )
-    parser.add_argument(
-        '--wandb-group', type=str, default=None,
-        help='WandB run group (for grouping multiple subjects)'
-    )
-
-    args = parser.parse_args()
-
-    # Set random seed for reproducibility
-    set_seed(args.seed)
-
-    main(args)

@@ -1,0 +1,157 @@
+{
+  "timestamp": "2026-01-25T22:42:03.620095",
+  "task": "binary",
+  "paradigm": "imagery",
+  "subjects": [
+    "S02",
+    "S03",
+    "S04",
+    "S05",
+    "S06",
+    "S07"
+  ],
+  "results": [
+    {
+      "subject": "S02",
+      "task": "binary",
+      "paradigm": "imagery",
+      "schedulers": {
+        "cosine": {
+          "epochs": 25,
+          "test_acc": 0.9375,
+          "test_majority_acc": 0.9375,
+          "best_val_acc": 0.7487936417825717,
+          "best_epoch": 7,
+          "training_time": 147.65205340000102
+        },
+        "wsd": {
+          "epochs": 50,
+          "test_acc": 0.9625,
+          "test_majority_acc": 0.9625,
+          "best_val_acc": 0.7405620210048255,
+          "best_epoch": 7,
+          "training_time": 160.5289574000053
+        }
+      }
+    },
+    {
+      "subject": "S03",
+      "task": "binary",
+      "paradigm": "imagery",
+      "schedulers": {
+        "cosine": {
+          "epochs": 25,
+          "test_acc": 0.8875,
+          "test_majority_acc": 0.8875,
+          "best_val_acc": 0.7890403180011357,
+          "best_epoch": 11,
+          "training_time": 215.23259870000038
+        },
+        "wsd": {
+          "epochs": 50,
+          "test_acc": 0.925,
+          "test_majority_acc": 0.925,
+          "best_val_acc": 0.7961385576377058,
+          "best_epoch": 9,
+          "training_time": 184.9605034999986
+        }
+      }
+    },
+    {
+      "subject": "S04",
+      "task": "binary",
+      "paradigm": "imagery",
+      "schedulers": {
+        "cosine": {
+          "epochs": 25,
+          "test_acc": 0.89375,
+          "test_majority_acc": 0.89375,
+          "best_val_acc": 0.6511881999453701,
+          "best_epoch": 5,
+          "training_time": 167.6531313000014
+        },
+        "wsd": {
+          "epochs": 50,
+          "test_acc": 0.95625,
+          "test_majority_acc": 0.95625,
+          "best_val_acc": 0.6602021305654193,
+          "best_epoch": 14,
+          "training_time": 244.80289049999556
+        }
+      }
+    },
+    {
+      "subject": "S05",
+      "task": "binary",
+      "paradigm": "imagery",
+      "schedulers": {
+        "cosine": {
+          "epochs": 25,
+          "test_acc": 0.7875,
+          "test_majority_acc": 0.7875,
+          "best_val_acc": 0.6573464912280702,
+          "best_epoch": 3,
+          "training_time": 132.8865539000035
+        },
+        "wsd": {
+          "epochs": 50,
+          "test_acc": 0.85625,
+          "test_majority_acc": 0.85625,
+          "best_val_acc": 0.7209429824561403,
+          "best_epoch": 8,
+          "training_time": 156.66897709999466
+        }
+      }
+    },
+    {
+      "subject": "S06",
+      "task": "binary",
+      "paradigm": "imagery",
+      "schedulers": {
+        "cosine": {
+          "epochs": 25,
+          "test_acc": 0.675,
+          "test_majority_acc": 0.675,
+          "best_val_acc": 0.7056499407348874,
+          "best_epoch": 12,
+          "training_time": 155.16663630000403
+        },
+        "wsd": {
+          "epochs": 50,
+          "test_acc": 0.70625,
+          "test_majority_acc": 0.70625,
+          "best_val_acc": 0.6993283287238246,
+          "best_epoch": 9,
+          "training_time": 121.7249887999933
+        }
+      }
+    },
+    {
+      "subject": "S07",
+      "task": "binary",
+      "paradigm": "imagery",
+      "schedulers": {
+        "cosine": {
+          "epochs": 25,
+          "test_acc": 0.74375,
+          "test_majority_acc": 0.74375,
+          "best_val_acc": 0.7514204545454546,
+          "best_epoch": 9,
+          "training_time": 178.11964979999902
+        },
+        "wsd": {
+          "epochs": 50,
+          "test_acc": 0.71875,
+          "test_majority_acc": 0.71875,
+          "best_val_acc": 0.759375,
+          "best_epoch": 12,
+          "training_time": 190.58333180000045
+        }
+      }
+    }
+  ],
+  "summary": {
+    "avg_cosine": 0.8208333333333333,
+    "avg_wsd": 0.8541666666666666
+  }
+}
