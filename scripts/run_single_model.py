@@ -90,6 +90,7 @@ def run_single_model(
     no_wandb: bool = False,
     upload_model: bool = False,
     wandb_interactive: bool = False,
+    wandb_session_metadata: Optional[Dict[str, Optional[str]]] = None,
 ) -> Tuple[List[TrainingResult], Dict]:
     """
     Train a single model on all specified subjects.
@@ -106,6 +107,8 @@ def run_single_model(
         no_wandb: Disable wandb logging
         upload_model: Upload model artifacts (.pt) to WandB (default: False)
         wandb_interactive: Prompt for run details interactively (only prompts once for batch training)
+        wandb_session_metadata: Pre-collected WandB metadata (from run_full_comparison.py).
+            When provided, skips interactive prompting.
 
     Returns:
         Tuple of (results_list, statistics_dict)
@@ -148,15 +151,27 @@ def run_single_model(
         elif subjects_to_train:
             log_train.info(f"{len(subjects_to_train)} to train ({', '.join(sorted(subjects_to_train))})")
 
-    # Interactive mode: prompt once ONLY if training is needed
+    # Determine shared WandB metadata for batch training
     shared_wandb_metadata = None
-    if wandb_interactive and not no_wandb and subjects_to_train and sys.stdin.isatty():
-        from src.utils.wandb_logger import _prompt_run_details
-        paradigm_short = "MI" if paradigm == "imagery" else "ME"
-        default_name = f"{model_type}_{task}_{paradigm_short}"
-        shared_wandb_metadata = _prompt_run_details(default_name=default_name)
-        # Don't prompt again for individual subjects
-        wandb_interactive = False
+    if wandb_session_metadata is not None:
+        # Use pre-collected metadata from run_full_comparison.py
+        shared_wandb_metadata = wandb_session_metadata
+    else:
+        # Single model run: check if we should prompt
+        from scripts._wandb_setup import should_prompt_wandb, prompt_batch_session
+        if should_prompt_wandb(
+            wandb_enabled=not no_wandb,
+            interactive=wandb_interactive,
+            has_training=bool(subjects_to_train),
+        ):
+            shared_wandb_metadata = prompt_batch_session(
+                models=[model_type],
+                task=task,
+                paradigm=paradigm,
+                subjects_to_train=len(subjects_to_train),
+            )
+    # Don't prompt again for individual subjects
+    wandb_interactive = False
 
     results: List[TrainingResult] = []
 

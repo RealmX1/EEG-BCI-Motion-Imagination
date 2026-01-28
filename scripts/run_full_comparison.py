@@ -617,6 +617,33 @@ Examples:
         if not args.force_retrain and not args.new_run:
             log_main.info("Using cache (--new-run for fresh, --force-retrain to overwrite)")
 
+        # Collect WandB metadata once before model loop
+        from scripts._wandb_setup import should_prompt_wandb, prompt_batch_session
+
+        # Count subjects that need training (check cache for each model)
+        subjects_needing_training = set()
+        if args.force_retrain:
+            # All subjects need training when force_retrain is set
+            subjects_needing_training = set(subjects)
+        else:
+            for model_type in args.models:
+                cache = load_cache(args.output_dir, args.paradigm, args.task, run_tag, find_latest=(run_tag is None))
+                cached_subjects = set(cache.get(model_type, {}).keys()) if cache else set()
+                subjects_needing_training.update(set(subjects) - cached_subjects)
+
+        wandb_session_metadata = None
+        if should_prompt_wandb(
+            wandb_enabled=not args.no_wandb,
+            interactive=not args.no_wandb_interactive,
+            has_training=bool(subjects_needing_training),
+        ):
+            wandb_session_metadata = prompt_batch_session(
+                models=args.models,
+                task=args.task,
+                paradigm=args.paradigm,
+                subjects_to_train=len(subjects_needing_training),
+            )
+
         # Run training for each model using run_single_model
         results = {}
         for model_type in args.models:
@@ -633,7 +660,8 @@ Examples:
                 run_tag=run_tag,
                 no_wandb=args.no_wandb,
                 upload_model=args.upload_model,
-                wandb_interactive=not args.no_wandb_interactive,
+                wandb_interactive=False,  # Disable internal prompting
+                wandb_session_metadata=wandb_session_metadata,  # Use pre-collected metadata
             )
             results[model_type] = model_results
 
