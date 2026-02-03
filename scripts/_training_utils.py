@@ -17,7 +17,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -81,14 +81,31 @@ class TrainingResult:
 # Subject Discovery
 # ============================================================================
 
-def discover_subjects(data_root: str, paradigm: str = 'imagery', task: str = 'binary') -> List[str]:
+def discover_subjects(
+    data_root: str,
+    paradigm: str = 'imagery',
+    task: str = 'binary',
+    use_cache_index: bool = False,
+    cache_index_path: str = ".cache_index.json"
+) -> List[str]:
     """
-    Discover all available subjects in data directory.
+    Discover all available subjects.
 
-    Uses the discover_available_subjects function which checks for
-    required test data (Session 2 Finetune).
+    Args:
+        data_root: Root directory containing subject folders
+        paradigm: 'imagery' or 'movement'
+        task: 'binary', 'ternary', or 'quaternary'
+        use_cache_index: If True, discover from cache index instead of filesystem
+        cache_index_path: Path to cache index file (default: .cache_index.json)
+
+    Returns:
+        List of subject IDs (e.g., ['S01', 'S02', ...])
     """
-    return discover_available_subjects(data_root, paradigm, task)
+    if use_cache_index:
+        from src.preprocessing.data_loader import discover_subjects_from_cache_index
+        return discover_subjects_from_cache_index(cache_index_path, paradigm, task)
+    else:
+        return discover_available_subjects(data_root, paradigm, task)
 
 
 # ============================================================================
@@ -139,7 +156,7 @@ def load_cache(
     task: str,
     run_tag: Optional[str] = None,
     find_latest: bool = False
-) -> Dict[str, Dict[str, dict]]:
+) -> Tuple[Dict[str, Dict[str, dict]], Dict]:
     """Load cached results with backward compatibility for old cache format.
 
     Args:
@@ -148,7 +165,21 @@ def load_cache(
         task: 'binary', 'ternary', or 'quaternary'
         run_tag: Optional tag for specific run (e.g., '20260110_2317')
         find_latest: If True and run_tag is None, find the latest cache file
+
+    Returns:
+        Tuple of (results_dict, metadata_dict) where metadata contains:
+        - run_tag: Optional[str] - the run tag from cache
+        - wandb_groups: Dict[str, str] - model_type -> wandb_group mapping
     """
+    empty_metadata = {'run_tag': None, 'wandb_groups': {}}
+
+    def extract_metadata(data: dict) -> Dict:
+        """Extract metadata from cache data with backward compatibility."""
+        return {
+            'run_tag': data.get('run_tag'),
+            'wandb_groups': data.get('wandb_groups', {}),
+        }
+
     if find_latest and not run_tag:
         latest_cache = find_latest_cache(output_dir, paradigm, task)
         if latest_cache:
@@ -156,10 +187,10 @@ def load_cache(
                 with open(latest_cache, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                 log_cache.info(f"Loaded latest cache: {latest_cache.name}")
-                return data.get('results', {})
+                return data.get('results', {}), extract_metadata(data)
             except Exception as e:
                 log_cache.warning(f"Failed to load latest cache: {e}")
-        return {}
+        return {}, empty_metadata
 
     cache_path = get_cache_path(output_dir, paradigm, task, run_tag)
     if cache_path.exists():
@@ -167,7 +198,7 @@ def load_cache(
             with open(cache_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             log_cache.info(f"Loaded from {cache_path.name}")
-            return data.get('results', {})
+            return data.get('results', {}), extract_metadata(data)
         except Exception as e:
             log_cache.warning(f"Failed to load: {e}")
 
@@ -179,11 +210,11 @@ def load_cache(
                 with open(old_format_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                 log_cache.info(f"Loaded legacy {old_format_path} -> new: {cache_path.name}")
-                return data.get('results', {})
+                return data.get('results', {}), extract_metadata(data)
             except Exception as e:
                 log_cache.warning(f"Failed to load legacy: {e}")
 
-    return {}
+    return {}, empty_metadata
 
 
 def save_cache(
@@ -191,9 +222,19 @@ def save_cache(
     paradigm: str,
     task: str,
     results: Dict[str, Dict[str, dict]],
-    run_tag: Optional[str] = None
+    run_tag: Optional[str] = None,
+    wandb_groups: Optional[Dict[str, str]] = None,
 ):
-    """Save results to cache using atomic write to prevent corruption."""
+    """Save results to cache using atomic write to prevent corruption.
+
+    Args:
+        output_dir: Directory to save cache files
+        paradigm: 'imagery' or 'movement'
+        task: 'binary', 'ternary', or 'quaternary'
+        results: Training results dict
+        run_tag: Optional tag for specific run
+        wandb_groups: Optional dict mapping model_type to wandb_group name
+    """
     cache_path = get_cache_path(output_dir, paradigm, task, run_tag)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -201,6 +242,7 @@ def save_cache(
         'paradigm': paradigm,
         'task': task,
         'run_tag': run_tag,
+        'wandb_groups': wandb_groups or {},
         'last_updated': datetime.now().isoformat(),
         'results': results,
     }
@@ -285,6 +327,8 @@ def train_and_get_result(
     preprocess_config: Optional[PreprocessConfig] = None,
     wandb_interactive: bool = False,
     wandb_metadata: Optional[Dict] = None,
+    cache_only: bool = False,
+    cache_index_path: str = ".cache_index.json",
 ) -> TrainingResult:
     """
     Train a model for a single subject and return TrainingResult.
@@ -304,6 +348,8 @@ def train_and_get_result(
         preprocess_config: Optional custom PreprocessConfig for ML engineering experiments
         wandb_interactive: Prompt for run details interactively
         wandb_metadata: Pre-collected metadata (goal, hypothesis, notes) for batch training
+        cache_only: If True, load data exclusively from cache index
+        cache_index_path: Path to cache index file for cache_only mode
     """
     result_dict = train_subject_simple(
         subject_id=subject_id,
@@ -318,6 +364,8 @@ def train_and_get_result(
         preprocess_config=preprocess_config,
         wandb_interactive=wandb_interactive,
         wandb_metadata=wandb_metadata,
+        cache_only=cache_only,
+        cache_index_path=cache_index_path,
     )
 
     if not result_dict:

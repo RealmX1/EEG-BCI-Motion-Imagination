@@ -562,6 +562,14 @@ Examples:
         '--no-wandb-interactive', action='store_true',
         help='Disable interactive prompts for WandB run details (prompts are enabled by default)'
     )
+    parser.add_argument(
+        '--use-cache-index', action='store_true',
+        help='从缓存索引发现被试，而非扫描 data/ 目录（适用于仅有缓存无原始数据的场景）'
+    )
+    parser.add_argument(
+        '--cache-index-path', type=str, default='.cache_index.json',
+        help='缓存索引文件路径（默认：.cache_index.json）'
+    )
 
     args = parser.parse_args()
 
@@ -606,7 +614,13 @@ Examples:
         if args.subjects:
             subjects = args.subjects
         else:
-            subjects = discover_subjects(args.data_root, args.paradigm, args.task)
+            subjects = discover_subjects(
+                args.data_root,
+                args.paradigm,
+                args.task,
+                use_cache_index=args.use_cache_index,
+                cache_index_path=args.cache_index_path
+            )
 
         if not subjects:
             log_main.error(f"No subjects in {args.data_root}")
@@ -627,7 +641,7 @@ Examples:
             subjects_needing_training = set(subjects)
         else:
             for model_type in args.models:
-                cache = load_cache(args.output_dir, args.paradigm, args.task, run_tag, find_latest=(run_tag is None))
+                cache, _ = load_cache(args.output_dir, args.paradigm, args.task, run_tag, find_latest=(run_tag is None))
                 cached_subjects = set(cache.get(model_type, {}).keys()) if cache else set()
                 subjects_needing_training.update(set(subjects) - cached_subjects)
 
@@ -662,6 +676,8 @@ Examples:
                 upload_model=args.upload_model,
                 wandb_interactive=False,  # Disable internal prompting
                 wandb_session_metadata=wandb_session_metadata,  # Use pre-collected metadata
+                cache_only=args.use_cache_index,
+                cache_index_path=args.cache_index_path,
             )
             results[model_type] = model_results
 

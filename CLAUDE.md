@@ -10,7 +10,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 本项目是一个基于脑电图（EEG）的脑机接口（BCI）研究项目，对比验证 EEG 基座模型（CBraMod）与传统 CNN（EEGNet）在单指级别运动解码任务中的性能。
 
-**当前状态**: Phase 3 - 全被试训练进行中。框架已完成，当前有 7/21 被试数据 (S01-S07)。详见 `docs/dev_log/changelog.md`。
+**当前状态**: Phase 3 - 全被试训练进行中。框架已完成，**所有 21 个被试数据 (S01-S21) 已合并完成**。详见 `docs/dev_log/changelog.md`。
+
+**缓存状态**: 3640 条预处理缓存（31.4 GB），覆盖所有 21 个被试。合并报告: `caches/MERGE_COMPLETE_REPORT.txt`
 
 ## 快速命令
 
@@ -39,6 +41,22 @@ uv run python scripts/preprocess_zip.py --paradigm movement           # Motor Ex
 # 缓存管理
 uv run python scripts/cache_helper.py --stats
 uv run python scripts/cache_helper.py --model cbramod --execute
+
+# 跨被试训练与迁移学习
+uv run python scripts/run_cross_subject.py --model eegnet                # 跨被试预训练
+uv run python scripts/run_cross_subject.py --model cbramod --subjects S01 S02 S03 S04 S05
+
+# 个体微调
+uv run python scripts/run_finetune.py \
+    --pretrained checkpoints/cross_subject/eegnet_imagery_binary/best.pt \
+    --subject S01
+uv run python scripts/run_finetune.py \
+    --pretrained checkpoints/cross_subject/cbramod_imagery_binary/best.pt \
+    --all-subjects --freeze-strategy backbone
+
+# 迁移学习完整对比实验
+uv run python scripts/run_transfer_comparison.py --task binary           # 完整对比
+uv run python scripts/run_transfer_comparison.py --task binary --models eegnet  # 仅 EEGNet
 ```
 
 ## 数据划分协议
@@ -66,8 +84,13 @@ uv run python scripts/cache_helper.py --model cbramod --execute
 | `src/models/eegnet.py` | EEGNet-8,2 实现 |
 | `src/models/cbramod_adapter.py` | CBraMod 适配器 (支持 19/128 通道) |
 | `src/training/train_within_subject.py` | 被试内训练模块 (API) |
+| `src/training/train_cross_subject.py` | 跨被试预训练模块 |
+| `src/training/finetune.py` | 个体微调模块 (支持冻结策略) |
 | `scripts/run_full_comparison.py` | 全被试模型对比 |
 | `scripts/run_single_model.py` | 单模型训练脚本 |
+| `scripts/run_cross_subject.py` | 跨被试预训练脚本 |
+| `scripts/run_finetune.py` | 个体微调脚本 |
+| `scripts/run_transfer_comparison.py` | 迁移学习完整对比实验 |
 
 ## 模型配置
 

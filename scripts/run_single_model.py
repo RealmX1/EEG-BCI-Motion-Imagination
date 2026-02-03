@@ -91,6 +91,8 @@ def run_single_model(
     upload_model: bool = False,
     wandb_interactive: bool = False,
     wandb_session_metadata: Optional[Dict[str, Optional[str]]] = None,
+    cache_only: bool = False,
+    cache_index_path: str = ".cache_index.json",
 ) -> Tuple[List[TrainingResult], Dict]:
     """
     Train a single model on all specified subjects.
@@ -109,6 +111,8 @@ def run_single_model(
         wandb_interactive: Prompt for run details interactively (only prompts once for batch training)
         wandb_session_metadata: Pre-collected WandB metadata (from run_full_comparison.py).
             When provided, skips interactive prompting.
+        cache_only: If True, load data exclusively from cache index
+        cache_index_path: Path to cache index file for cache_only mode
 
     Returns:
         Tuple of (results_list, statistics_dict)
@@ -117,24 +121,37 @@ def run_single_model(
     paradigm_config = PARADIGM_CONFIG[paradigm]
     log_train.info(f"Model: {model_type.upper()} | Paradigm: {paradigm_config['description']}")
 
-    # Generate wandb group name
-    if run_tag:
-        wandb_group = f"{model_type}_{paradigm}_{task}_{run_tag}"
-    else:
-        wandb_group = f"{model_type}_{paradigm}_{task}_{datetime.now().strftime('%Y%m%d_%H%M')}"
+    # Load existing cache and metadata (including wandb_groups)
+    wandb_group = None
+    cache_wandb_groups = {}
 
-    # Load existing cache
     if force_retrain:
         cache = {}
         log_train.info("Force retrain - ignoring cache")
     elif run_tag:
-        cache = load_cache(output_dir, paradigm, task, run_tag)
+        cache, metadata = load_cache(output_dir, paradigm, task, run_tag)
+        cache_wandb_groups = metadata.get('wandb_groups', {})
         if cache:
             log_train.info(f"Resuming '{run_tag}'")
+            # Restore wandb_group from cache if available
+            wandb_group = cache_wandb_groups.get(model_type)
         else:
             log_train.info(f"New run '{run_tag}'")
     else:
-        cache = load_cache(output_dir, paradigm, task, find_latest=True)
+        cache, metadata = load_cache(output_dir, paradigm, task, find_latest=True)
+        cache_wandb_groups = metadata.get('wandb_groups', {})
+        # Restore wandb_group from latest cache if available
+        wandb_group = cache_wandb_groups.get(model_type)
+
+    # Generate new wandb_group only if not restored from cache
+    if not wandb_group:
+        if run_tag:
+            wandb_group = f"{model_type}_{paradigm}_{task}_{run_tag}"
+        else:
+            wandb_group = f"{model_type}_{paradigm}_{task}_{datetime.now().strftime('%Y%m%d_%H%M')}"
+
+    # Save wandb_group to cache metadata for future runs
+    cache_wandb_groups[model_type] = wandb_group
 
     # Determine which subjects need training
     cached_subjects = set(cache.get(model_type, {}).keys()) if cache else set()
@@ -209,13 +226,15 @@ def run_single_model(
                 wandb_group=wandb_group,
                 wandb_interactive=wandb_interactive,
                 wandb_metadata=shared_wandb_metadata,
+                cache_only=cache_only,
+                cache_index_path=cache_index_path,
             )
 
             results.append(result)
 
-            # Save to cache immediately
+            # Save to cache immediately (including wandb_groups metadata)
             cache[model_type][subject_id] = result_to_dict(result)
-            save_cache(output_dir, paradigm, task, cache, run_tag)
+            save_cache(output_dir, paradigm, task, cache, run_tag, wandb_groups=cache_wandb_groups)
 
             print_subject_result(subject_id, model_type, result)
 
@@ -436,7 +455,7 @@ def load_single_model_results(
         return results, stats
 
     # Load from cache
-    cache = load_cache(output_dir, paradigm, task, find_latest=True)
+    cache, _ = load_cache(output_dir, paradigm, task, find_latest=True)
 
     if model_type not in cache:
         return [], {}
@@ -540,6 +559,14 @@ Examples:
         '--seed', type=int, default=42,
         help='Random seed (default: 42)'
     )
+    parser.add_argument(
+        '--use-cache-index', action='store_true',
+        help='从缓存索引发现被试，而非扫描 data/ 目录（适用于仅有缓存无原始数据的场景）'
+    )
+    parser.add_argument(
+        '--cache-index-path', type=str, default='.cache_index.json',
+        help='缓存索引文件路径（默认：.cache_index.json）'
+    )
 
     args = parser.parse_args()
 
@@ -582,7 +609,13 @@ Examples:
         if args.subjects:
             subjects = args.subjects
         else:
-            subjects = discover_subjects(args.data_root, args.paradigm, args.task)
+            subjects = discover_subjects(
+                args.data_root,
+                args.paradigm,
+                args.task,
+                use_cache_index=args.use_cache_index,
+                cache_index_path=args.cache_index_path
+            )
 
         if not subjects:
             log_main.error(f"No subjects found in {args.data_root}")
@@ -606,6 +639,8 @@ Examples:
             no_wandb=args.no_wandb,
             upload_model=args.upload_model,
             wandb_interactive=not args.no_wandb_interactive,
+            cache_only=args.use_cache_index,
+            cache_index_path=args.cache_index_path,
         )
 
     # Print summary

@@ -18,6 +18,7 @@ Preprocessing pipeline (aligned with original paper):
 6. Z-score normalization per segment (along time axis)
 """
 
+import json
 import numpy as np
 import scipy.io as sio
 import scipy.signal
@@ -656,6 +657,98 @@ def discover_available_subjects(
     return subjects
 
 
+def discover_subjects_from_cache_index(
+    cache_index_path: str = ".cache_index.json",
+    paradigm: str = 'imagery',
+    task: str = 'binary',
+) -> List[str]:
+    """
+    从缓存索引中发现可用的被试。
+
+    此函数读取预处理缓存索引，提取所有符合指定范式和任务的被试 ID。
+    适用于数据已预处理但原始数据文件不在本地的场景。
+
+    Args:
+        cache_index_path: 缓存索引文件路径（默认：.cache_index.json）
+        paradigm: 'imagery' 或 'movement'
+        task: 'binary', 'ternary', 或 'quaternary'
+
+    Returns:
+        被试 ID 列表（如 ['S01', 'S02', ...]），按字母顺序排序
+
+    Note:
+        - Offline 数据的 n_classes 字段为 null，包含所有 4 个手指的数据
+        - Binary/Ternary/Quaternary 任务都接受 n_classes == null 的条目
+    """
+    # 验证 paradigm 参数
+    if paradigm not in ['imagery', 'movement']:
+        logger.error(f"Invalid paradigm: {paradigm}. Must be 'imagery' or 'movement'")
+        return []
+
+    cache_path = Path(cache_index_path)
+
+    # 检查缓存索引是否存在
+    if not cache_path.exists():
+        logger.warning(f"Cache index not found at {cache_index_path}, returning empty subject list")
+        return []
+
+    try:
+        # 读取缓存索引
+        with open(cache_path, 'r', encoding='utf-8') as f:
+            cache_data = json.load(f)
+
+        entries = cache_data.get('entries', {})
+        if not entries:
+            logger.warning(f"Cache index at {cache_index_path} contains no entries")
+            return []
+
+        # 确定任务对应的 n_classes
+        task_to_n_classes = {
+            'binary': [2, None],      # 接受 2-class 和 offline (null)
+            'ternary': [3, None],     # 接受 3-class 和 offline (null)
+            'quaternary': [4, None],  # 接受 4-class 和 offline (null)
+        }
+
+        if task not in task_to_n_classes:
+            logger.error(f"Invalid task: {task}. Must be 'binary', 'ternary', or 'quaternary'")
+            return []
+
+        valid_n_classes = task_to_n_classes[task]
+
+        # 提取符合条件的被试
+        subjects_set = set()
+        for entry_data in entries.values():
+            # 检查 paradigm 匹配
+            if entry_data.get('subject_task_type') != paradigm:
+                continue
+
+            # 检查 n_classes 匹配
+            entry_n_classes = entry_data.get('n_classes')
+            if entry_n_classes not in valid_n_classes:
+                continue
+
+            # 提取被试 ID
+            subject_id = entry_data.get('subject')
+            if subject_id:
+                subjects_set.add(subject_id)
+
+        subjects = sorted(list(subjects_set))
+
+        if not subjects:
+            logger.warning(f"No subjects found in cache index for paradigm={paradigm}, task={task}")
+        else:
+            logger.debug(f"Found {len(subjects)} subjects in cache index: {subjects}")
+
+        return subjects
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse cache index at {cache_index_path}: {e}")
+        return []
+    except Exception as e:
+        logger.error(f"Error reading cache index: {e}")
+        return []
+
+
 def extract_trials(
     eeg_data: np.ndarray,
     events: List[Dict],
@@ -1291,6 +1384,8 @@ class FingerEEGDataset(Dataset):
         session_folders: Optional[List[str]] = None,
         preconvert_tensors: bool = True,
         parallel_workers: int = 0,
+        cache_only: bool = False,
+        cache_index_path: str = ".cache_index.json",
     ):
         """
         Initialize dataset.
@@ -1317,6 +1412,11 @@ class FingerEEGDataset(Dataset):
                             0 = auto (use cpu_count - 1), -1 = disabled (serial).
                             Parallel loading can speed up first-time preprocessing by 3-4x.
                             (default: 0)
+            cache_only: If True, load data exclusively from cache index without
+                       scanning filesystem. Useful when original .mat files are not
+                       available but preprocessed caches exist. (default: False)
+            cache_index_path: Path to cache index file for cache_only mode.
+                            (default: '.cache_index.json')
         """
         self.data_root = Path(data_root)
         self.subjects = subjects
@@ -1326,6 +1426,12 @@ class FingerEEGDataset(Dataset):
         self.transform = transform
         self.session_folders = session_folders
         self.preconvert_tensors = preconvert_tensors
+        self.cache_only = cache_only
+        self.cache_index_path = cache_index_path
+
+        # Validate cache_only mode
+        if cache_only and not use_cache:
+            raise ValueError("cache_only=True requires use_cache=True")
 
         # Set up parallel workers
         if parallel_workers == 0:
@@ -1369,6 +1475,106 @@ class FingerEEGDataset(Dataset):
         if self.preconvert_tensors and self.trials:
             self._convert_to_tensors()
 
+    def _build_file_list_from_cache_index(self) -> List[Tuple[Path, Dict, bool, bool]]:
+        """
+        构建文件列表从缓存索引（纯缓存模式）。
+
+        返回与文件系统扫描相同格式的文件列表，但完全基于缓存索引。
+        这允许在原始 .mat 文件不可用时仍能加载数据。
+
+        Returns:
+            List of (mat_path, session_info, needs_processing, is_offline) tuples
+            其中 mat_path 是虚拟路径，needs_processing 始终为 False
+        """
+        cache_path = Path(self.cache_index_path)
+
+        if not cache_path.exists():
+            logger.error(f"Cache index not found at {self.cache_index_path} (cache_only mode)")
+            return []
+
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse cache index: {e}")
+            return []
+
+        entries = cache_data.get('entries', {})
+        if not entries:
+            logger.warning(f"Cache index contains no entries")
+            return []
+
+        # 收集符合条件的缓存条目
+        # 使用 (subject, run, session_folder) 作为唯一键去重
+        unique_files = {}  # key: (subject, run, session_folder), value: entry_data
+
+        for cache_key, entry_data in entries.items():
+            subject = entry_data.get('subject')
+            run = entry_data.get('run')
+            session_folder = entry_data.get('session_folder')
+            model = entry_data.get('model')
+
+            # 过滤：被试
+            if subject not in self.subjects:
+                continue
+
+            # 过滤：模型匹配
+            if model != self.config.target_model:
+                continue
+
+            # 过滤：session_folders
+            if self.session_folders is not None:
+                if session_folder not in self.session_folders:
+                    continue
+            elif self.task_types is not None:
+                # Deprecated: task_types 过滤
+                task_type = entry_data.get('subject_task_type')
+                if task_type not in self.task_types:
+                    continue
+
+            # 过滤：target_classes（仅对 online 数据）
+            is_offline = self._is_offline_session(session_folder)
+            entry_n_classes = entry_data.get('n_classes')
+
+            if not is_offline and self.target_classes is not None:
+                # Online 数据：检查 n_classes 是否匹配
+                expected_n_classes = len(self.target_classes)
+                if entry_n_classes != expected_n_classes:
+                    continue
+
+            # 构建唯一键
+            file_key = (subject, run, session_folder)
+
+            # 去重：优先保留当前模型的缓存
+            if file_key not in unique_files:
+                unique_files[file_key] = entry_data
+
+        # 构建文件列表
+        files_to_process = []
+
+        for (subject, run, session_folder), entry_data in sorted(unique_files.items()):
+            # 构建虚拟 mat_path（用于缓存键生成，但不访问文件系统）
+            # 格式: data_root/subject/session_folder/subject_session_folder_R{run:02d}.mat
+            virtual_filename = f"{subject}_{session_folder}_R{run:02d}.mat"
+            virtual_mat_path = self.data_root / subject / session_folder / virtual_filename
+
+            # 构建 session_info（与 parse_session_path 相同格式）
+            session_info = {
+                'subject': subject,
+                'run': run,
+                'task_type': entry_data.get('subject_task_type'),
+                'session_folder': session_folder,
+            }
+
+            is_offline = self._is_offline_session(session_folder)
+            needs_processing = False  # 纯缓存模式下，所有文件都应该已缓存
+
+            files_to_process.append((virtual_mat_path, session_info, needs_processing, is_offline))
+
+        logger.info(f"Cache-only mode: Found {len(files_to_process)} cached files for {len(self.subjects)} subjects")
+
+        return files_to_process
+
     def _load_data(self):
         """
         Load all data from disk.
@@ -1389,55 +1595,64 @@ class FingerEEGDataset(Dataset):
         n_cache_misses = 0
 
         # Phase 1: Collect all files and check cache status
-        files_to_process = []  # (mat_path, session_info, needs_processing)
+        files_to_process = []  # (mat_path, session_info, needs_processing, is_offline)
 
-        for subject in self.subjects:
-            subject_dir = self.data_root / subject
+        if self.cache_only:
+            # 纯缓存模式：从缓存索引构建文件列表
+            files_to_process = self._build_file_list_from_cache_index()
 
-            if not subject_dir.exists():
-                log_load.warning(f"Subject dir not found: {subject_dir}")
-                continue
+            if not files_to_process:
+                log_load.error(f"Cache-only mode: No cached files found for subjects {self.subjects}")
+                return
+        else:
+            # 传统模式：扫描文件系统
+            for subject in self.subjects:
+                subject_dir = self.data_root / subject
 
-            mat_files = sorted(subject_dir.rglob('*.mat'))  # Sort for reproducibility
-
-            for mat_path in mat_files:
-                session_info = parse_session_path(mat_path)
-                parent_folder = mat_path.parent.name
-
-                # Filter by session folders (takes precedence over task_types)
-                if self.session_folders is not None:
-                    if parent_folder not in self.session_folders:
-                        continue
-                elif self.task_types is not None:
-                    if session_info['task_type'] not in self.task_types:
-                        continue
-
-                # Skip known bad data
-                if 'S07' in str(mat_path) and 'OnlineImagery_Sess05_3class_Base' in str(mat_path):
-                    log_load.info(f"Skip bad data: {mat_path.name}")
+                if not subject_dir.exists():
+                    log_load.warning(f"Subject dir not found: {subject_dir}")
                     continue
 
-                # Check cache
-                # Offline data: cache with target_classes=None (all 4 fingers)
-                # Online data: cache with actual target_classes
-                is_offline = self._is_offline_session(parent_folder)
-                cache_target_classes = None if is_offline else self.target_classes
+                mat_files = sorted(subject_dir.rglob('*.mat'))  # Sort for reproducibility
 
-                needs_processing = True
-                if self.cache is not None and self.config.use_sliding_window:
-                    has_cache = self.cache.has_valid_cache(
-                        session_info['subject'],
-                        session_info['run'],
-                        parent_folder,  # Use folder name, not task_type
-                        self.config,
-                        str(mat_path),
-                        cache_target_classes,  # None for Offline, actual for Online
-                        experiment_tag=self.config.get_experiment_cache_tag(),
-                    )
-                    if has_cache:
-                        needs_processing = False
+                for mat_path in mat_files:
+                    session_info = parse_session_path(mat_path)
+                    parent_folder = mat_path.parent.name
 
-                files_to_process.append((mat_path, session_info, needs_processing, is_offline))
+                    # Filter by session folders (takes precedence over task_types)
+                    if self.session_folders is not None:
+                        if parent_folder not in self.session_folders:
+                            continue
+                    elif self.task_types is not None:
+                        if session_info['task_type'] not in self.task_types:
+                            continue
+
+                    # Skip known bad data
+                    if 'S07' in str(mat_path) and 'OnlineImagery_Sess05_3class_Base' in str(mat_path):
+                        log_load.info(f"Skip bad data: {mat_path.name}")
+                        continue
+
+                    # Check cache
+                    # Offline data: cache with target_classes=None (all 4 fingers)
+                    # Online data: cache with actual target_classes
+                    is_offline = self._is_offline_session(parent_folder)
+                    cache_target_classes = None if is_offline else self.target_classes
+
+                    needs_processing = True
+                    if self.cache is not None and self.config.use_sliding_window:
+                        has_cache = self.cache.has_valid_cache(
+                            session_info['subject'],
+                            session_info['run'],
+                            parent_folder,  # Use folder name, not task_type
+                            self.config,
+                            str(mat_path),
+                            cache_target_classes,  # None for Offline, actual for Online
+                            experiment_tag=self.config.get_experiment_cache_tag(),
+                        )
+                        if has_cache:
+                            needs_processing = False
+
+                    files_to_process.append((mat_path, session_info, needs_processing, is_offline))
 
         # Phase 2: Load from cache (fast, serial)
         # v3.0: Cache stores trials, not segments. Apply sliding window on load.
@@ -1487,21 +1702,31 @@ class FingerEEGDataset(Dataset):
         uncached_files = [(p, s, offline) for p, s, needs, offline in files_to_process if needs]
 
         if uncached_files:
-            if self.config.use_sliding_window:
-                # Paper-aligned preprocessing with parallel support
-                self._load_uncached_parallel(uncached_files)
-            else:
-                # Trial-based preprocessing (serial, less common)
+            if self.cache_only:
+                # 纯缓存模式：不应该有未缓存的文件
+                log_load.error(
+                    f"Cache-only mode: {len(uncached_files)} files have no cache. "
+                    f"Cannot process without original .mat files."
+                )
                 for mat_path, session_info, is_offline in uncached_files:
-                    try:
-                        eeg_data, events, metadata = load_mat_file(str(mat_path))
-                        self._load_run_trial_based(
-                            eeg_data, events, metadata, session_info, mat_path
-                        )
-                    except Exception as e:
-                        log_load.error(f"Load failed: {mat_path.name}: {e}")
+                    log_load.error(f"  Missing cache: {session_info['subject']} {session_info['session_folder']} R{session_info['run']:02d}")
+            else:
+                # 传统模式：处理未缓存的文件
+                if self.config.use_sliding_window:
+                    # Paper-aligned preprocessing with parallel support
+                    self._load_uncached_parallel(uncached_files)
+                else:
+                    # Trial-based preprocessing (serial, less common)
+                    for mat_path, session_info, is_offline in uncached_files:
+                        try:
+                            eeg_data, events, metadata = load_mat_file(str(mat_path))
+                            self._load_run_trial_based(
+                                eeg_data, events, metadata, session_info, mat_path
+                            )
+                        except Exception as e:
+                            log_load.error(f"Load failed: {mat_path.name}: {e}")
 
-            n_cache_misses = len(uncached_files)
+                n_cache_misses = len(uncached_files)
 
         total_time = time.perf_counter() - total_start
 

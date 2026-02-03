@@ -20,21 +20,22 @@ Cache System (v3.0):
 - Sliding window applied on cache load via trials_to_segments()
 
 Directory structure (after unzipping distribution package):
-    ~/Downloads/                       # Parent folder (--zip-dir default)
+    <parent_folder>/                   # Parent of package (--zip-dir AND --data-root default)
     ├── S01.zip, S02.zip, ...          # Subject ZIP files here
+    ├── S01/                           # Extracted subject folders (parallel to package)
+    ├── S02/
+    ├── ...
     │
     └── eeg_bci_preprocess_package/    # Unzipped distribution package
-        ├── data/                      # Extracted data (--data-root)
-        │   ├── biosemi128.ELC         # Electrode file (included in package)
-        │   ├── S01/                   # Extracted subject folders
-        │   └── ...
+        ├── data/
+        │   └── biosemi128.ELC         # Electrode file (included in package)
         ├── caches/preprocessed/       # Generated caches (--cache-dir)
         └── scripts/
 
 By default:
-- Looks for .zip files in PARENT folder of package (e.g., ~/Downloads/)
-- Extracts to data/ directory inside package
-- Electrode file (biosemi128.ELC) is included in the package
+- Looks for .zip files in PARENT folder of package
+- Extracts to PARENT folder of package (parallel to the package itself)
+- Electrode file (biosemi128.ELC) is included in the package's data/ folder
 - Deletes extracted files after caching to save storage
 - Processes Motor Imagery paradigm
 
@@ -67,6 +68,7 @@ Usage:
 import argparse
 import logging
 import shutil
+import subprocess
 import sys
 import time
 import traceback
@@ -142,9 +144,136 @@ def _is_macos_metadata(name: str) -> bool:
     )
 
 
+def _find_7zip() -> Optional[str]:
+    """
+    Find 7-Zip executable on the system.
+
+    Returns:
+        Path to 7z executable, or None if not found
+    """
+    # Common 7-Zip locations
+    candidates = [
+        '7z',  # In PATH
+        '7za',  # Standalone version
+        r'C:\Program Files\7-Zip\7z.exe',
+        r'C:\Program Files (x86)\7-Zip\7z.exe',
+        '/usr/bin/7z',
+        '/usr/local/bin/7z',
+        '/opt/homebrew/bin/7z',
+    ]
+
+    for candidate in candidates:
+        try:
+            result = subprocess.run(
+                [candidate, '--help'],
+                capture_output=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                return candidate
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            continue
+
+    return None
+
+
+def _extract_with_7zip(
+    zip_path: Path, data_root: Path, logger: logging.Logger
+) -> Tuple[Optional[str], bool]:
+    """
+    Extract a ZIP file using 7-Zip.
+
+    Args:
+        zip_path: Path to the zip file
+        data_root: Data root directory
+        logger: Logger instance
+
+    Returns:
+        Tuple of (subject_id, was_freshly_extracted)
+        subject_id is None if extraction failed
+    """
+    # Try to determine subject ID from zip contents first (more reliable than filename)
+    subject_id_from_zip = None
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            entries = [e for e in zf.namelist() if not _is_macos_metadata(e)]
+            if entries:
+                # Extract subject ID from first real entry (e.g., "S01/OfflineImagery/...")
+                subject_id_from_zip = Path(entries[0]).parts[0]
+    except Exception:
+        # Fall back to filename if we can't read zip
+        pass
+
+    # Use zip contents subject ID if available, otherwise use filename
+    subject_id_to_check = subject_id_from_zip or zip_path.stem
+    subject_dir = data_root / subject_id_to_check
+
+    # Check if subject is already extracted with expected subdirectories
+    if subject_dir.exists() and any((subject_dir / folder).exists()
+                                     for folder in ['OfflineImagery', 'OfflineMovement']):
+        logger.info(f"  Subject {subject_id_to_check} already extracted, using existing")
+        return subject_id_to_check, False
+
+    try:
+        # Extract to data_root
+        # -y: assume Yes on all queries
+        # -o: output directory
+        # -x!__MACOSX/*: exclude macOS metadata
+        # -x!*/.DS_Store: exclude .DS_Store files
+        result = subprocess.run(
+            [
+                _find_7zip(), 'x', str(zip_path),
+                f'-o{data_root}',
+                '-y',
+                '-x!__MACOSX/*',
+                '-x!*/.DS_Store',
+                '-x!*/._*',
+            ],
+            capture_output=True,
+            text=True,
+            timeout=600,  # 10 minute timeout
+        )
+
+        if result.returncode != 0:
+            logger.error(f"  7-Zip extraction failed: {result.stderr}")
+            return None, False
+
+        # Find subject ID from extracted contents
+        # Look for S## directories
+        for item in data_root.iterdir():
+            if item.is_dir() and item.name.startswith('S') and len(item.name) == 3:
+                # Verify it has expected subdirectories
+                if any((item / folder).exists() for folder in ['OfflineImagery', 'OfflineMovement']):
+                    # Count extracted files
+                    file_count = sum(1 for _ in item.rglob('*') if _.is_file())
+                    logger.info(f"  Extracted {item.name} to {data_root} ({file_count} files)")
+                    return item.name, True
+
+        # If we can't find a subject directory, try to get it from zip name
+        subject_id = zip_path.stem  # S01 from S01.zip
+        subject_dir = data_root / subject_id
+        if subject_dir.exists():
+            file_count = sum(1 for _ in subject_dir.rglob('*') if _.is_file())
+            logger.info(f"  Extracted {subject_id} to {data_root} ({file_count} files)")
+            return subject_id, True
+
+        logger.error("  Could not determine subject ID from extracted contents")
+        return None, False
+
+    except subprocess.TimeoutExpired:
+        logger.error("  7-Zip extraction timed out")
+        return None, False
+    except Exception as e:
+        logger.error(f"  7-Zip extraction error: {e}")
+        return None, False
+
+
 def extract_zip(zip_path: Path, data_root: Path, logger: logging.Logger) -> Tuple[Optional[str], bool]:
     """
     Extract a subject zip file to the data directory.
+
+    Uses 7-Zip by default (supports more compression methods like Deflate64, LZMA).
+    Falls back to Python's zipfile if 7-Zip is not available.
 
     Args:
         zip_path: Path to the zip file
@@ -161,6 +290,17 @@ def extract_zip(zip_path: Path, data_root: Path, logger: logging.Logger) -> Tupl
 
     logger.info(f"Extracting {zip_path.name}...")
 
+    # Try 7-Zip first (supports more compression methods)
+    seven_zip = _find_7zip()
+    if seven_zip:
+        subject_id, was_fresh = _extract_with_7zip(zip_path, data_root, logger)
+        if subject_id:
+            return subject_id, was_fresh
+        # 7-Zip failed, but don't fall back - it's likely a real error
+        return None, False
+
+    # Fall back to Python's zipfile (only if 7-Zip not available)
+    logger.info("  7-Zip not found, using Python zipfile...")
     try:
         with zipfile.ZipFile(zip_path, 'r') as zf:
             # Get all entries, filtering out macOS metadata
@@ -191,10 +331,9 @@ def extract_zip(zip_path: Path, data_root: Path, logger: logging.Logger) -> Tupl
         logger.error(f"Invalid zip file: {zip_path}")
         return None, False
     except NotImplementedError as e:
-        # Unsupported compression method
+        # Unsupported compression method (e.g., Deflate64, LZMA)
         logger.error(f"Unsupported compression in {zip_path}: {e}")
-        logger.error("  Try re-compressing with: zip -r output.zip folder/")
-        logger.error("  Or use: ditto -c -k --keepParent folder/ output.zip")
+        logger.error("  Please install 7-Zip: https://www.7-zip.org/download.html")
         return None, False
     except Exception as e:
         logger.error(f"Error extracting {zip_path}: {e}")
@@ -294,11 +433,16 @@ def generate_caches(
         return {'error': f"Subject directory not found: {subject_dir}"}
 
     # Look for electrode file in multiple locations
+    # With standard mode: data_root is parent folder, ELC is in package's data/
+    # With --in-place mode: data_root is also parent folder, ELC is in package's data/
+    package_data_dir = cache_dir.parent.parent / 'data'  # caches/preprocessed -> package -> data
     elc_path = None
     elc_search_paths = [
-        data_root / 'biosemi128.ELC',
+        package_data_dir / 'biosemi128.ELC',  # Package's data folder (primary)
+        package_data_dir / 'biosemi128.elc',
+        data_root / 'biosemi128.ELC',         # Data root folder
         data_root / 'biosemi128.elc',
-        data_root.parent / 'biosemi128.ELC',  # Parent folder (zip-dir)
+        data_root.parent / 'biosemi128.ELC',  # Parent of data root
         data_root.parent / 'biosemi128.elc',
     ]
     for path in elc_search_paths:
@@ -307,7 +451,9 @@ def generate_caches(
             break
 
     if elc_path is None:
-        logger.error(f"Electrode file not found in: {data_root} or {data_root.parent}")
+        logger.error(f"Electrode file not found. Searched:")
+        for p in elc_search_paths[:4]:  # Show first 4 paths
+            logger.error(f"  - {p}")
         return {'error': f"Electrode file not found"}
 
     # Clear cache if force is set
@@ -442,8 +588,8 @@ def main() -> int:
     parser.add_argument(
         '--data-root',
         type=Path,
-        default=PROJECT_ROOT / 'data',
-        help='Directory for extracted data and biosemi128.ELC (default: data/)',
+        default=PROJECT_ROOT.parent,
+        help='Directory for extracted data (default: parent of package, same as --zip-dir)',
     )
 
     parser.add_argument(
@@ -536,11 +682,11 @@ def main() -> int:
     subjects_to_process = []
     freshly_extracted = set()  # Track which subjects were freshly extracted
 
-    # Handle --in-place mode: package is inside data folder
-    # Directory structure: parent_folder/S01/, parent_folder/S02/, parent_folder/scripts/, ...
+    # Handle --in-place mode: subjects are in the package's data/ directory
+    # Directory structure: <package>/data/S01/, <package>/data/S02/, ...
     if args.in_place:
-        # In this mode, data_root is the parent of the package (where S01/, S02/ etc. are)
-        args.data_root = PROJECT_ROOT.parent
+        # In this mode, data_root is the package's data/ directory
+        args.data_root = PROJECT_ROOT / 'data'
         logger.info(f"In-place mode: using {args.data_root} as data root")
 
         if args.subject:
@@ -668,6 +814,20 @@ def main() -> int:
     cache_stats = cache.get_stats()
     logger.info(f"Cache entries: {cache_stats.get('total_entries', 0)}")
     logger.info(f"Cache size: {cache_stats.get('total_size_mb', 0):.1f} MB")
+
+    # Show per-subject breakdown
+    subjects_cached = cache_stats.get('subjects_cached', [])
+    if subjects_cached:
+        # Count entries per subject from metadata
+        entries = cache.metadata.get('entries', {})
+        by_subject = {}
+        for entry in entries.values():
+            subj = entry.get('subject', 'unknown')
+            by_subject[subj] = by_subject.get(subj, 0) + 1
+
+        logger.info(f"Per-subject cache counts:")
+        for subj in sorted(by_subject.keys()):
+            logger.info(f"  {subj}: {by_subject[subj]} entries")
 
     if freshly_extracted and not args.keep_extracted and not args.preprocess_only:
         logger.info(f"Cleaned up {len(freshly_extracted)} extracted folder(s) to save storage")

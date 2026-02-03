@@ -1019,15 +1019,34 @@ def load_subject_data(
     target_classes: List[int],
     config: PreprocessConfig,
     elc_path: Path,
+    cache_only: bool = False,
+    cache_index_path: str = ".cache_index.json",
 ) -> FingerEEGDataset:
-    """Load data for a single subject using session folder filtering."""
+    """
+    Load data for a single subject using session folder filtering.
+
+    Args:
+        data_root: Root directory containing subject folders
+        subject_id: Subject ID (e.g., 'S01')
+        session_folders: List of session folders to include
+        target_classes: List of target classes
+        config: Preprocessing configuration
+        elc_path: Path to ELC file
+        cache_only: If True, load exclusively from cache index (default: False)
+        cache_index_path: Path to cache index file (default: '.cache_index.json')
+
+    Returns:
+        FingerEEGDataset instance
+    """
     dataset = FingerEEGDataset(
         str(data_root),
         [subject_id],
         config,
         session_folders=session_folders,
         target_classes=target_classes,
-        elc_path=str(elc_path)
+        elc_path=str(elc_path),
+        cache_only=cache_only,
+        cache_index_path=cache_index_path,
     )
     return dataset
 
@@ -1117,6 +1136,9 @@ def train_single_subject(
     cbramod_channels: int = 128,
     # Custom preprocessing config (for ML engineering experiments)
     preprocess_config: Optional[PreprocessConfig] = None,
+    # Cache-only mode (for training without original .mat files)
+    cache_only: bool = False,
+    cache_index_path: str = ".cache_index.json",
     # WandB parameters
     no_wandb: bool = False,
     upload_model: bool = False,
@@ -1147,6 +1169,9 @@ def train_single_subject(
             128 uses ACPE adaptation for full BioSemi channels.
         preprocess_config: Optional custom PreprocessConfig. If None, uses
             default config for the model type. Used by ML engineering experiments.
+        cache_only: If True, load data exclusively from cache index without
+            scanning filesystem. Useful when original .mat files are not available.
+        cache_index_path: Path to cache index file for cache_only mode.
         no_wandb: Disable wandb logging
         upload_model: Upload model artifacts (.pt) to WandB (default: False)
         wandb_project: WandB project name
@@ -1246,7 +1271,9 @@ def train_single_subject(
             session_folders=task_patterns['train'],
             target_classes=target_classes,
             config=preprocess_config,
-            elc_path=elc_path
+            elc_path=elc_path,
+            cache_only=cache_only,
+            cache_index_path=cache_index_path,
         )
 
     if len(train_dataset) == 0:
@@ -1278,7 +1305,9 @@ def train_single_subject(
             session_folders=task_patterns['test'],
             target_classes=target_classes,
             config=preprocess_config,
-            elc_path=elc_path
+            elc_path=elc_path,
+            cache_only=cache_only,
+            cache_index_path=cache_index_path,
         )
 
     if len(test_dataset) == 0:
@@ -1687,6 +1716,9 @@ def train_subject_simple(
     preprocess_config: Optional[PreprocessConfig] = None,
     # Config overrides (for scheduler comparison experiments)
     config_overrides: Optional[Dict] = None,
+    # Cache-only mode
+    cache_only: bool = False,
+    cache_index_path: str = ".cache_index.json",
     # WandB parameters
     no_wandb: bool = False,
     upload_model: bool = False,
@@ -1714,6 +1746,8 @@ def train_subject_simple(
             128 uses ACPE adaptation for full BioSemi channels.
         preprocess_config: Optional custom PreprocessConfig. If None, uses
             default config for the model type. Used by ML engineering experiments.
+        cache_only: If True, load data exclusively from cache index without filesystem
+        cache_index_path: Path to cache index file for cache_only mode
         no_wandb: Disable wandb logging
         upload_model: Upload model artifacts (.pt) to WandB (default: False)
         wandb_project: WandB project name
@@ -1757,6 +1791,9 @@ def train_subject_simple(
         paradigm=paradigm,
         cbramod_channels=cbramod_channels,
         preprocess_config=preprocess_config,
+        # Cache-only mode
+        cache_only=cache_only,
+        cache_index_path=cache_index_path,
         # WandB parameters
         no_wandb=no_wandb,
         upload_model=upload_model,
