@@ -726,7 +726,7 @@ def main():
     figures_dir.mkdir(parents=True, exist_ok=True)
 
     # Generate report
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M')
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     report_path = Path(args.output_dir) / f'{timestamp}_preproc_ml_eng_report.md'
 
     generate_markdown_report(results, report_path, args.tasks)

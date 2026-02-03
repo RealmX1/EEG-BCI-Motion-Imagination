@@ -53,6 +53,7 @@ from scripts._training_utils import (
     train_and_get_result,
     result_to_dict,
     compute_model_statistics,
+    generate_result_filename,
 )
 
 
@@ -366,7 +367,7 @@ def save_comparison_results(
     results_dir = Path(output_dir) / 'transfer_comparison'
     results_dir.mkdir(parents=True, exist_ok=True)
 
-    filename = f'comparison_{model_type}_{task}.json'
+    filename = generate_result_filename(f'transfer_{model_type}', paradigm, task, 'json')
     output_path = results_dir / filename
 
     with open(output_path, 'w') as f:
@@ -379,6 +380,7 @@ def save_comparison_results(
 def generate_comparison_plot(
     results: Dict[str, List[TransferResult]],
     model_type: str,
+    paradigm: str,
     task: str,
     output_dir: str,
 ):
@@ -455,7 +457,8 @@ def generate_comparison_plot(
     # Save plot
     results_dir = Path(output_dir) / 'transfer_comparison'
     results_dir.mkdir(parents=True, exist_ok=True)
-    plot_path = results_dir / f'comparison_{model_type}_{task}.png'
+    plot_filename = generate_result_filename(f'transfer_{model_type}', paradigm, task, 'png')
+    plot_path = results_dir / plot_filename
     plt.savefig(plot_path, dpi=150, bbox_inches='tight')
     logger.info(f"Plot saved: {plot_path}")
     plt.close()
@@ -585,7 +588,7 @@ Examples:
         # Generate plot
         if not args.no_plot:
             generate_comparison_plot(
-                results, model_type, args.task, args.output_dir
+                results, model_type, args.paradigm, args.task, args.output_dir
             )
 
     total_time = time.time() - start_time

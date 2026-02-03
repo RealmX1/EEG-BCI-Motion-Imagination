@@ -498,7 +498,7 @@ def save_experiment_results(
     if baseline_results:
         output['baselines'] = {k: v.to_dict() for k, v in baseline_results.items()}
 
-    filename = f"{datetime.now().strftime('%Y%m%d_%H%M')}_{RESULTS_FILENAME}"
+    filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{RESULTS_FILENAME}"
     output_path = Path(output_dir) / filename
     output_path.parent.mkdir(parents=True, exist_ok=True)
 

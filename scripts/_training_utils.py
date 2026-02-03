@@ -45,6 +45,35 @@ log_train = SectionLogger(logger, 'train')
 CACHE_FILENAME = 'comparison_cache_{paradigm}_{task}.json'
 CACHE_FILENAME_WITH_TAG = '{tag}_comparison_cache_{paradigm}_{task}.json'
 
+
+def generate_result_filename(
+    prefix: str,
+    paradigm: str,
+    task: str,
+    ext: str = 'json',
+    run_tag: Optional[str] = None
+) -> str:
+    """
+    生成统一格式的结果文件名: {timestamp}_{prefix}_{paradigm}_{task}.{ext}
+
+    Args:
+        prefix: 文件名前缀 (如 'comparison', 'eegnet', 'finetune_backbone')
+        paradigm: 范式 ('imagery' 或 'movement')
+        task: 任务类型 ('binary', 'ternary', 'quaternary')
+        ext: 文件扩展名 (默认 'json')
+        run_tag: 可选的运行标签，如果提供则替代自动生成的时间戳
+
+    Returns:
+        格式化的文件名，如 '20260203_151711_comparison_imagery_binary.json'
+    """
+    if run_tag:
+        timestamp = run_tag
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    parts = [timestamp, prefix, paradigm, task]
+    return "_".join(parts) + f".{ext}"
+
 PARADIGM_CONFIG = {
     'imagery': {
         'description': 'Motor Imagery (MI)',

@@ -249,7 +249,7 @@ Examples:
             results_dir = Path('results/finetune')
             results_dir.mkdir(parents=True, exist_ok=True)
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            results_file = results_dir / f'finetune_{args.freeze_strategy}_{timestamp}.json'
+            results_file = results_dir / f'{timestamp}_finetune_{args.freeze_strategy}.json'
 
         summary = {
             'pretrained_path': str(pretrained_path),

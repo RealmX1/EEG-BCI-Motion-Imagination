@@ -64,6 +64,7 @@ from _training_utils import (
     train_and_get_result,
     compute_model_statistics,
     print_model_summary,
+    generate_result_filename,
 )
 
 
@@ -282,10 +283,7 @@ def save_single_model_results(
     }
 
     # Generate filename
-    if run_tag:
-        filename = f'{run_tag}_{model_type}_{paradigm}_{task}.json'
-    else:
-        filename = f'{model_type}_{paradigm}_{task}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json'
+    filename = generate_result_filename(model_type, paradigm, task, 'json', run_tag)
 
     output_path = Path(output_dir) / filename
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -660,10 +658,7 @@ Examples:
 
         # Generate plot
         if not args.no_plot:
-            if run_tag:
-                plot_filename = f'{run_tag}_{args.model}_{args.paradigm}_{args.task}.png'
-            else:
-                plot_filename = f'{args.model}_{args.paradigm}_{args.task}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png'
+            plot_filename = generate_result_filename(args.model, args.paradigm, args.task, 'png', run_tag)
             plot_path = Path(args.output_dir) / plot_filename
             generate_single_model_plot(
                 model_type=args.model,

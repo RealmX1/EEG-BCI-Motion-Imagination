@@ -69,6 +69,7 @@ from _training_utils import (
     load_cache,
     result_to_dict,
     dict_to_result,
+    generate_result_filename,
 )
 
 # Import single model training function
@@ -441,10 +442,7 @@ def save_full_results(
     if comparison:
         output['comparison'] = asdict(comparison)
 
-    if run_tag:
-        filename = f'{run_tag}_comparison_{paradigm}_{task_type}.json'
-    else:
-        filename = f'comparison_{paradigm}_{task_type}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json'
+    filename = generate_result_filename('comparison', paradigm, task_type, 'json', run_tag)
 
     output_path = Path(output_dir) / filename
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -698,10 +696,7 @@ Examples:
 
     # Generate plots by default (unless --no-plot is specified)
     if not args.no_plot and comparison:
-        if run_tag:
-            plot_filename = f'{run_tag}_comparison_{args.paradigm}_{args.task}.png'
-        else:
-            plot_filename = f'comparison_{args.paradigm}_{args.task}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png'
+        plot_filename = generate_result_filename('comparison', args.paradigm, args.task, 'png', run_tag)
         plot_path = Path(args.output_dir) / plot_filename
         generate_plot(results, comparison, str(plot_path), task_type=args.task)
 
