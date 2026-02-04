@@ -65,6 +65,8 @@ from _training_utils import (
     compute_model_statistics,
     print_model_summary,
     generate_result_filename,
+    prepare_combined_plot_data,
+    generate_combined_plot,
 )
 
 
@@ -94,6 +96,7 @@ def run_single_model(
     wandb_session_metadata: Optional[Dict[str, Optional[str]]] = None,
     cache_only: bool = False,
     cache_index_path: str = ".cache_index.json",
+    scheduler: Optional[str] = None,
 ) -> Tuple[List[TrainingResult], Dict]:
     """
     Train a single model on all specified subjects.
@@ -114,6 +117,7 @@ def run_single_model(
             When provided, skips interactive prompting.
         cache_only: If True, load data exclusively from cache index
         cache_index_path: Path to cache index file for cache_only mode
+        scheduler: Learning rate scheduler type (e.g., 'wsd', 'cosine_annealing_warmup_decay')
 
     Returns:
         Tuple of (results_list, statistics_dict)
@@ -229,6 +233,7 @@ def run_single_model(
                 wandb_metadata=shared_wandb_metadata,
                 cache_only=cache_only,
                 cache_index_path=cache_index_path,
+                scheduler=scheduler,
             )
 
             results.append(result)
@@ -558,12 +563,23 @@ Examples:
         help='Random seed (default: 42)'
     )
     parser.add_argument(
+        '--scheduler', type=str, default=None,
+        choices=['plateau', 'cosine', 'wsd', 'cosine_decay', 'cosine_annealing_warmup_decay'],
+        help='Learning rate scheduler (default: model-specific)'
+    )
+    parser.add_argument(
         '--use-cache-index', action='store_true',
         help='从缓存索引发现被试，而非扫描 data/ 目录（适用于仅有缓存无原始数据的场景）'
     )
     parser.add_argument(
         '--cache-index-path', type=str, default='.cache_index.json',
         help='缓存索引文件路径（默认：.cache_index.json）'
+    )
+
+    # Historical comparison options
+    parser.add_argument(
+        '--no-historical', action='store_true',
+        help='禁用历史数据检索，仅生成单模型图（不检索另一个模型的历史结果）'
     )
 
     args = parser.parse_args()
@@ -639,6 +655,7 @@ Examples:
             wandb_interactive=not args.no_wandb_interactive,
             cache_only=args.use_cache_index,
             cache_index_path=args.cache_index_path,
+            scheduler=args.scheduler,
         )
 
     # Print summary
@@ -658,15 +675,41 @@ Examples:
 
         # Generate plot
         if not args.no_plot:
-            plot_filename = generate_result_filename(args.model, args.paradigm, args.task, 'png', run_tag)
-            plot_path = Path(args.output_dir) / plot_filename
-            generate_single_model_plot(
-                model_type=args.model,
-                results=results,
-                statistics=stats,
-                output_path=str(plot_path),
-                task_type=args.task,
-            )
+            data_sources, hist_timestamp = None, None
+
+            # 尝试查找兼容的历史数据（除非禁用）
+            if not args.no_historical:
+                current_results = {args.model: results}
+                data_sources, hist_timestamp = prepare_combined_plot_data(
+                    output_dir=args.output_dir,
+                    paradigm=args.paradigm,
+                    task=args.task,
+                    current_results=current_results,
+                    current_model=args.model,
+                )
+
+            if data_sources:
+                log_io.info(f"Generating combined plot with historical comparison")
+                plot_filename = generate_result_filename('combined', args.paradigm, args.task, 'png', run_tag)
+                plot_path = Path(args.output_dir) / plot_filename
+                generate_combined_plot(
+                    data_sources=data_sources,
+                    output_path=str(plot_path),
+                    task_type=args.task,
+                    paradigm=args.paradigm,
+                    historical_timestamp=hist_timestamp,
+                )
+            else:
+                # 没有历史数据，使用原有单模型绘图
+                plot_filename = generate_result_filename(args.model, args.paradigm, args.task, 'png', run_tag)
+                plot_path = Path(args.output_dir) / plot_filename
+                generate_single_model_plot(
+                    model_type=args.model,
+                    results=results,
+                    statistics=stats,
+                    output_path=str(plot_path),
+                    task_type=args.task,
+                )
 
     # Log total time
     total_time = time.time() - start_time

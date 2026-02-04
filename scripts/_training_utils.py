@@ -106,6 +106,15 @@ class TrainingResult:
     training_time: float
 
 
+@dataclass
+class PlotDataSource:
+    """绘图数据源配置，用于组合对比图."""
+    model_type: str           # 'eegnet' 或 'cbramod'
+    results: List[TrainingResult]
+    is_current_run: bool      # True = 当前运行, False = 历史数据
+    label: str                # 图例标签
+
+
 # ============================================================================
 # Subject Discovery
 # ============================================================================
@@ -295,6 +304,209 @@ def save_cache(
             json.dump(data, f, indent=2)
 
 
+def find_compatible_historical_results(
+    output_dir: str,
+    paradigm: str,
+    task: str,
+    current_subjects: List[str],
+    current_model: str,
+) -> Optional[Dict]:
+    """
+    搜索与当前运行兼容的历史完整对比结果.
+
+    兼容性条件:
+    1. 必须是完整对比文件（包含两个模型的结果）
+    2. 另一个模型（非当前运行的模型）的被试集合必须覆盖当前被试集合
+
+    Args:
+        output_dir: 结果目录路径
+        paradigm: 范式 ('imagery' 或 'movement')
+        task: 任务类型 ('binary', 'ternary', 'quaternary')
+        current_subjects: 当前运行的被试列表
+        current_model: 当前运行的模型 ('eegnet' 或 'cbramod')
+
+    Returns:
+        包含历史数据的字典:
+        {
+            'source_file': str,           # 来源文件路径
+            'timestamp': str,             # 历史运行时间戳
+            'eegnet': {'subjects': [...], 'summary': {...}},
+            'cbramod': {'subjects': [...], 'summary': {...}},
+            'other_model': str,           # 另一个模型名称
+        }
+        如果找不到兼容结果，返回 None
+    """
+    results_dir = Path(output_dir)
+    if not results_dir.exists():
+        return None
+
+    # 匹配 comparison 结果文件（排除 cache 文件）
+    pattern = f'*comparison_{paradigm}_{task}*.json'
+    all_files = list(results_dir.glob(pattern))
+
+    # 排除 cache 文件
+    result_files = [f for f in all_files if 'cache' not in f.name.lower()]
+
+    if not result_files:
+        return None
+
+    # 按修改时间排序（最新优先）
+    def safe_mtime(p: Path) -> float:
+        try:
+            return p.stat().st_mtime
+        except OSError:
+            return 0.0
+
+    result_files.sort(key=safe_mtime, reverse=True)
+
+    other_model = 'cbramod' if current_model == 'eegnet' else 'eegnet'
+    current_subjects_set = set(current_subjects)
+
+    for file_path in result_files:
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            models_data = data.get('models', {})
+
+            # 检查是否包含两个模型
+            if 'eegnet' not in models_data or 'cbramod' not in models_data:
+                continue
+
+            # 提取另一个模型的被试集合
+            other_subjects_data = models_data[other_model].get('subjects', [])
+            other_subjects_set = {s['subject_id'] for s in other_subjects_data}
+
+            # 检查是否为超集或相同集合
+            if current_subjects_set <= other_subjects_set:
+                log_cache.info(f"Found compatible historical data: {file_path.name}")
+                return {
+                    'source_file': str(file_path),
+                    'timestamp': data.get('metadata', {}).get('timestamp', 'unknown'),
+                    'eegnet': models_data.get('eegnet', {}),
+                    'cbramod': models_data.get('cbramod', {}),
+                    'other_model': other_model,
+                }
+        except (json.JSONDecodeError, KeyError, OSError) as e:
+            log_cache.debug(f"Skipping {file_path.name}: {e}")
+            continue
+
+    return None
+
+
+def build_data_sources_from_historical(
+    historical: Dict,
+    current_results: Dict[str, List[TrainingResult]],
+    subjects_list: List[str],
+) -> List[PlotDataSource]:
+    """
+    从历史数据和当前结果构建绘图数据源列表.
+
+    Args:
+        historical: find_compatible_historical_results() 返回的历史数据字典
+        current_results: 当前运行结果 {'eegnet': [...], 'cbramod': [...]}
+        subjects_list: 要包含的被试列表
+
+    Returns:
+        PlotDataSource 列表，按顺序：历史EEGNet, 历史CBraMod, 当前EEGNet, 当前CBraMod
+    """
+    data_sources = []
+    subjects_set = set(subjects_list)
+
+    def _add_source(model_type: str, is_historical: bool):
+        """辅助函数：添加单个数据源."""
+        if is_historical:
+            subjects_data = historical.get(model_type, {}).get('subjects', [])
+            if subjects_data:
+                results = [dict_to_result(s) for s in subjects_data]
+                filtered = [r for r in results if r.subject_id in subjects_set]
+                if filtered:
+                    data_sources.append(PlotDataSource(
+                        model_type=model_type,
+                        results=filtered,
+                        is_current_run=False,
+                        label=f'{model_type.upper()} (hist)'
+                    ))
+        else:
+            results = current_results.get(model_type, [])
+            if results:
+                filtered = [r for r in results if r.subject_id in subjects_set]
+                if filtered:
+                    data_sources.append(PlotDataSource(
+                        model_type=model_type,
+                        results=filtered,
+                        is_current_run=True,
+                        label=model_type.upper()
+                    ))
+
+    # 按正确顺序添加：历史EEGNet, 历史CBraMod, 当前EEGNet, 当前CBraMod
+    _add_source('eegnet', is_historical=True)
+    _add_source('cbramod', is_historical=True)
+    _add_source('eegnet', is_historical=False)
+    _add_source('cbramod', is_historical=False)
+
+    return data_sources
+
+
+def prepare_combined_plot_data(
+    output_dir: str,
+    paradigm: str,
+    task: str,
+    current_results: Dict[str, List[TrainingResult]],
+    current_model: Optional[str] = None,
+) -> Tuple[Optional[List[PlotDataSource]], Optional[str]]:
+    """
+    准备组合图所需的数据源（自动检索历史数据）.
+
+    Args:
+        output_dir: 结果目录路径
+        paradigm: 范式
+        task: 任务类型
+        current_results: 当前运行结果 {'eegnet': [...], 'cbramod': [...]}
+        current_model: 当前运行的单个模型（可选，用于单模型模式）
+
+    Returns:
+        Tuple of (data_sources, historical_timestamp) or (None, None) if no historical data
+    """
+    # 确定被试列表（从任意有数据的模型获取）
+    subjects_list = []
+    for model_results in current_results.values():
+        if model_results:
+            subjects_list = [r.subject_id for r in model_results]
+            break
+
+    if not subjects_list:
+        return None, None
+
+    # 确定用于搜索的基准模型
+    search_model = current_model or 'eegnet'
+
+    # 搜索历史数据
+    historical = find_compatible_historical_results(
+        output_dir=output_dir,
+        paradigm=paradigm,
+        task=task,
+        current_subjects=subjects_list,
+        current_model=search_model,
+    )
+
+    if not historical:
+        return None, None
+
+    # 构建数据源
+    data_sources = build_data_sources_from_historical(
+        historical=historical,
+        current_results=current_results,
+        subjects_list=subjects_list,
+    )
+
+    if len(data_sources) < 2:
+        return None, None
+
+    timestamp = historical.get('timestamp', 'unknown')
+    return data_sources, timestamp
+
+
 # ============================================================================
 # Result Serialization
 # ============================================================================
@@ -358,6 +570,7 @@ def train_and_get_result(
     wandb_metadata: Optional[Dict] = None,
     cache_only: bool = False,
     cache_index_path: str = ".cache_index.json",
+    scheduler: Optional[str] = None,
 ) -> TrainingResult:
     """
     Train a model for a single subject and return TrainingResult.
@@ -379,7 +592,13 @@ def train_and_get_result(
         wandb_metadata: Pre-collected metadata (goal, hypothesis, notes) for batch training
         cache_only: If True, load data exclusively from cache index
         cache_index_path: Path to cache index file for cache_only mode
+        scheduler: Learning rate scheduler type (e.g., 'wsd', 'cosine_annealing_warmup_decay')
     """
+    # Build config overrides for scheduler
+    config_overrides = None
+    if scheduler is not None:
+        config_overrides = {'training': {'scheduler': scheduler}}
+
     result_dict = train_subject_simple(
         subject_id=subject_id,
         model_type=model_type,
@@ -395,6 +614,7 @@ def train_and_get_result(
         wandb_metadata=wandb_metadata,
         cache_only=cache_only,
         cache_index_path=cache_index_path,
+        config_overrides=config_overrides,
     )
 
     if not result_dict:
@@ -463,3 +683,266 @@ def print_model_summary(model_type: str, stats: Dict, results: List[TrainingResu
     print(f"{'Min':<15} {stats['min']:.2%}")
     print(f"{'Max':<15} {stats['max']:.2%}")
     print("=" * 70 + "\n")
+
+
+# ============================================================================
+# Combined Plotting (支持历史数据对比)
+# ============================================================================
+
+def generate_combined_plot(
+    data_sources: List[PlotDataSource],
+    output_path: str,
+    task_type: str = 'binary',
+    paradigm: str = 'imagery',
+    historical_timestamp: Optional[str] = None,
+):
+    """
+    生成组合对比图（支持混合新旧数据）.
+
+    布局（2 行，第一行跨两列）:
+    +------------------------------------------+
+    |          条形图 (2x 宽度)                   |
+    |   每被试 3 条: 历史数据(半透明) + 当前运行      |
+    +--------------------+---------------------+
+    |    箱线图(3 蜡烛)     |    配对对比图        |
+    +--------------------+---------------------+
+
+    视觉效果:
+    - 历史数据: alpha=0.4, 斜线填充
+    - 当前运行: alpha=1.0, 无填充, 粗边框
+
+    Args:
+        data_sources: 数据源列表（2-3 个 PlotDataSource）
+        output_path: 输出文件路径
+        task_type: 任务类型
+        paradigm: 范式
+        historical_timestamp: 历史数据时间戳（用于标题标注）
+    """
+    try:
+        import matplotlib.pyplot as plt
+        from matplotlib.gridspec import GridSpec
+        from matplotlib.lines import Line2D
+        from matplotlib.patches import Patch
+    except ImportError:
+        log_cache.warning("matplotlib not installed, skipping plot")
+        return
+
+    chance_levels = {'binary': 0.5, 'ternary': 1/3, 'quaternary': 0.25}
+    chance_level = chance_levels.get(task_type, 0.5)
+
+    colors = {'eegnet': '#2E86AB', 'cbramod': '#E94F37'}
+
+    # 收集所有被试
+    all_subjects = set()
+    for source in data_sources:
+        for r in source.results:
+            all_subjects.add(r.subject_id)
+    subjects = sorted(all_subjects)
+
+    if not subjects:
+        log_cache.warning("No subjects for plotting")
+        return
+
+    # 创建 2 行布局，第一行跨两列
+    fig = plt.figure(figsize=(14, 10))
+    gs = GridSpec(2, 2, height_ratios=[1.2, 1], hspace=0.3, wspace=0.25)
+
+    ax_bar = fig.add_subplot(gs[0, :])      # 顶部条形图（跨两列）
+    ax_box = fig.add_subplot(gs[1, 0])      # 左下箱线图
+    ax_scatter = fig.add_subplot(gs[1, 1])  # 右下配对散点图
+
+    # =========================================================================
+    # Panel 1: 条形图
+    # =========================================================================
+    n_subjects = len(subjects)
+    n_sources = len(data_sources)
+    bar_width = 0.8 / n_sources
+    x_base = np.arange(n_subjects)
+
+    for i, source in enumerate(data_sources):
+        x_positions = x_base + (i - (n_sources - 1) / 2) * bar_width
+
+        # 按被试排序获取准确率
+        result_by_subj = {r.subject_id: r.test_acc_majority for r in source.results}
+        accs = [result_by_subj.get(s, 0) for s in subjects]
+
+        alpha = 1.0 if source.is_current_run else 0.4
+        edgecolor = 'black' if source.is_current_run else 'gray'
+        linewidth = 1.5 if source.is_current_run else 0.5
+        hatch = '' if source.is_current_run else '///'
+
+        bars = ax_bar.bar(
+            x_positions, accs, bar_width,
+            label=source.label,
+            color=colors[source.model_type],
+            alpha=alpha,
+            edgecolor=edgecolor,
+            linewidth=linewidth,
+            hatch=hatch,
+        )
+
+        # 仅为当前运行添加数值标签
+        if source.is_current_run:
+            for bar, val in zip(bars, accs):
+                if val > 0:
+                    ax_bar.text(
+                        bar.get_x() + bar.get_width()/2,
+                        bar.get_height() + 0.01,
+                        f'{val*100:.1f}',
+                        ha='center', va='bottom', fontsize=7
+                    )
+
+    ax_bar.set_xlabel('Subject')
+    ax_bar.set_ylabel('Test Accuracy')
+    title = f'Per-Subject Accuracy Comparison ({paradigm.title()} {task_type.title()})'
+    if historical_timestamp:
+        title += f'\n(Historical data from: {historical_timestamp[:10]})'
+    ax_bar.set_title(title)
+    ax_bar.set_xticks(x_base)
+    ax_bar.set_xticklabels(subjects, rotation=45, ha='right')
+    ax_bar.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5,
+                   label=f'Chance ({chance_level*100:.1f}%)')
+    ax_bar.set_ylim([0, 1.05])
+    ax_bar.legend(loc='upper right', fontsize=8)
+
+    # =========================================================================
+    # Panel 2: 箱线图
+    # =========================================================================
+    median_color = 'black'
+    mean_color = '#E63946'
+
+    box_data = []
+    box_labels = []
+    box_colors = []
+    box_alphas = []
+
+    for source in data_sources:
+        accs = [r.test_acc_majority for r in source.results]
+        if accs:
+            box_data.append(accs)
+            box_labels.append(source.label)
+            box_colors.append(colors[source.model_type])
+            box_alphas.append(1.0 if source.is_current_run else 0.4)
+
+    if box_data:
+        bp = ax_box.boxplot(
+            box_data, labels=box_labels, patch_artist=True,
+            showmeans=True, meanline=True,
+            meanprops={'color': mean_color, 'linewidth': 2, 'linestyle': (0, (3, 2))}
+        )
+
+        for patch, color, alpha in zip(bp['boxes'], box_colors, box_alphas):
+            patch.set_facecolor(color)
+            patch.set_alpha(alpha)
+
+        for median in bp['medians']:
+            median.set_color(median_color)
+            median.set_linewidth(2)
+
+        # 添加统计标注
+        for i, (source, accs_list) in enumerate(zip(data_sources, box_data)):
+            mean_val = np.mean(accs_list)
+            median_val = np.median(accs_list)
+            x_offset = 0.35
+            fontweight = 'bold' if source.is_current_run else 'normal'
+
+            ax_box.text(i + 1 + x_offset, mean_val, f'{mean_val*100:.1f}',
+                        ha='left', va='center', fontsize=7,
+                        color=mean_color, fontweight=fontweight)
+            ax_box.text(i + 1 + x_offset, median_val, f'{median_val*100:.1f}',
+                        ha='left', va='center', fontsize=7,
+                        color=median_color, fontweight=fontweight)
+
+        legend_elements = [
+            Line2D([0], [0], color=median_color, linewidth=2, linestyle='-', label='Median'),
+            Line2D([0], [0], color=mean_color, linewidth=2, linestyle=(0, (3, 2)), label='Mean')
+        ]
+        ax_box.legend(handles=legend_elements, loc='upper right', fontsize=7)
+
+    ax_box.set_ylabel('Test Accuracy')
+    ax_box.set_title('Accuracy Distribution')
+    ax_box.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5)
+
+    # =========================================================================
+    # Panel 3: 配对对比散点图（支持双配对：当前 vs 历史）
+    # =========================================================================
+    eegnet_sources = [s for s in data_sources if s.model_type == 'eegnet']
+    cbramod_sources = [s for s in data_sources if s.model_type == 'cbramod']
+
+    # 分离当前和历史数据源
+    eegnet_current = next((s for s in eegnet_sources if s.is_current_run), None)
+    eegnet_hist = next((s for s in eegnet_sources if not s.is_current_run), None)
+    cbramod_current = next((s for s in cbramod_sources if s.is_current_run), None)
+    cbramod_hist = next((s for s in cbramod_sources if not s.is_current_run), None)
+
+    # 使用 EEGNet 作为 X 轴基准（优先使用当前数据）
+    eegnet_baseline = eegnet_current or eegnet_hist
+
+    # 配对颜色配置
+    pair_colors = {
+        'current': '#E94F37',   # 当前 CBraMod: 红色
+        'historical': '#9B59B6',  # 历史 CBraMod: 紫色
+    }
+
+    all_accs = []  # 用于计算坐标轴范围
+    has_any_pair = False
+
+    if eegnet_baseline:
+        eegnet_by_subj = {r.subject_id: r.test_acc_majority for r in eegnet_baseline.results}
+
+        # 绘制当前配对：当前 CBraMod vs EEGNet
+        if cbramod_current:
+            cbramod_by_subj = {r.subject_id: r.test_acc_majority for r in cbramod_current.results}
+            common = sorted(set(eegnet_by_subj.keys()) & set(cbramod_by_subj.keys()))
+
+            if common:
+                eegnet_accs = [eegnet_by_subj[s] for s in common]
+                cbramod_accs = [cbramod_by_subj[s] for s in common]
+                all_accs.extend(eegnet_accs + cbramod_accs)
+
+                ax_scatter.scatter(eegnet_accs, cbramod_accs, s=100, alpha=0.9,
+                                   c=pair_colors['current'], label='CBraMod (current)',
+                                   edgecolors='black', linewidths=1)
+
+                # 为当前运行添加被试标签
+                for i, subj in enumerate(common):
+                    ax_scatter.annotate(subj, (eegnet_accs[i], cbramod_accs[i]),
+                                        xytext=(5, 5), textcoords='offset points', fontsize=7)
+                has_any_pair = True
+
+        # 绘制历史配对：历史 CBraMod vs EEGNet
+        if cbramod_hist:
+            cbramod_hist_by_subj = {r.subject_id: r.test_acc_majority for r in cbramod_hist.results}
+            common_hist = sorted(set(eegnet_by_subj.keys()) & set(cbramod_hist_by_subj.keys()))
+
+            if common_hist:
+                eegnet_accs_hist = [eegnet_by_subj[s] for s in common_hist]
+                cbramod_accs_hist = [cbramod_hist_by_subj[s] for s in common_hist]
+                all_accs.extend(eegnet_accs_hist + cbramod_accs_hist)
+
+                ax_scatter.scatter(eegnet_accs_hist, cbramod_accs_hist, s=80, alpha=0.5,
+                                   c=pair_colors['historical'], label='CBraMod (hist)',
+                                   edgecolors='gray', linewidths=0.5, marker='s')
+                has_any_pair = True
+
+        if has_any_pair and all_accs:
+            lims = [min(all_accs) - 0.05, max(all_accs) + 0.05]
+            ax_scatter.plot(lims, lims, 'k--', alpha=0.5, label='Equal')
+            ax_scatter.set_xlim(lims)
+            ax_scatter.set_ylim(lims)
+            ax_scatter.set_xlabel(f'{eegnet_baseline.label} Accuracy')
+            ax_scatter.set_ylabel('CBraMod Accuracy')
+            ax_scatter.legend(loc='upper left', fontsize=7)
+        else:
+            ax_scatter.text(0.5, 0.5, 'No common subjects\nfor paired comparison',
+                            ha='center', va='center', transform=ax_scatter.transAxes)
+    else:
+        ax_scatter.text(0.5, 0.5, 'Insufficient data\nfor paired comparison',
+                        ha='center', va='center', transform=ax_scatter.transAxes)
+
+    ax_scatter.set_title('CBraMod vs EEGNet (Paired Comparison)')
+
+    # 保存
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    log_cache.info(f"Combined plot saved: {output_path}")
+    plt.close()

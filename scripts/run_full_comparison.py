@@ -70,6 +70,8 @@ from _training_utils import (
     result_to_dict,
     dict_to_result,
     generate_result_filename,
+    prepare_combined_plot_data,
+    generate_combined_plot,
 )
 
 # Import single model training function
@@ -568,6 +570,11 @@ Examples:
         '--cache-index-path', type=str, default='.cache_index.json',
         help='缓存索引文件路径（默认：.cache_index.json）'
     )
+    parser.add_argument(
+        '--scheduler', type=str, default=None,
+        choices=['plateau', 'cosine', 'wsd', 'cosine_decay', 'cosine_annealing_warmup_decay'],
+        help='Learning rate scheduler (default: model-specific)'
+    )
 
     args = parser.parse_args()
 
@@ -676,6 +683,7 @@ Examples:
                 wandb_session_metadata=wandb_session_metadata,  # Use pre-collected metadata
                 cache_only=args.use_cache_index,
                 cache_index_path=args.cache_index_path,
+                scheduler=args.scheduler,
             )
             results[model_type] = model_results
 
@@ -695,10 +703,35 @@ Examples:
     )
 
     # Generate plots by default (unless --no-plot is specified)
-    if not args.no_plot and comparison:
-        plot_filename = generate_result_filename('comparison', args.paradigm, args.task, 'png', run_tag)
-        plot_path = Path(args.output_dir) / plot_filename
-        generate_plot(results, comparison, str(plot_path), task_type=args.task)
+    if not args.no_plot:
+        # 尝试生成带历史对比的组合图
+        current_model = args.models[0] if len(args.models) == 1 else None
+        data_sources, hist_timestamp = prepare_combined_plot_data(
+            output_dir=args.output_dir,
+            paradigm=args.paradigm,
+            task=args.task,
+            current_results=results,
+            current_model=current_model,
+        )
+
+        if data_sources:
+            log_io.info("Generating combined plot with historical comparison")
+            plot_filename = generate_result_filename('combined', args.paradigm, args.task, 'png', run_tag)
+            plot_path = Path(args.output_dir) / plot_filename
+            generate_combined_plot(
+                data_sources=data_sources,
+                output_path=str(plot_path),
+                task_type=args.task,
+                paradigm=args.paradigm,
+                historical_timestamp=hist_timestamp,
+            )
+        elif comparison:
+            # 没有历史数据但有两个模型的完整对比，使用原有标准对比图
+            plot_filename = generate_result_filename('comparison', args.paradigm, args.task, 'png', run_tag)
+            plot_path = Path(args.output_dir) / plot_filename
+            generate_plot(results, comparison, str(plot_path), task_type=args.task)
+        else:
+            log_io.info("No historical data found and insufficient models for comparison plot")
 
     # Log total time
     total_time = time.time() - start_time
