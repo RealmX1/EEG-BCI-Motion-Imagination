@@ -881,7 +881,7 @@ def generate_combined_plot(
     # 配对颜色配置
     pair_colors = {
         'current': '#E94F37',   # 当前 CBraMod: 红色
-        'historical': '#9B59B6',  # 历史 CBraMod: 紫色
+        'historical': '#E94F37',  # 历史 CBraMod: 红色 (alpha=0.5 半透明)
     }
 
     all_accs = []  # 用于计算坐标轴范围
