@@ -348,14 +348,13 @@ class TableEpochLogger:
         )
         self.history.append(metrics)
 
-        # 更新最佳值
-        if is_best or val_acc > self.best_val_acc:
+        # 更新最佳值 (仅依赖 is_best 标记，与 EEGTrainer 的 combined_score 逻辑保持一致)
+        if is_best:
             self.best_val_acc = val_acc
-            self.best_epoch = epoch
-        if val_loss < self.best_val_loss:
             self.best_val_loss = val_loss
-        if majority_acc is not None and majority_acc > self.best_majority_acc:
-            self.best_majority_acc = majority_acc
+            self.best_epoch = epoch
+            if majority_acc is not None:
+                self.best_majority_acc = majority_acc
 
         # 判断是否需要打印此行
         should_print = (
