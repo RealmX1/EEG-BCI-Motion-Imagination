@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 import numpy as np
 
 if TYPE_CHECKING:
-    from src.preprocessing.experiment_config import ExperimentPreprocessConfig
+    from src.config.experiment_config import ExperimentPreprocessConfig
 
 logger = logging.getLogger(__name__)
 

@@ -77,6 +77,8 @@ uv run python scripts/run_transfer_comparison.py --task binary --models eegnet  
 
 ## 关键文件
 
+### src/ 模块
+
 | 文件 | 说明 |
 |------|------|
 | `src/preprocessing/data_loader.py` | 数据加载和预处理管线 |
@@ -86,11 +88,34 @@ uv run python scripts/run_transfer_comparison.py --task binary --models eegnet  
 | `src/training/train_within_subject.py` | 被试内训练模块 (API) |
 | `src/training/train_cross_subject.py` | 跨被试预训练模块 |
 | `src/training/finetune.py` | 个体微调模块 (支持冻结策略) |
-| `scripts/run_full_comparison.py` | 全被试模型对比 |
-| `scripts/run_single_model.py` | 单模型训练脚本 |
-| `scripts/run_cross_subject.py` | 跨被试预训练脚本 |
-| `scripts/run_finetune.py` | 个体微调脚本 |
-| `scripts/run_transfer_comparison.py` | 迁移学习完整对比实验 |
+| `src/results/` | 结果管理 (缓存、序列化、统计) |
+| `src/visualization/` | 可视化模块 (对比图、单模型图) |
+| `src/config/` | 配置模块 (常量、预设、实验配置) |
+| `src/evaluation/metrics.py` | 评估指标库 (TODO: 待集成到训练流程) |
+
+### scripts/ 目录结构
+
+```
+scripts/
+├── experiments/                # 训练实验脚本
+│   ├── run_full_comparison.py  # 全被试模型对比
+│   ├── run_single_model.py     # 单模型训练
+│   ├── run_cross_subject.py    # 跨被试预训练
+│   ├── run_finetune.py         # 个体微调
+│   └── run_transfer_comparison.py
+├── preprocessing/              # 数据预处理脚本
+│   ├── preprocess_zip.py       # ZIP 解压和预处理
+│   ├── cache_helper.py         # 缓存管理
+│   └── merge_cache_index.py    # 缓存索引合并
+├── tools/                      # 工具脚本
+│   ├── verify_installation.py  # 安装验证
+│   └── compare_schedulers.py   # 调度器对比
+├── analysis/                   # 分析脚本
+│   └── research/               # 研究分析
+└── internal/                   # 内部工具
+```
+
+**向后兼容**: 根目录的 wrapper 脚本 (`scripts/run_*.py`) 仍然有效
 
 ## 模型配置
 
@@ -129,6 +154,7 @@ caches/preprocessed/                  # 预处理缓存
 | `docs/TROUBLESHOOTING.md` | 故障排除指南 |
 | `docs/preprocessing_architecture.md` | 预处理管线详细架构 |
 | `docs/dev_log/changelog.md` | 开发历史和变更记录 |
+| `docs/dev_log/refactoring/` | 代码重构详细记录 (Phase 1-4) |
 
 ## 参考资料
 
