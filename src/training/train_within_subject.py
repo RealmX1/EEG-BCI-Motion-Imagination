@@ -1,6 +1,14 @@
 """
 Within-subject training module for FINGER-EEG-BCI.
 
+This module provides the main training functions for single-subject EEG classification.
+It imports from submodules for:
+- schedulers.py: Learning rate schedulers (WSD, CosineDecayRestarts, CosineAnnealingWarmupDecay)
+- evaluation.py: Evaluation functions (majority_vote_accuracy)
+- trainer.py: WithinSubjectTrainer class
+
+SCHEDULER_PRESETS and get_default_config are re-exported from src.config.training.
+
 Supports both EEGNet and CBraMod models, and both Motor Imagery (MI) and
 Motor Execution (ME) paradigms.
 
@@ -8,21 +16,6 @@ Data Split (follows paper protocol):
 - Training: Offline + Session 1 (Base + Finetune) + Session 2 Base
 - Validation: Last 20% of training data (temporal split)
 - Test: Session 2 Finetune (completely held out)
-
-EEGNet:
-- 128 channels, 100 Hz sampling rate
-- 4-40 Hz bandpass filter (4th order Butterworth)
-- Z-score normalization per segment
-- 1-second sliding window with 125ms step
-- Majority voting for trial prediction
-- Training: 300 epochs with ReduceLROnPlateau
-
-CBraMod:
-- 19 or 128 channels, 200 Hz sampling rate
-- 0.3-75 Hz bandpass, 60 Hz notch filter
-- Divide by 100 normalization
-- Patch-based processing (1s patches)
-- Training: 50 epochs with cosine annealing
 
 Usage (programmatic API):
     from src.training.train_within_subject import train_subject_simple
@@ -99,6 +92,21 @@ from src.utils.timing import (
 )
 from src.utils.table_logger import TableEpochLogger
 
+# ============================================================================
+# Re-exports from submodules (for backward compatibility)
+# ============================================================================
+from .schedulers import (
+    WSDScheduler,
+    CosineDecayRestarts,
+    CosineAnnealingWarmupDecay,
+    visualize_lr_schedule,
+)
+from .evaluation import majority_vote_accuracy
+from .trainer import WithinSubjectTrainer
+
+# Re-exports from src.config.training
+from ..config.training import SCHEDULER_PRESETS, get_default_config
+
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +117,20 @@ log_train = SectionLogger(logger, 'train')
 log_eval = SectionLogger(logger, 'eval')
 
 
-def majority_vote_accuracy(
+# ============================================================================
+# NOTE: The following classes and functions have been moved to submodules:
+# - majority_vote_accuracy -> src.training.evaluation
+# - WSDScheduler, CosineDecayRestarts, CosineAnnealingWarmupDecay -> src.training.schedulers
+# - visualize_lr_schedule -> src.training.schedulers
+# - WithinSubjectTrainer -> src.training.trainer
+# - SCHEDULER_PRESETS, get_default_config -> src.config.training
+#
+# The original implementations have been removed from this file.
+# They are re-exported above for backward compatibility.
+# ============================================================================
+
+
+def _deprecated_majority_vote_accuracy(
     model: nn.Module,
     dataset: FingerEEGDataset,
     indices: List[int],

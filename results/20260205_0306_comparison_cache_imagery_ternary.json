@@ -1,0 +1,33 @@
+{
+  "paradigm": "imagery",
+  "task": "ternary",
+  "run_tag": "20260205_0306",
+  "wandb_groups": {
+    "cbramod": "cbramod_imagery_ternary_20260205_0306"
+  },
+  "last_updated": "2026-02-05T03:17:55.301911",
+  "results": {
+    "cbramod": {
+      "S01": {
+        "subject_id": "S01",
+        "task_type": "ternary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.4809763101220388,
+        "test_acc": 0.5875,
+        "test_acc_majority": 0.5875,
+        "epochs_trained": 21,
+        "training_time": 255.89172759999929
+      },
+      "S02": {
+        "subject_id": "S02",
+        "task_type": "ternary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.5718370264474625,
+        "test_acc": 0.8166666666666667,
+        "test_acc_majority": 0.8166666666666667,
+        "epochs_trained": 38,
+        "training_time": 387.07479669999884
+      }
+    }
+  }
+}

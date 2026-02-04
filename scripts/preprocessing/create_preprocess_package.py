@@ -24,7 +24,7 @@ import zipfile
 from pathlib import Path
 from datetime import datetime
 
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 # Files required for preprocess_zip.py
 REQUIRED_FILES = [

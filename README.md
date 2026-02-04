@@ -321,18 +321,37 @@ caches/preprocessed/
 ```
 EEG-BCI/
 ├── src/
-│   ├── preprocessing/
-│   │   ├── data_loader.py         # 核心数据加载和预处理
+│   ├── config/                    # 配置模块
+│   │   ├── constants.py           # 全局常量
+│   │   ├── training.py            # 训练配置和调度器预设
+│   │   └── experiment_config.py   # ML Engineering 实验配置
+│   ├── preprocessing/             # 数据预处理
+│   │   ├── data_loader.py         # 数据加载入口 (向后兼容层)
+│   │   ├── loader.py              # MAT 文件加载
+│   │   ├── pipeline.py            # 预处理管线
+│   │   ├── dataset.py             # PyTorch Dataset
+│   │   ├── discovery.py           # 被试发现
 │   │   ├── cache_manager.py       # HDF5 缓存管理 (v3.0)
-│   │   ├── experiment_config.py   # ML Engineering 实验配置
 │   │   ├── filtering.py           # 滤波器实现
 │   │   ├── resampling.py          # 重采样
 │   │   └── channel_selection.py   # 通道选择
 │   ├── models/
 │   │   ├── eegnet.py              # EEGNet-8,2 实现
 │   │   └── cbramod_adapter.py     # CBraMod 适配器
-│   ├── training/
-│   │   └── train_within_subject.py # 被试内训练 API
+│   ├── training/                  # 训练模块
+│   │   ├── train_within_subject.py # 被试内训练 API
+│   │   ├── trainer.py             # WithinSubjectTrainer 类
+│   │   ├── schedulers.py          # 学习率调度器
+│   │   └── evaluation.py          # 评估函数
+│   ├── results/                   # 结果管理
+│   │   ├── dataclasses.py         # TrainingResult 等数据类
+│   │   ├── cache.py               # 结果缓存
+│   │   └── statistics.py          # 统计分析
+│   ├── visualization/             # 可视化
+│   │   ├── comparison.py          # 模型对比图
+│   │   └── single_model.py        # 单模型图
+│   ├── evaluation/                # 评估指标 (TODO: 待集成)
+│   │   └── metrics.py             # balanced_accuracy, AUROC 等
 │   └── utils/
 │       ├── table_logger.py        # 彩色表格式 Epoch 日志
 │       ├── wandb_logger.py        # WandB 集成
@@ -340,18 +359,25 @@ EEG-BCI/
 │       ├── logging.py             # 日志格式化
 │       └── timing.py              # 性能计时
 ├── scripts/
-│   ├── run_full_comparison.py     # 全被试模型对比
-│   ├── run_single_model.py        # 单模型训练
-│   ├── preprocess_zip.py          # ZIP 解压 + 缓存生成
-│   ├── run_preproc_experiment.py  # ML Engineering 实验
-│   ├── compile_preproc_report.py  # 实验报告生成
-│   ├── cache_helper.py            # 缓存管理工具
-│   ├── visualize_comparison.py    # 结果可视化
-│   └── verify_installation.py     # 环境验证
+│   ├── experiments/               # 训练实验脚本
+│   │   ├── run_full_comparison.py # 全被试模型对比
+│   │   ├── run_single_model.py    # 单模型训练
+│   │   └── run_cross_subject.py   # 跨被试预训练
+│   ├── preprocessing/             # 数据预处理脚本
+│   │   ├── preprocess_zip.py      # ZIP 解压 + 缓存生成
+│   │   └── cache_helper.py        # 缓存管理工具
+│   ├── analysis/                  # 分析脚本
+│   │   ├── run_preproc_experiment.py  # ML Engineering 实验
+│   │   └── compile_preproc_report.py  # 实验报告生成
+│   ├── tools/                     # 工具脚本
+│   │   └── verify_installation.py # 环境验证
+│   └── run_*.py                   # 向后兼容 wrapper 脚本
 ├── docs/
 │   ├── preprocessing_architecture.md
 │   ├── TROUBLESHOOTING.md
-│   └── dev_log/changelog.md
+│   └── dev_log/
+│       ├── changelog.md
+│       └── refactoring/           # 代码重构详细记录
 ├── data/                          # 数据目录 (不纳入版本控制)
 ├── caches/                        # 预处理缓存 (不纳入版本控制)
 ├── checkpoints/                   # 模型检查点 (不纳入版本控制)
