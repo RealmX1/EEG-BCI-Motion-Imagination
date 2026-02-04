@@ -1,0 +1,33 @@
+{
+  "metadata": {
+    "paradigm": "imagery",
+    "paradigm_description": "Motor Imagery (MI)",
+    "task_type": "binary",
+    "run_tag": "20260203_2012",
+    "timestamp": "2026-02-03T20:14:11.275858",
+    "n_subjects": 1
+  },
+  "models": {
+    "cbramod": {
+      "subjects": [
+        {
+          "subject_id": "S01",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.6541755888650964,
+          "test_acc": 0.79375,
+          "test_acc_majority": 0.79375,
+          "epochs_trained": 15,
+          "training_time": 63.343404300001566
+        }
+      ],
+      "summary": {
+        "mean": 0.79375,
+        "std": 0.0,
+        "min": 0.79375,
+        "max": 0.79375
+      }
+    }
+  },
+  "comparison": null
+}

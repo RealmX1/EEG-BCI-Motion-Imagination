@@ -82,10 +82,10 @@ tmp.*
 
 # Experiment results (auto-generated)
 results/comparison_cache_imagery_binary.json
-results/20*_*.json
-results/20*_*.png
-results/*_20*.json
-results/*_20*.png
+# results/20*_*.json
+# results/20*_*.png
+# results/*_20*.json
+# results/*_20*.png
 results/finetune/
 
 # Cache index (auto-generated)
@@ -93,3 +93,5 @@ results/finetune/
 
 # Cache status reports
 *_CACHE_STATUS.txt
+results/comparison_cache_imagery_ternary.json
+nul
