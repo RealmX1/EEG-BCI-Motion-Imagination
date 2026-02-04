@@ -54,7 +54,7 @@ import logging
 import json
 from pathlib import Path
 from collections import Counter
-from typing import List, Tuple, Dict, Optional
+from typing import Any, List, Tuple, Dict, Optional
 import sys
 import time
 
@@ -499,118 +499,155 @@ class CosineDecayRestarts:
 
 class CosineAnnealingWarmupDecay:
     """
-    多阶段余弦退火调度器，带 warmup 和峰值衰减。
+    多阶段余弦退火调度器，带 LR ramp-up 和峰值衰减。
 
-    每个阶段包含 warmup（从 eta_min 上升到峰值）+ 余弦衰减（从峰值下降到 eta_min）。
-    每个新阶段的峰值学习率按 phase_decay 衰减。
+    基于 EPOCH 计算 phase 边界（而非 step），确保 phase 边界始终在正确的 epoch 位置，
+    不受 batch size 变化（如 exploration phase）影响。
 
-    Schedule visualization (phase_length=6 epochs, phase_decay=0.7, 30 epochs total):
-        Phase 0 (epochs 0-5):   peak = 100%, warmup + cosine decay
-        Phase 1 (epochs 6-11):  peak = 70%,  warmup + cosine decay
-        Phase 2 (epochs 12-17): peak = 49%,  warmup + cosine decay
-        Phase 3 (epochs 18-23): peak = 34%,  warmup + cosine decay
-        Phase 4 (epochs 24-29): peak = 24%,  warmup + cosine decay
+    每个 phase 包含:
+    - LR ramp-up (前 lr_ramp_ratio): 从 eta_min 线性上升到峰值
+    - Cosine decay (后 1-lr_ramp_ratio): 从峰值余弦下降到 eta_min
+
+    每个新 phase 的峰值学习率按 phase_decay 衰减。
+
+    Schedule visualization (phase_epochs=6, phase_decay=0.7, 30 epochs total):
+        Phase 0 (epochs 0-5):   peak = 100%, ramp-up + cosine decay
+        Phase 1 (epochs 6-11):  peak = 70%,  ramp-up + cosine decay
+        Phase 2 (epochs 12-17): peak = 49%,  ramp-up + cosine decay
+        Phase 3 (epochs 18-23): peak = 34%,  ramp-up + cosine decay
+        Phase 4 (epochs 24-29): peak = 24%,  ramp-up + cosine decay
 
     Args:
         optimizer: PyTorch optimizer
-        total_steps: Total number of training steps
-        steps_per_epoch: Steps per epoch (for calculating phase boundaries)
-        phase_length: Number of epochs per phase (default: 6)
+        total_epochs: Total number of training epochs
+        phase_epochs: Number of epochs per phase (default: 6)
         phase_decay: Peak LR decay factor between phases (default: 0.7)
-        warmup_ratio: Fraction of each phase for warmup (default: 0.1)
+        lr_ramp_ratio: Fraction of each phase for LR ramp-up (default: 0.1)
         eta_min: Minimum learning rate (default: 1e-6)
 
     Example:
         >>> scheduler = CosineAnnealingWarmupDecay(
         ...     optimizer,
-        ...     total_steps=3000,
-        ...     steps_per_epoch=100,
-        ...     phase_length=6,
+        ...     total_epochs=50,
+        ...     phase_epochs=6,
         ...     phase_decay=0.7,
         ... )
-        >>> for step in range(3000):
-        ...     train(...)
-        ...     scheduler.step()
+        >>> for epoch in range(50):
+        ...     for batch_idx, batch in enumerate(train_loader):
+        ...         train(batch)
+        ...         scheduler.step(epoch, batch_idx, len(train_loader))
     """
 
     def __init__(
         self,
         optimizer: torch.optim.Optimizer,
-        total_steps: int,
-        steps_per_epoch: int,
-        phase_length: int = 6,
+        total_epochs: int,
+        phase_epochs: int = 6,
         phase_decay: float = 0.7,
-        warmup_ratio: float = 0.1,
+        lr_ramp_ratio: float = 0.1,
         eta_min: float = 1e-6,
     ):
         self.optimizer = optimizer
-        self.total_steps = total_steps
-        self.steps_per_epoch = steps_per_epoch
-        self.phase_length = phase_length
+        self.total_epochs = total_epochs
+        self.phase_epochs = phase_epochs
         self.phase_decay = phase_decay
-        self.warmup_ratio = warmup_ratio
+        self.lr_ramp_ratio = lr_ramp_ratio
         self.eta_min = eta_min
 
         # Store initial learning rates (peak LR for each param group)
         self.base_lrs = [group['lr'] for group in optimizer.param_groups]
 
-        # Calculate steps per phase
-        self.steps_per_phase = steps_per_epoch * phase_length
-        self.warmup_steps_per_phase = int(self.steps_per_phase * warmup_ratio)
-        self.cosine_steps_per_phase = self.steps_per_phase - self.warmup_steps_per_phase
-
         # Calculate number of phases
-        total_epochs = total_steps // steps_per_epoch
-        self.num_phases = total_epochs // phase_length
-        if total_epochs % phase_length != 0:
+        self.num_phases = total_epochs // phase_epochs
+        if total_epochs % phase_epochs != 0:
             self.num_phases += 1
 
-        self.current_step = 0
+        # Track current position (for state_dict and get_phase)
+        self.current_epoch = 0
+        self.current_step_in_epoch = 0
+        self.current_steps_in_epoch = 1  # Default to 1 to avoid div by zero
+
         self._last_lr = list(self.base_lrs)
 
-        # Initialize LR (start of first warmup)
+        # Initialize LR (start of first ramp-up)
         self._update_lr()
 
-    def _get_phase_info(self, step: int) -> Tuple[int, int, float]:
+    def get_phase_for_epoch(self, epoch: int) -> int:
         """
-        Calculate phase information for a given step.
+        Get the phase index for a given epoch.
+
+        Args:
+            epoch: Current epoch (0-indexed)
 
         Returns:
-            (phase_idx, step_in_phase, peak_lr_scale)
+            Phase index (0-indexed)
         """
-        phase_idx = min(step // self.steps_per_phase, self.num_phases - 1)
-        step_in_phase = step % self.steps_per_phase
+        return min(epoch // self.phase_epochs, self.num_phases - 1)
 
-        # Last phase may have extra steps
-        if phase_idx == self.num_phases - 1:
-            step_in_phase = step - phase_idx * self.steps_per_phase
+    def _get_progress_in_phase(self, epoch: int, step_in_epoch: int, steps_in_epoch: int) -> float:
+        """
+        Calculate progress within the current phase (0.0 to 1.0).
 
-        # Peak LR scale factor for this phase
-        peak_lr_scale = self.phase_decay ** phase_idx
+        This is the key function that makes phase boundaries independent of batch size.
+        Progress is calculated purely from epoch position, with step providing sub-epoch precision.
 
-        return phase_idx, step_in_phase, peak_lr_scale
+        Args:
+            epoch: Current epoch (0-indexed)
+            step_in_epoch: Current step within the epoch (0-indexed)
+            steps_in_epoch: Total steps in this epoch
 
-    def _get_lr_scale(self, step: int) -> float:
-        """Calculate LR scale factor for a given step (relative to base_lr)."""
+        Returns:
+            Progress ratio within the phase (0.0 to 1.0)
+        """
+        phase_idx = self.get_phase_for_epoch(epoch)
+        epoch_in_phase = epoch - phase_idx * self.phase_epochs
+
+        # Sub-epoch progress (0.0 to 1.0 within current epoch)
+        epoch_progress = step_in_epoch / max(1, steps_in_epoch)
+
+        # Total progress within phase
+        progress = (epoch_in_phase + epoch_progress) / self.phase_epochs
+
+        return min(1.0, progress)
+
+    def _get_lr_scale(self, epoch: int, step_in_epoch: int, steps_in_epoch: int) -> float:
+        """
+        Calculate LR scale factor (relative to base_lr) for given position.
+
+        Args:
+            epoch: Current epoch (0-indexed)
+            step_in_epoch: Current step within the epoch
+            steps_in_epoch: Total steps in this epoch
+
+        Returns:
+            LR scale factor (0.0 to 1.0)
+        """
         import math
 
-        phase_idx, step_in_phase, peak_scale = self._get_phase_info(step)
+        phase_idx = self.get_phase_for_epoch(epoch)
+        progress = self._get_progress_in_phase(epoch, step_in_epoch, steps_in_epoch)
 
-        if step_in_phase < self.warmup_steps_per_phase:
-            # Warmup phase: linear increase from ~0 to peak
-            warmup_progress = step_in_phase / max(1, self.warmup_steps_per_phase)
-            return warmup_progress * peak_scale
+        # Peak LR scale for this phase
+        peak_scale = self.phase_decay ** phase_idx
+
+        if progress < self.lr_ramp_ratio:
+            # LR ramp-up: linear increase from ~0 to peak
+            ramp_progress = progress / self.lr_ramp_ratio
+            return ramp_progress * peak_scale
         else:
-            # Cosine decay phase: from peak to ~0
-            cosine_step = step_in_phase - self.warmup_steps_per_phase
-            cosine_progress = cosine_step / max(1, self.cosine_steps_per_phase)
+            # Cosine decay: from peak to ~0
+            decay_progress = (progress - self.lr_ramp_ratio) / (1.0 - self.lr_ramp_ratio)
             # Cosine factor: 1 (start) -> 0 (end)
-            cosine_factor = (1 + math.cos(math.pi * cosine_progress)) / 2
+            cosine_factor = (1 + math.cos(math.pi * decay_progress)) / 2
             return peak_scale * cosine_factor
 
     def _update_lr(self):
-        """Update learning rates in optimizer."""
-        scale = self._get_lr_scale(self.current_step)
+        """Update learning rates in optimizer based on current position."""
+        scale = self._get_lr_scale(
+            self.current_epoch,
+            self.current_step_in_epoch,
+            self.current_steps_in_epoch
+        )
 
         for i, (group, base_lr) in enumerate(zip(self.optimizer.param_groups, self.base_lrs)):
             # Interpolate between eta_min and scaled base_lr
@@ -618,9 +655,18 @@ class CosineAnnealingWarmupDecay:
             group['lr'] = new_lr
             self._last_lr[i] = new_lr
 
-    def step(self):
-        """Advance scheduler by one step."""
-        self.current_step += 1
+    def step(self, epoch: int, step_in_epoch: int, steps_in_epoch: int):
+        """
+        Advance scheduler by one step.
+
+        Args:
+            epoch: Current epoch (0-indexed)
+            step_in_epoch: Current step within the epoch (0-indexed, AFTER this batch)
+            steps_in_epoch: Total steps in this epoch
+        """
+        self.current_epoch = epoch
+        self.current_step_in_epoch = step_in_epoch
+        self.current_steps_in_epoch = steps_in_epoch
         self._update_lr()
 
     def get_last_lr(self) -> List[float]:
@@ -629,7 +675,7 @@ class CosineAnnealingWarmupDecay:
 
     def get_phase(self) -> int:
         """Return current phase index (0-indexed)."""
-        return min(self.current_step // self.steps_per_phase, self.num_phases - 1)
+        return self.get_phase_for_epoch(self.current_epoch)
 
     def get_phase_progress(self) -> Tuple[int, float, str]:
         """
@@ -637,55 +683,268 @@ class CosineAnnealingWarmupDecay:
 
         Returns:
             (phase_idx, progress_ratio, sub_phase_name)
-            sub_phase_name: 'warmup' or 'cosine_decay'
+            sub_phase_name: 'lr_ramp' or 'cosine_decay'
         """
-        phase_idx, step_in_phase, _ = self._get_phase_info(self.current_step)
+        phase_idx = self.get_phase()
+        progress = self._get_progress_in_phase(
+            self.current_epoch,
+            self.current_step_in_epoch,
+            self.current_steps_in_epoch
+        )
 
-        if step_in_phase < self.warmup_steps_per_phase:
-            progress = step_in_phase / max(1, self.warmup_steps_per_phase)
-            return (phase_idx, progress, 'warmup')
+        if progress < self.lr_ramp_ratio:
+            ramp_progress = progress / self.lr_ramp_ratio
+            return (phase_idx, ramp_progress, 'lr_ramp')
         else:
-            cosine_step = step_in_phase - self.warmup_steps_per_phase
-            progress = cosine_step / max(1, self.cosine_steps_per_phase)
-            return (phase_idx, min(1.0, progress), 'cosine_decay')
+            decay_progress = (progress - self.lr_ramp_ratio) / (1.0 - self.lr_ramp_ratio)
+            return (phase_idx, min(1.0, decay_progress), 'cosine_decay')
 
     def get_current_peak(self) -> float:
         """Return the peak LR for the current phase."""
         phase_idx = self.get_phase()
         return self.base_lrs[0] * (self.phase_decay ** phase_idx)
 
+    def calculate_lr_at_epoch(self, epoch: int, epoch_progress: float = 0.0) -> float:
+        """
+        Calculate the learning rate at a specific epoch position.
+
+        Useful for logging and visualization.
+
+        Args:
+            epoch: Target epoch (0-indexed)
+            epoch_progress: Progress within the epoch (0.0 to 1.0)
+
+        Returns:
+            Learning rate at the specified position
+        """
+        # Convert epoch_progress to step representation
+        step_in_epoch = int(epoch_progress * 100)
+        steps_in_epoch = 100
+
+        scale = self._get_lr_scale(epoch, step_in_epoch, steps_in_epoch)
+        return self.eta_min + (self.base_lrs[0] - self.eta_min) * scale
+
+    def get_schedule_data(self, points_per_epoch: int = 2) -> Tuple[List[float], List[float], List[int]]:
+        """
+        Get LR schedule data for visualization.
+
+        Args:
+            points_per_epoch: Number of sample points per epoch
+
+        Returns:
+            (epochs, lrs, phase_boundaries)
+            - epochs: List of epoch values (float)
+            - lrs: List of corresponding learning rates
+            - phase_boundaries: List of epoch indices where phases start
+        """
+        epochs = []
+        lrs = []
+        phase_boundaries = []
+
+        for epoch in range(self.total_epochs):
+            # Mark phase boundaries
+            if epoch % self.phase_epochs == 0:
+                phase_boundaries.append(epoch)
+
+            # Sample points within each epoch
+            for i in range(points_per_epoch):
+                progress = i / points_per_epoch
+                lr = self.calculate_lr_at_epoch(epoch, progress)
+                epochs.append(epoch + progress)
+                lrs.append(lr)
+
+        return epochs, lrs, phase_boundaries
+
     def state_dict(self) -> dict:
         """Return scheduler state for checkpointing."""
         return {
-            'current_step': self.current_step,
-            'total_steps': self.total_steps,
-            'steps_per_epoch': self.steps_per_epoch,
-            'steps_per_phase': self.steps_per_phase,
-            'warmup_steps_per_phase': self.warmup_steps_per_phase,
-            'cosine_steps_per_phase': self.cosine_steps_per_phase,
-            'num_phases': self.num_phases,
-            'phase_length': self.phase_length,
+            'current_epoch': self.current_epoch,
+            'current_step_in_epoch': self.current_step_in_epoch,
+            'current_steps_in_epoch': self.current_steps_in_epoch,
+            'total_epochs': self.total_epochs,
+            'phase_epochs': self.phase_epochs,
             'phase_decay': self.phase_decay,
-            'warmup_ratio': self.warmup_ratio,
+            'lr_ramp_ratio': self.lr_ramp_ratio,
+            'num_phases': self.num_phases,
             'base_lrs': self.base_lrs,
             'eta_min': self.eta_min,
         }
 
     def load_state_dict(self, state_dict: dict):
         """Load scheduler state from checkpoint."""
-        self.current_step = state_dict['current_step']
-        self.total_steps = state_dict['total_steps']
-        self.steps_per_epoch = state_dict['steps_per_epoch']
-        self.steps_per_phase = state_dict['steps_per_phase']
-        self.warmup_steps_per_phase = state_dict['warmup_steps_per_phase']
-        self.cosine_steps_per_phase = state_dict['cosine_steps_per_phase']
-        self.num_phases = state_dict['num_phases']
-        self.phase_length = state_dict['phase_length']
+        self.current_epoch = state_dict['current_epoch']
+        self.current_step_in_epoch = state_dict['current_step_in_epoch']
+        self.current_steps_in_epoch = state_dict['current_steps_in_epoch']
+        self.total_epochs = state_dict['total_epochs']
+        self.phase_epochs = state_dict['phase_epochs']
         self.phase_decay = state_dict['phase_decay']
-        self.warmup_ratio = state_dict['warmup_ratio']
+        self.lr_ramp_ratio = state_dict['lr_ramp_ratio']
+        self.num_phases = state_dict['num_phases']
         self.base_lrs = state_dict['base_lrs']
         self.eta_min = state_dict['eta_min']
         self._update_lr()
+
+
+def visualize_lr_schedule(
+    scheduler_config: Dict[str, Any],
+    base_lr: float = 1e-4,
+    output_path: Optional[Path] = None,
+    show: bool = True,
+) -> Optional[Path]:
+    """
+    Visualize the learning rate schedule and optionally save/display it.
+
+    This function creates a plot showing the LR schedule with phase boundaries,
+    intended to be called once at the start of training to verify the schedule.
+
+    Args:
+        scheduler_config: Scheduler configuration from SCHEDULER_PRESETS
+        base_lr: Base learning rate (backbone_lr for CBraMod)
+        output_path: Path to save the image (optional)
+        show: Whether to display the image in a non-blocking window
+
+    Returns:
+        Path to saved image if output_path was provided, else None
+    """
+    import matplotlib
+    matplotlib.use('Agg')  # Non-interactive backend for saving
+    import matplotlib.pyplot as plt
+
+    # Extract parameters from config
+    total_epochs = scheduler_config.get('epochs', 100)
+    phase_epochs = scheduler_config.get('phase_epochs', 6)
+    phase_decay = scheduler_config.get('phase_decay', 0.7)
+    lr_ramp_ratio = scheduler_config.get('lr_ramp_ratio', 0.1)
+    eta_min = scheduler_config.get('eta_min', 1e-6)
+    exploration_epochs = scheduler_config.get('exploration_epochs', 6)
+
+    # Create a dummy optimizer to instantiate scheduler
+    dummy_param = torch.nn.Parameter(torch.zeros(1))
+    dummy_optimizer = torch.optim.SGD([dummy_param], lr=base_lr)
+
+    scheduler = CosineAnnealingWarmupDecay(
+        dummy_optimizer,
+        total_epochs=total_epochs,
+        phase_epochs=phase_epochs,
+        phase_decay=phase_decay,
+        lr_ramp_ratio=lr_ramp_ratio,
+        eta_min=eta_min,
+    )
+
+    # Get schedule data
+    epochs, lrs, phase_boundaries = scheduler.get_schedule_data(points_per_epoch=4)
+
+    # Create figure
+    fig, ax = plt.subplots(figsize=(14, 6))
+
+    # Plot LR curve
+    ax.plot(epochs, lrs, 'b-', linewidth=1.5, label='Learning Rate')
+
+    # Mark phase boundaries with vertical lines
+    for i, boundary in enumerate(phase_boundaries):
+        peak_lr = base_lr * (phase_decay ** i)
+        ax.axvline(x=boundary, color='gray', linestyle='--', alpha=0.5, linewidth=0.8)
+        if i < 8:  # Only label first 8 phases to avoid clutter
+            ax.annotate(
+                f'P{i}\n{peak_lr:.1e}',
+                xy=(boundary + 0.5, peak_lr * 0.95),
+                fontsize=7,
+                color='gray',
+                ha='left',
+                va='top',
+            )
+
+    # Mark exploration phase
+    ax.axvspan(0, exploration_epochs, alpha=0.15, color='green', label=f'Exploration ({exploration_epochs} epochs)')
+
+    # Labels and title
+    ax.set_xlabel('Epoch', fontsize=11)
+    ax.set_ylabel('Learning Rate', fontsize=11)
+    ax.set_title(
+        f'CosineAnnealingWarmupDecay Schedule\n'
+        f'Total: {total_epochs} epochs | Phase: {phase_epochs} epochs | '
+        f'Decay: {phase_decay} | LR Ramp: {lr_ramp_ratio:.0%}',
+        fontsize=12,
+    )
+    ax.set_xlim(0, total_epochs)
+    ax.set_ylim(0, base_lr * 1.1)
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc='upper right')
+
+    # Add text annotations
+    info_text = (
+        f"Base LR: {base_lr:.1e}\n"
+        f"Min LR: {eta_min:.1e}\n"
+        f"Phases: {scheduler.num_phases}"
+    )
+    ax.text(
+        0.02, 0.98, info_text,
+        transform=ax.transAxes,
+        fontsize=9,
+        verticalalignment='top',
+        fontfamily='monospace',
+        bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5),
+    )
+
+    plt.tight_layout()
+
+    # Save if path provided
+    saved_path = None
+    if output_path:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        saved_path = output_path
+        log_train.info(f"LR schedule visualization saved to: {output_path}")
+
+    # Show in non-blocking window
+    if show:
+        # Switch to interactive backend for display
+        plt.switch_backend('TkAgg')
+        fig_show, ax_show = plt.subplots(figsize=(14, 6))
+
+        # Re-plot on the new figure
+        ax_show.plot(epochs, lrs, 'b-', linewidth=1.5, label='Learning Rate')
+        for i, boundary in enumerate(phase_boundaries):
+            peak_lr = base_lr * (phase_decay ** i)
+            ax_show.axvline(x=boundary, color='gray', linestyle='--', alpha=0.5, linewidth=0.8)
+            if i < 8:
+                ax_show.annotate(
+                    f'P{i}\n{peak_lr:.1e}',
+                    xy=(boundary + 0.5, peak_lr * 0.95),
+                    fontsize=7,
+                    color='gray',
+                    ha='left',
+                    va='top',
+                )
+        ax_show.axvspan(0, exploration_epochs, alpha=0.15, color='green', label=f'Exploration ({exploration_epochs} epochs)')
+        ax_show.set_xlabel('Epoch', fontsize=11)
+        ax_show.set_ylabel('Learning Rate', fontsize=11)
+        ax_show.set_title(
+            f'CosineAnnealingWarmupDecay Schedule\n'
+            f'Total: {total_epochs} epochs | Phase: {phase_epochs} epochs | '
+            f'Decay: {phase_decay} | LR Ramp: {lr_ramp_ratio:.0%}',
+            fontsize=12,
+        )
+        ax_show.set_xlim(0, total_epochs)
+        ax_show.set_ylim(0, base_lr * 1.1)
+        ax_show.grid(True, alpha=0.3)
+        ax_show.legend(loc='upper right')
+        ax_show.text(
+            0.02, 0.98, info_text,
+            transform=ax_show.transAxes,
+            fontsize=9,
+            verticalalignment='top',
+            fontfamily='monospace',
+            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5),
+        )
+        plt.tight_layout()
+        plt.show(block=False)
+        plt.pause(0.1)  # Brief pause to ensure window appears
+
+    plt.close(fig)
+
+    return saved_path
 
 
 class WithinSubjectTrainer:
@@ -711,6 +970,7 @@ class WithinSubjectTrainer:
         classifier_lr: Optional[float] = None,
         weight_decay: float = 0.0,
         scheduler_type: Optional[str] = None,
+        scheduler_config: Optional[Dict[str, Any]] = None,
         use_amp: bool = True,
         gradient_clip: float = 1.0,
     ):
@@ -790,22 +1050,28 @@ class WithinSubjectTrainer:
             self.scheduler = None  # Placeholder, created in train()
             log_train.info("Scheduler: CosineAnnealingWarmupDecay (will be initialized in train())")
 
-        # WSD-specific parameters (stored for later initialization)
-        # Schedule: 5 epochs warmup -> 10 epochs decay -> rest at minimum
-        self.wsd_warmup_ratio = 0.1   # 10% = 5 epochs (warmup)
-        self.wsd_stable_ratio = 0.0   # 0% = no stable phase
-        self.wsd_decay_ratio = 0.3    # 20% = 10 epochs (decay)
+        # Scheduler-specific parameters (read from scheduler_config or use defaults)
+        # These are stored for later initialization in train() when total_steps/epochs are known
+        self.scheduler_config = scheduler_config or {}
+
+        # WSD-specific parameters
+        self.wsd_warmup_ratio = self.scheduler_config.get('warmup_ratio', 0.1)
+        self.wsd_stable_ratio = self.scheduler_config.get('stable_ratio', 0.0)
+        self.wsd_decay_ratio = self.scheduler_config.get('decay_ratio', 0.3)
 
         # CosineDecayRestarts-specific parameters
-        # With 30 epochs and T_0 = total_steps // 5, we get 5 cycles with decaying peaks
-        self.cosine_decay_factor = 0.7  # Peak reduces by 30% each cycle
-        self.cosine_decay_cycles = 5    # Number of cycles (T_0 = total_steps // cycles)
+        self.cosine_decay_factor = self.scheduler_config.get('decay_factor', 0.7)
+        self.cosine_decay_cycles = self.scheduler_config.get('num_cycles', 5)
 
-        # CosineAnnealingWarmupDecay-specific parameters
-        # Each phase: warmup (10%) + cosine decay (90%), peak decays by 0.7 between phases
-        self.cosine_warmup_phase_length = 6    # Epochs per phase
-        self.cosine_warmup_phase_decay = 0.7   # Peak decay between phases (100% -> 70% -> 49%...)
-        self.cosine_warmup_warmup_ratio = 0.1  # Warmup ratio within each phase
+        # CosineAnnealingWarmupDecay-specific parameters (renamed from warmup -> lr_ramp)
+        self.phase_epochs = self.scheduler_config.get('phase_epochs', 6)
+        self.phase_decay = self.scheduler_config.get('phase_decay', 0.7)
+        self.lr_ramp_ratio = self.scheduler_config.get('lr_ramp_ratio', 0.1)
+        self.cawd_eta_min = self.scheduler_config.get('eta_min', 1e-6)
+
+        # Exploration phase parameters (for two-stage batch size strategy)
+        self.exploration_epochs = self.scheduler_config.get('exploration_epochs', 5)
+        self.exploration_batch_size = self.scheduler_config.get('exploration_batch_size', 32)
 
         # AMP (Automatic Mixed Precision) setup
         self.use_amp = use_amp and device.type == 'cuda'
@@ -833,12 +1099,24 @@ class WithinSubjectTrainer:
         self.best_epoch = 0
         self.best_state = None
 
-    def train_epoch(self, dataloader: DataLoader, profile: bool = False) -> Tuple[float, float]:
-        """Train for one epoch with AMP, gradient clipping, and per-step scheduler."""
+    def train_epoch(
+        self,
+        dataloader: DataLoader,
+        epoch: int = 0,
+        profile: bool = False,
+    ) -> Tuple[float, float]:
+        """Train for one epoch with AMP, gradient clipping, and per-step scheduler.
+
+        Args:
+            dataloader: Training data loader
+            epoch: Current epoch index (0-indexed), used for epoch-based schedulers
+            profile: Whether to enable performance profiling
+        """
         self.model.train()
         total_loss = 0.0
         correct = 0
         total = 0
+        steps_in_epoch = len(dataloader)
 
         # Profiling variables
         if profile:
@@ -846,7 +1124,7 @@ class WithinSubjectTrainer:
             t_data, t_transfer, t_forward, t_backward, t_optim = 0, 0, 0, 0, 0
             t_start = time.perf_counter()
 
-        for segments, labels in dataloader:
+        for batch_idx, (segments, labels) in enumerate(dataloader):
             if profile:
                 t_data += time.perf_counter() - t_start
                 t0 = time.perf_counter()
@@ -912,9 +1190,14 @@ class WithinSubjectTrainer:
                 torch.cuda.synchronize()
                 t_optim += time.perf_counter() - t0
 
-            # Per-step scheduler update (for CBraMod, aligned with original)
+            # Per-step scheduler update (for CBraMod)
             if self.scheduler is not None and self.model_type == 'cbramod':
-                self.scheduler.step()
+                if self.scheduler_type == 'cosine_annealing_warmup_decay':
+                    # Epoch-based scheduler: pass epoch and step position
+                    self.scheduler.step(epoch, batch_idx + 1, steps_in_epoch)
+                else:
+                    # Step-based schedulers (WSD, CosineDecayRestarts)
+                    self.scheduler.step()
 
             total_loss += loss.item() * segments.size(0)
             preds = outputs.argmax(dim=1)
@@ -967,7 +1250,7 @@ class WithinSubjectTrainer:
         train_loader: DataLoader,
         val_loader: DataLoader,
         main_train_loader: Optional[DataLoader] = None,
-        warmup_epochs: int = 0,
+        exploration_epochs: int = 0,
         epochs: int = 50,
         patience: int = 10,
         save_path: Optional[Path] = None,
@@ -976,13 +1259,17 @@ class WithinSubjectTrainer:
         """
         Full training loop with early stopping and two-phase batch size.
 
+        Two-phase batch size strategy:
+        - Exploration phase (first N epochs): small batch size for more gradient updates
+        - Main phase (remaining epochs): normal batch size for stable training
+
         Args:
-            train_loader: Training DataLoader for warmup phase (small batch)
+            train_loader: Training DataLoader for exploration phase (small batch)
             val_loader: Validation DataLoader
             main_train_loader: Training DataLoader for main phase (normal batch).
                               If None, uses train_loader for all epochs.
-            warmup_epochs: Number of epochs for warmup phase (small batch).
-                          After this, switches to main_train_loader.
+            exploration_epochs: Number of epochs for exploration phase (small batch).
+                               After this, switches to main_train_loader.
             epochs: Maximum epochs
             patience: Early stopping patience
             save_path: Path to save best model
@@ -994,9 +1281,9 @@ class WithinSubjectTrainer:
         # Use single loader if main_train_loader not provided
         if main_train_loader is None:
             main_train_loader = train_loader
-            warmup_epochs = 0
+            exploration_epochs = 0
 
-        phase_info = f", warmup={warmup_epochs}eps" if warmup_epochs > 0 else ""
+        phase_info = f", exploration={exploration_epochs}eps" if exploration_epochs > 0 else ""
         print_section_header(f"Training ({epochs} epochs, patience={patience}{phase_info})")
 
         no_improve = 0
@@ -1014,10 +1301,10 @@ class WithinSubjectTrainer:
         table_logger.print_title()
 
         # Calculate total_steps for schedulers (account for two-phase batch size)
-        # warmup phase uses train_loader (small batch), main phase uses main_train_loader
-        warmup_steps = warmup_epochs * len(train_loader)
-        main_steps = (epochs - warmup_epochs) * len(main_train_loader)
-        total_steps = warmup_steps + main_steps
+        # exploration phase uses train_loader (small batch), main phase uses main_train_loader
+        exploration_steps = exploration_epochs * len(train_loader)
+        main_steps = (epochs - exploration_epochs) * len(main_train_loader)
+        total_steps = exploration_steps + main_steps
 
         # Recreate scheduler with correct T_max for per-step scheduling (CBraMod)
         # Use T_max = total_steps / 5 for faster LR decay (reaches min at 50% of training)
@@ -1080,31 +1367,31 @@ class WithinSubjectTrainer:
 
         # Create CosineAnnealingWarmupDecay scheduler for CBraMod
         if self.scheduler_type == 'cosine_annealing_warmup_decay' and self.model_type == 'cbramod':
-            # Use main_train_loader steps for calculation (main phase is dominant)
-            steps_per_epoch = len(main_train_loader)
-            num_phases = epochs // self.cosine_warmup_phase_length
-            if epochs % self.cosine_warmup_phase_length != 0:
-                num_phases += 1  # Handle non-divisible case
+            # NEW: Epoch-based phase calculation
+            # Phase boundaries are determined by epoch number, not step count.
+            # This ensures phase transitions happen at correct epoch positions regardless of batch size.
+            num_phases = epochs // self.phase_epochs
+            if epochs % self.phase_epochs != 0:
+                num_phases += 1
 
             log_train.info(
                 f"{Colors.BRIGHT_YELLOW}CosineAnnealingWarmupDecay Scheduler: "
-                f"phase_length={self.cosine_warmup_phase_length} epochs | "
+                f"phase_epochs={self.phase_epochs} | "
                 f"num_phases={num_phases} | "
-                f"phase_decay={self.cosine_warmup_phase_decay} | "
-                f"warmup_ratio={self.cosine_warmup_warmup_ratio}"
+                f"phase_decay={self.phase_decay} | "
+                f"lr_ramp_ratio={self.lr_ramp_ratio}"
                 f"{Colors.RESET}"
             )
             self.scheduler = CosineAnnealingWarmupDecay(
                 self.optimizer,
-                total_steps=total_steps,
-                steps_per_epoch=steps_per_epoch,
-                phase_length=self.cosine_warmup_phase_length,
-                phase_decay=self.cosine_warmup_phase_decay,
-                warmup_ratio=self.cosine_warmup_warmup_ratio,
-                eta_min=1e-6,
+                total_epochs=epochs,
+                phase_epochs=self.phase_epochs,
+                phase_decay=self.phase_decay,
+                lr_ramp_ratio=self.lr_ramp_ratio,
+                eta_min=self.cawd_eta_min,
             )
             # Show peak LR progression
-            peaks = [self.cosine_warmup_phase_decay ** i for i in range(num_phases)]
+            peaks = [self.phase_decay ** i for i in range(num_phases)]
             peak_str = " -> ".join([f"{p:.0%}" for p in peaks])
             log_train.info(f"Scheduler: CosineAnnealingWarmupDecay (peak progression: {peak_str})")
 
@@ -1112,15 +1399,19 @@ class WithinSubjectTrainer:
             epoch_timer.start_epoch()
 
             # Select train loader based on epoch (two-phase batch size)
-            if epoch < warmup_epochs:
-                current_train_loader = train_loader  # Small batch (warmup)
+            if epoch < exploration_epochs:
+                current_train_loader = train_loader  # Small batch (exploration)
             else:
                 current_train_loader = main_train_loader  # Normal batch (main)
 
             # Train (profile only first epoch to diagnose bottlenecks)
             do_profile = (epoch == 0)
             with epoch_timer.phase("train"):
-                train_loss, train_acc = self.train_epoch(current_train_loader, profile=do_profile)
+                train_loss, train_acc = self.train_epoch(
+                    current_train_loader,
+                    epoch=epoch,
+                    profile=do_profile,
+                )
 
             # Validate
             with epoch_timer.phase("validate"):
@@ -1635,23 +1926,24 @@ def train_single_subject(
     # ========== DATALOADER CREATION ==========
     print_section_header("DataLoader Creation")
 
-    # Determine warmup epochs based on scheduler type
+    # Get scheduler config (from SCHEDULER_PRESETS or config override)
     scheduler_type = config['training'].get('scheduler', None)
-    if scheduler_type == 'cosine_annealing_warmup_decay':
-        warmup_epochs = 6  # phase_length for this scheduler
-    elif scheduler_type == 'wsd':
-        warmup_epochs = int(config['training']['epochs'] * 0.1)  # 10% warmup
-    else:
-        warmup_epochs = 5  # default
+    scheduler_config = SCHEDULER_PRESETS.get(scheduler_type, {}).copy()
 
+    # Allow config overrides for scheduler parameters
+    if 'scheduler_config' in config:
+        scheduler_config.update(config['scheduler_config'])
+
+    # Get exploration phase parameters from scheduler config
+    exploration_epochs = scheduler_config.get('exploration_epochs', 5)
+    exploration_batch_size = scheduler_config.get('exploration_batch_size', 32)
     main_batch_size = config['training']['batch_size']
-    warmup_batch_size = 32  # Small batch for warmup phase
 
     with Timer("dataloader_creation", print_on_exit=True):
-        # Create warmup loader (small batch for exploration)
-        warmup_train_loader, val_loader = create_data_loaders_from_dataset(
+        # Create exploration loader (small batch for loss landscape exploration)
+        exploration_loader, val_loader = create_data_loaders_from_dataset(
             train_dataset, train_indices, val_indices,
-            batch_size=warmup_batch_size,
+            batch_size=exploration_batch_size,
             num_workers=0,
             shuffle_train=True,
         )
@@ -1669,10 +1961,10 @@ def train_single_subject(
     n_channels = sample_segment.shape[0]
     n_samples = sample_segment.shape[1]
 
-    print_metric("Warmup batch size", f"{warmup_batch_size} (epochs 1-{warmup_epochs})", Colors.CYAN)
-    print_metric("Main batch size", f"{main_batch_size} (epochs {warmup_epochs+1}+)", Colors.CYAN)
+    print_metric("Exploration batch size", f"{exploration_batch_size} (epochs 1-{exploration_epochs})", Colors.CYAN)
+    print_metric("Main batch size", f"{main_batch_size} (epochs {exploration_epochs+1}+)", Colors.CYAN)
     print_metric("Input shape", f"[{n_channels}, {n_samples}]", Colors.CYAN)
-    print_metric("Warmup batches/epoch", len(warmup_train_loader), Colors.GREEN)
+    print_metric("Exploration batches/epoch", len(exploration_loader), Colors.GREEN)
     print_metric("Main batches/epoch", len(main_train_loader), Colors.GREEN)
     print_metric("Val batches", len(val_loader), Colors.YELLOW)
     print(colored("  Training order: Shuffled (random order per epoch)", Colors.DIM))
@@ -1776,6 +2068,7 @@ def train_single_subject(
             classifier_lr=classifier_lr,
             weight_decay=weight_decay,
             scheduler_type=scheduler_type,
+            scheduler_config=scheduler_config,
             use_amp=use_amp,
             gradient_clip=gradient_clip,
         )
@@ -1787,9 +2080,9 @@ def train_single_subject(
     # ========== TRAINING ==========
     with Timer("training"):
         history = trainer.train(
-            warmup_train_loader, val_loader,
+            exploration_loader, val_loader,
             main_train_loader=main_train_loader,
-            warmup_epochs=warmup_epochs,
+            exploration_epochs=exploration_epochs,
             epochs=config['training']['epochs'],
             patience=config['training']['patience'],
             save_path=subject_save_dir,
@@ -1909,6 +2202,65 @@ def train_single_subject(
     return results
 
 
+# Scheduler presets: recommended epochs/patience for each scheduler type
+# These values can be overridden by user-specified config_overrides
+SCHEDULER_PRESETS: Dict[str, Dict[str, Any]] = {
+    'plateau': {
+        # ReduceLROnPlateau - 靠 LR 衰减收敛
+        'epochs': 30,
+        'patience': 5,
+        # Exploration phase (optional for traditional schedulers)
+        'exploration_epochs': 5,
+        'exploration_batch_size': 32,
+    },
+    'cosine': {
+        # CosineAnnealingLR - 需要较多 epochs 到达 min LR
+        'epochs': 30,
+        'patience': 7,
+        # Exploration phase
+        'exploration_epochs': 5,
+        'exploration_batch_size': 32,
+    },
+    'wsd': {
+        # Warmup-Stable-Decay - 有明确的阶段
+        'epochs': 50,
+        'patience': 10,
+        # WSD-specific parameters
+        'warmup_ratio': 0.1,            # 10% = 5 epochs warmup
+        'stable_ratio': 0.0,            # 0% = no stable phase
+        'decay_ratio': 0.3,             # 30% = 15 epochs decay
+        'eta_min': 1e-6,
+        # Exploration phase
+        'exploration_epochs': 5,        # 10% of epochs
+        'exploration_batch_size': 32,
+    },
+    'cosine_decay': {
+        # CosineDecayRestarts - 周期性重启
+        'epochs': 50,
+        'patience': 10,
+        # CosineDecayRestarts-specific
+        'decay_factor': 0.7,            # Peak reduces by 30% each cycle
+        'num_cycles': 5,                # Number of restart cycles
+        # Exploration phase
+        'exploration_epochs': 6,
+        'exploration_batch_size': 32,
+    },
+    'cosine_annealing_warmup_decay': {
+        # 多阶段余弦，每阶段带 LR ramp-up + cosine decay
+        'epochs': 100,
+        'patience': 15,
+        # CAWD-specific parameters
+        'phase_epochs': 6,              # Epochs per cosine decay phase
+        'phase_decay': 0.7,             # Peak LR decay between phases (100% → 70% → 49%...)
+        'lr_ramp_ratio': 0.1,           # Fraction of each phase for LR ramp-up (10%)
+        'eta_min': 1e-6,                # Minimum learning rate
+        # Exploration phase (small batch for loss landscape exploration)
+        'exploration_epochs': 6,        # Epochs with small batch size
+        'exploration_batch_size': 32,   # Batch size during exploration
+    },
+}
+
+
 def get_default_config(model_type: str, task: str) -> dict:
     """
     Get default configuration for a model type and task.
@@ -1931,7 +2283,7 @@ def get_default_config(model_type: str, task: str) -> dict:
     Example:
         >>> config = get_default_config('eegnet', 'binary')
         >>> config['training']['epochs']
-        300
+        30
     """
     # Task configurations
     tasks = {
@@ -1941,6 +2293,7 @@ def get_default_config(model_type: str, task: str) -> dict:
     }
 
     if model_type == 'cbramod':
+        default_scheduler = 'cosine_annealing_warmup_decay'
         config = {
             'model': {
                 'name': 'CBraMod',
@@ -1949,14 +2302,14 @@ def get_default_config(model_type: str, task: str) -> dict:
                 'freeze_backbone': False,
             },
             'training': {
-                'epochs': 50,
+                'scheduler': default_scheduler,
+                'epochs': SCHEDULER_PRESETS[default_scheduler]['epochs'],
+                'patience': SCHEDULER_PRESETS[default_scheduler]['patience'],
                 'batch_size': 128,
                 'learning_rate': 1e-4,  # Restored to v1 value - crucial for hard subjects
                 'backbone_lr': 1e-4,
                 'classifier_lr': 3e-4,  # 3x backbone
                 'weight_decay': 0.06,  # Slightly higher than v1 (0.05)
-                'patience': 10,
-                'scheduler': 'cosine_annealing_warmup_decay',
                 'label_smoothing': 0.05,
             },
             'data': {},
@@ -1964,6 +2317,7 @@ def get_default_config(model_type: str, task: str) -> dict:
             'task': task,
         }
     else:  # eegnet
+        default_scheduler = 'plateau'
         config = {
             'model': {
                 'name': 'EEGNet-8,2',
@@ -1974,12 +2328,12 @@ def get_default_config(model_type: str, task: str) -> dict:
                 'dropout_rate': 0.5,
             },
             'training': {
-                'epochs': 30,
+                'scheduler': default_scheduler,
+                'epochs': SCHEDULER_PRESETS[default_scheduler]['epochs'],
+                'patience': SCHEDULER_PRESETS[default_scheduler]['patience'],
                 'batch_size': 64,
                 'learning_rate': 1e-3,
                 'weight_decay': 0,
-                'patience': 5,
-                'scheduler': 'plateau',  # ReduceLROnPlateau (official impl)
             },
             'data': {},
             'tasks': tasks,
@@ -2058,8 +2412,25 @@ def train_subject_simple(
 
     config = get_default_config(model_type, task)
 
-    # Apply config overrides (for scheduler comparison experiments)
+    # Apply config overrides with scheduler preset support
+    # Priority (high to low): user override > scheduler preset > model default
     if config_overrides:
+        training_overrides = config_overrides.get('training', {})
+        new_scheduler = training_overrides.get('scheduler')
+
+        # If a new scheduler is specified, apply its preset first
+        if new_scheduler and new_scheduler in SCHEDULER_PRESETS:
+            preset = SCHEDULER_PRESETS[new_scheduler]
+            applied = []
+            # Preset overrides model default, but not user-specified values
+            for key in ('epochs', 'patience'):
+                if key in preset and key not in training_overrides:
+                    config['training'][key] = preset[key]
+                    applied.append(f"{key}={preset[key]}")
+            if applied:
+                log_train.info(f"Applied scheduler preset '{new_scheduler}': {', '.join(applied)}")
+
+        # Then apply all user overrides (highest priority)
         for section, overrides in config_overrides.items():
             if section in config and isinstance(overrides, dict):
                 config[section].update(overrides)
