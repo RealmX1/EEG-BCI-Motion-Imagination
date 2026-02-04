@@ -69,6 +69,12 @@ from _training_utils import (
     generate_combined_plot,
 )
 
+from src.training.train_within_subject import (
+    SCHEDULER_PRESETS,
+    visualize_lr_schedule,
+    get_default_config,
+)
+
 
 setup_logging('single_model')
 logger = logging.getLogger(__name__)
@@ -604,6 +610,24 @@ Examples:
 
     paradigm_desc = PARADIGM_CONFIG[args.paradigm]['description']
     log_main.info(f"Model: {args.model.upper()} | Paradigm: {paradigm_desc} | Task: {args.task}")
+
+    # Show LR schedule visualization for CBraMod (non-blocking, once at start)
+    if args.model == 'cbramod' and not args.skip_training:
+        # Get scheduler config
+        scheduler_type = args.scheduler or 'cosine_annealing_warmup_decay'
+        if scheduler_type in SCHEDULER_PRESETS:
+            scheduler_config = SCHEDULER_PRESETS[scheduler_type]
+            default_config = get_default_config('cbramod', args.task)
+            base_lr = default_config['training'].get('backbone_lr', 1e-4)
+
+            # Save to results directory
+            lr_schedule_path = Path(args.output_dir) / f"lr_schedule_{scheduler_type}.png"
+            visualize_lr_schedule(
+                scheduler_config=scheduler_config,
+                base_lr=base_lr,
+                output_path=lr_schedule_path,
+                show=True,  # Non-blocking display
+            )
 
     if args.skip_training:
         # Load existing results
