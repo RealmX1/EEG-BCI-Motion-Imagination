@@ -18,7 +18,7 @@ Flexible parameters (vary across downstream datasets in paper):
 - Amplitude rejection threshold
 
 Usage:
-    from src.preprocessing.experiment_config import get_experiment_config, ALL_EXPERIMENTS
+    from src.config.experiment_config import get_experiment_config, ALL_EXPERIMENTS
 
     # Get a specific experiment config
     config = get_experiment_config("A2")

@@ -46,12 +46,12 @@ from typing import Dict, List, Optional
 import numpy as np
 
 # Add project root to path
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.utils.device import set_seed, check_cuda_available, get_device
 from src.utils.logging import SectionLogger, setup_logging
-from src.preprocessing.experiment_config import (
+from src.config.experiment_config import (
     ExperimentPreprocessConfig,
     ALL_EXPERIMENTS,
     EXPERIMENT_GROUPS,

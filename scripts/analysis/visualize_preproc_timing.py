@@ -313,7 +313,7 @@ def main():
     args = parser.parse_args()
 
     # Find input file
-    results_dir = Path(__file__).parent.parent / 'results'
+    results_dir = Path(__file__).parent.parent.parent / 'results'
 
     if args.json:
         json_path = Path(args.json)
