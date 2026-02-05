@@ -260,6 +260,8 @@ def train_single_subject(
     wandb_group: Optional[str] = None,
     wandb_interactive: bool = False,
     wandb_metadata: Optional[Dict[str, str]] = None,
+    # Logging verbosity
+    verbose: int = 2,
 ) -> Dict:
     """
     Train model for a single subject.
@@ -292,6 +294,10 @@ def train_single_subject(
         wandb_group: WandB run group
         wandb_interactive: Prompt for run details interactively
         wandb_metadata: Pre-collected metadata (goal, hypothesis, notes) for batch training
+        verbose: Logging verbosity level (0=silent, 1=minimal, 2=full). Default: 2.
+            Level 2: Full output (all sections)
+            Level 1: Subject header + training table + final evaluation
+            Level 0: Training table only
 
     Returns:
         Results dict with accuracy and history
@@ -334,10 +340,12 @@ def train_single_subject(
         torch.backends.cudnn.deterministic = False
         log_train.debug("cuDNN benchmark enabled")
 
-    print()
-    print(colored("=" * 60, Colors.BRIGHT_BLUE, bold=True))
-    print(colored(f"  Training Subject: {subject_id} ({model_type.upper()})", Colors.BRIGHT_BLUE, bold=True))
-    print(colored("=" * 60, Colors.BRIGHT_BLUE, bold=True))
+    # Subject header (verbose >= 1)
+    if verbose >= 1:
+        print()
+        print(colored("=" * 60, Colors.BRIGHT_BLUE, bold=True))
+        print(colored(f"  Training Subject: {subject_id} ({model_type.upper()})", Colors.BRIGHT_BLUE, bold=True))
+        print(colored("=" * 60, Colors.BRIGHT_BLUE, bold=True))
 
     # Task configuration
     task_config = config['tasks'][config['task']]
@@ -349,23 +357,26 @@ def train_single_subject(
     paradigm_desc = "Motor Imagery (MI)" if paradigm == 'imagery' else "Motor Execution (ME)"
 
     # ========== DATA LOADING ==========
-    print_section_header(f"Data Loading ({paradigm_desc})")
-    print(colored(f"  Train folders: {task_patterns['train']}", Colors.DIM))
-    print(colored(f"  Test folders: {task_patterns['test']}", Colors.DIM))
+    if verbose >= 2:
+        print_section_header(f"Data Loading ({paradigm_desc})")
+        print(colored(f"  Train folders: {task_patterns['train']}", Colors.DIM))
+        print(colored(f"  Test folders: {task_patterns['test']}", Colors.DIM))
 
     # Select preprocessing config based on model type (unless custom config provided)
     if preprocess_config is not None:
         # Use custom config (e.g., from ML engineering experiments)
         log_data.info(f"Preprocess: Custom config ({preprocess_config.target_fs}Hz, "
                       f"{preprocess_config.bandpass_low}-{preprocess_config.bandpass_high}Hz)")
-        print(colored(f"  Custom preprocessing config provided", Colors.CYAN))
+        if verbose >= 2:
+            print(colored(f"  Custom preprocessing config provided", Colors.CYAN))
     elif model_type == 'cbramod':
         # Check if using 128 channels (ACPE adaptation)
         use_full_channels = (cbramod_channels == 128)
         preprocess_config = PreprocessConfig.for_cbramod(full_channels=use_full_channels)
         if use_full_channels:
             log_data.info("Preprocess: CBraMod (128ch, 200Hz, 0.3-75Hz) - ACPE adaptation")
-            print(colored(f"  CBraMod 128-channel mode: Using ACPE for channel adaptation", Colors.CYAN))
+            if verbose >= 2:
+                print(colored(f"  CBraMod 128-channel mode: Using ACPE for channel adaptation", Colors.CYAN))
         else:
             log_data.info("Preprocess: CBraMod (19ch, 200Hz, 0.3-75Hz)")
     else:
@@ -377,8 +388,9 @@ def train_single_subject(
         preprocess_config.trial_duration = data_config['window_length']
 
     # Load TRAINING data
-    print(colored("\n  Loading training data...", Colors.DIM))
-    with Timer("train_data_loading", print_on_exit=True):
+    if verbose >= 2:
+        print(colored("\n  Loading training data...", Colors.DIM))
+    with Timer("train_data_loading", print_on_exit=(verbose >= 2)):
         train_dataset = load_subject_data(
             data_root, subject_id,
             session_folders=task_patterns['train'],
@@ -393,26 +405,28 @@ def train_single_subject(
         print(colored(f"  ERROR: No training data found for subject {subject_id}", Colors.RED))
         return {}
 
-    print_metric("Train segments (total)", len(train_dataset), Colors.CYAN)
-    # Show detailed cache status with hit/miss counts
-    if train_dataset.cache:
-        hits = getattr(train_dataset, 'n_cache_hits', 0)
-        misses = getattr(train_dataset, 'n_cache_misses', 0)
-        if misses == 0 and hits > 0:
-            cache_status = f"hit ({hits} files)"
-        elif hits == 0 and misses > 0:
-            cache_status = f"miss ({misses} files)"
-        elif hits > 0 and misses > 0:
-            cache_status = f"partial ({hits} hit, {misses} miss)"
+    if verbose >= 2:
+        print_metric("Train segments (total)", len(train_dataset), Colors.CYAN)
+        # Show detailed cache status with hit/miss counts
+        if train_dataset.cache:
+            hits = getattr(train_dataset, 'n_cache_hits', 0)
+            misses = getattr(train_dataset, 'n_cache_misses', 0)
+            if misses == 0 and hits > 0:
+                cache_status = f"hit ({hits} files)"
+            elif hits == 0 and misses > 0:
+                cache_status = f"miss ({misses} files)"
+            elif hits > 0 and misses > 0:
+                cache_status = f"partial ({hits} hit, {misses} miss)"
+            else:
+                cache_status = "enabled"
+            print_metric("Cache", cache_status, Colors.GREEN)
         else:
-            cache_status = "enabled"
-        print_metric("Cache", cache_status, Colors.GREEN)
-    else:
-        print_metric("Cache", "disabled", Colors.DIM)
+            print_metric("Cache", "disabled", Colors.DIM)
 
     # Load TEST data (Session 2 Finetune - completely held out)
-    print(colored("\n  Loading test data (Session 2 Finetune)...", Colors.DIM))
-    with Timer("test_data_loading", print_on_exit=True):
+    if verbose >= 2:
+        print(colored("\n  Loading test data (Session 2 Finetune)...", Colors.DIM))
+    with Timer("test_data_loading", print_on_exit=(verbose >= 2)):
         test_dataset = load_subject_data(
             data_root, subject_id,
             session_folders=task_patterns['test'],
@@ -424,30 +438,34 @@ def train_single_subject(
         )
 
     if len(test_dataset) == 0:
-        print(colored(f"  WARNING: No test data found for subject {subject_id}", Colors.YELLOW))
+        if verbose >= 2:
+            print(colored(f"  WARNING: No test data found for subject {subject_id}", Colors.YELLOW))
 
-    print_metric("Test segments", len(test_dataset) if test_dataset else 0, Colors.MAGENTA)
-    # Show test data cache status
-    if test_dataset and test_dataset.cache:
-        hits = getattr(test_dataset, 'n_cache_hits', 0)
-        misses = getattr(test_dataset, 'n_cache_misses', 0)
-        if misses == 0 and hits > 0:
-            cache_status = f"hit ({hits} files)"
-        elif hits == 0 and misses > 0:
-            cache_status = f"miss ({misses} files)"
-        elif hits > 0 and misses > 0:
-            cache_status = f"partial ({hits} hit, {misses} miss)"
-        else:
-            cache_status = "enabled"
-        print_metric("Cache", cache_status, Colors.GREEN)
+    if verbose >= 2:
+        print_metric("Test segments", len(test_dataset) if test_dataset else 0, Colors.MAGENTA)
+        # Show test data cache status
+        if test_dataset and test_dataset.cache:
+            hits = getattr(test_dataset, 'n_cache_hits', 0)
+            misses = getattr(test_dataset, 'n_cache_misses', 0)
+            if misses == 0 and hits > 0:
+                cache_status = f"hit ({hits} files)"
+            elif hits == 0 and misses > 0:
+                cache_status = f"miss ({misses} files)"
+            elif hits > 0 and misses > 0:
+                cache_status = f"partial ({hits} hit, {misses} miss)"
+            else:
+                cache_status = "enabled"
+            print_metric("Cache", cache_status, Colors.GREEN)
 
     # ========== DATA SPLITTING (Temporal) ==========
-    print_section_header("Data Splitting (Temporal - Last 20% for Validation)")
+    if verbose >= 2:
+        print_section_header("Data Splitting (Temporal - Last 20% for Validation)")
 
-    with Timer("data_splitting", print_on_exit=True):
+    with Timer("data_splitting", print_on_exit=(verbose >= 2)):
         unique_trials = train_dataset.get_unique_trials()
         n_trials = len(unique_trials)
-        print_metric("Total training trials", n_trials, Colors.CYAN)
+        if verbose >= 2:
+            print_metric("Total training trials", n_trials, Colors.CYAN)
 
         # STRATIFIED temporal split: split within each session to ensure similar distributions
         # This prevents validation set from being 100% one session type
@@ -482,13 +500,15 @@ def train_single_subject(
         train_indices = train_dataset.get_segment_indices_for_trials(train_trials)
         val_indices = train_dataset.get_segment_indices_for_trials(val_trials)
 
-    print_metric("Train trials", len(train_trials), Colors.GREEN)
-    print_metric("Val trials", len(val_trials), Colors.YELLOW)
-    print_metric("Train segments", len(train_indices), Colors.GREEN)
-    print_metric("Val segments", len(val_indices), Colors.YELLOW)
+    if verbose >= 2:
+        print_metric("Train trials", len(train_trials), Colors.GREEN)
+        print_metric("Val trials", len(val_trials), Colors.YELLOW)
+        print_metric("Train segments", len(train_indices), Colors.GREEN)
+        print_metric("Val segments", len(val_indices), Colors.YELLOW)
 
     # ========== DATALOADER CREATION ==========
-    print_section_header("DataLoader Creation")
+    if verbose >= 2:
+        print_section_header("DataLoader Creation")
 
     # Get scheduler config (from SCHEDULER_PRESETS or config override)
     scheduler_type = config['training'].get('scheduler', None)
@@ -503,7 +523,7 @@ def train_single_subject(
     exploration_batch_size = scheduler_config.get('exploration_batch_size', 32)
     main_batch_size = config['training']['batch_size']
 
-    with Timer("dataloader_creation", print_on_exit=True):
+    with Timer("dataloader_creation", print_on_exit=(verbose >= 2)):
         # Create exploration loader (small batch for loss landscape exploration)
         exploration_loader, val_loader = create_data_loaders_from_dataset(
             train_dataset, train_indices, val_indices,
@@ -525,18 +545,20 @@ def train_single_subject(
     n_channels = sample_segment.shape[0]
     n_samples = sample_segment.shape[1]
 
-    print_metric("Exploration batch size", f"{exploration_batch_size} (epochs 1-{exploration_epochs})", Colors.CYAN)
-    print_metric("Main batch size", f"{main_batch_size} (epochs {exploration_epochs+1}+)", Colors.CYAN)
-    print_metric("Input shape", f"[{n_channels}, {n_samples}]", Colors.CYAN)
-    print_metric("Exploration batches/epoch", len(exploration_loader), Colors.GREEN)
-    print_metric("Main batches/epoch", len(main_train_loader), Colors.GREEN)
-    print_metric("Val batches", len(val_loader), Colors.YELLOW)
-    print(colored("  Training order: Shuffled (random order per epoch)", Colors.DIM))
+    if verbose >= 2:
+        print_metric("Exploration batch size", f"{exploration_batch_size} (epochs 1-{exploration_epochs})", Colors.CYAN)
+        print_metric("Main batch size", f"{main_batch_size} (epochs {exploration_epochs+1}+)", Colors.CYAN)
+        print_metric("Input shape", f"[{n_channels}, {n_samples}]", Colors.CYAN)
+        print_metric("Exploration batches/epoch", len(exploration_loader), Colors.GREEN)
+        print_metric("Main batches/epoch", len(main_train_loader), Colors.GREEN)
+        print_metric("Val batches", len(val_loader), Colors.YELLOW)
+        print(colored("  Training order: Shuffled (random order per epoch)", Colors.DIM))
 
     # ========== MODEL CREATION ==========
-    print_section_header("Model Creation")
+    if verbose >= 2:
+        print_section_header("Model Creation")
 
-    with Timer("model_creation", print_on_exit=True):
+    with Timer("model_creation", print_on_exit=(verbose >= 2)):
         model_config = config['model']
 
         if model_type == 'cbramod':
@@ -568,15 +590,17 @@ def train_single_subject(
             )
             model_name = "EEGNet-8,2"
 
-    print_metric("Model", model_name, Colors.CYAN)
-    print_metric("Parameters", f"{model.count_parameters():,}", Colors.CYAN)
-    print_metric("Device", str(device), Colors.GREEN)
+    if verbose >= 2:
+        print_metric("Model", model_name, Colors.CYAN)
+        print_metric("Parameters", f"{model.count_parameters():,}", Colors.CYAN)
+        print_metric("Device", str(device), Colors.GREEN)
 
     # ========== TF32 矩阵乘法优化 ==========
     # TF32 在 Ampere+ GPU 上提供更快的矩阵乘法，精度损失可忽略
     if device.type == 'cuda' and hasattr(torch, 'set_float32_matmul_precision'):
         torch.set_float32_matmul_precision('high')
-        print_metric("TF32 matmul", "enabled (high precision)", Colors.GREEN)
+        if verbose >= 2:
+            print_metric("TF32 matmul", "enabled (high precision)", Colors.GREEN)
 
     # ========== MODEL COMPILATION (PyTorch 2.0+) ==========
     # torch.compile() requires Triton which is only available on Linux
@@ -587,22 +611,27 @@ def train_single_subject(
     is_blackwell = is_blackwell_gpu()
 
     if is_windows:
-        print_metric("torch.compile", "skipped (Windows)", Colors.DIM)
+        if verbose >= 2:
+            print_metric("torch.compile", "skipped (Windows)", Colors.DIM)
     elif is_blackwell:
-        print_metric("torch.compile", "skipped (Blackwell GPU)", Colors.DIM)
+        if verbose >= 2:
+            print_metric("torch.compile", "skipped (Blackwell GPU)", Colors.DIM)
     elif use_compile and hasattr(torch, 'compile') and device.type == 'cuda':
         try:
             compile_mode = 'reduce-overhead' if model_type == 'eegnet' else 'default'
             model = torch.compile(model, mode=compile_mode)
-            print_metric("torch.compile", f"enabled ({compile_mode})", Colors.GREEN)
+            if verbose >= 2:
+                print_metric("torch.compile", f"enabled ({compile_mode})", Colors.GREEN)
         except Exception as e:
             log_model.warning(f"torch.compile failed: {e}")
-            print_metric("torch.compile", "failed (fallback to eager)", Colors.YELLOW)
+            if verbose >= 2:
+                print_metric("torch.compile", "failed (fallback to eager)", Colors.YELLOW)
     else:
-        print_metric("torch.compile", "disabled", Colors.DIM)
+        if verbose >= 2:
+            print_metric("torch.compile", "disabled", Colors.DIM)
 
     # ========== TRAINER SETUP ==========
-    with Timer("trainer_setup", print_on_exit=True):
+    with Timer("trainer_setup", print_on_exit=(verbose >= 2)):
         # Get training config (model-specific defaults may override)
         train_config = config['training']
         learning_rate = train_config.get('learning_rate', 1e-3)
@@ -654,17 +683,19 @@ def train_single_subject(
         )
 
     # ========== FINAL EVALUATION ==========
-    print_section_header("Final Evaluation (Three-Phase Protocol)")
+    if verbose >= 1:
+        print_section_header("Final Evaluation (Three-Phase Protocol)")
 
     # Evaluate on validation set (from training data)
-    with Timer("val_evaluation", print_on_exit=True):
+    with Timer("val_evaluation", print_on_exit=(verbose >= 1)):
         val_acc, val_results = majority_vote_accuracy(
             model, train_dataset, val_indices, device
         )
 
-    val_color = Colors.BRIGHT_GREEN if val_acc > 0.7 else (Colors.YELLOW if val_acc > 0.5 else Colors.RED)
-    print(f"\n  {colored('Validation Accuracy (last 20% of train):', Colors.WHITE)} "
-          f"{colored(f'{val_acc:.4f}', val_color)}")
+    if verbose >= 1:
+        val_color = Colors.BRIGHT_GREEN if val_acc > 0.7 else (Colors.YELLOW if val_acc > 0.5 else Colors.RED)
+        print(f"\n  {colored('Validation Accuracy (last 20% of train):', Colors.WHITE)} "
+              f"{colored(f'{val_acc:.4f}', val_color)}")
 
     # Evaluate on TEST set (Online_Finetune - Phase 3)
     test_acc = 0.0
@@ -672,7 +703,7 @@ def train_single_subject(
     n_test_trials = 0
 
     if len(test_dataset) > 0:
-        with Timer("test_evaluation", print_on_exit=True):
+        with Timer("test_evaluation", print_on_exit=(verbose >= 1)):
             # Get all test indices
             test_indices = list(range(len(test_dataset)))
             test_acc, test_results = majority_vote_accuracy(
@@ -680,16 +711,19 @@ def train_single_subject(
             )
             n_test_trials = len(test_dataset.get_unique_trials())
 
-        test_color = Colors.BRIGHT_GREEN if test_acc > 0.7 else (Colors.YELLOW if test_acc > 0.5 else Colors.RED)
-        print(f"  {colored('TEST Accuracy (Online_Finetune):', Colors.WHITE, bold=True)} "
-              f"{colored(f'{test_acc:.4f}', test_color, bold=True)}")
-        print(f"  {colored(f'Test trials: {n_test_trials}', Colors.DIM)}")
+        if verbose >= 1:
+            test_color = Colors.BRIGHT_GREEN if test_acc > 0.7 else (Colors.YELLOW if test_acc > 0.5 else Colors.RED)
+            print(f"  {colored('TEST Accuracy (Online_Finetune):', Colors.WHITE, bold=True)} "
+                  f"{colored(f'{test_acc:.4f}', test_color, bold=True)}")
+            print(f"  {colored(f'Test trials: {n_test_trials}', Colors.DIM)}")
     else:
-        print(colored("  No test data available (Online_Finetune)", Colors.YELLOW))
+        if verbose >= 1:
+            print(colored("  No test data available (Online_Finetune)", Colors.YELLOW))
 
     # ========== TIMING SUMMARY ==========
     total_time = time.perf_counter() - total_start
-    Timer.print_summary(f"Timing Summary - {subject_id}")
+    if verbose >= 2:
+        Timer.print_summary(f"Timing Summary - {subject_id}")
 
     # Save results
     epochs_trained = len(history['train_loss'])
@@ -794,6 +828,8 @@ def train_subject_simple(
     wandb_group: Optional[str] = None,
     wandb_interactive: bool = False,
     wandb_metadata: Optional[Dict[str, str]] = None,
+    # Logging verbosity
+    verbose: int = 2,
 ) -> Dict:
     """
     Simplified training function for programmatic use.
@@ -822,6 +858,7 @@ def train_subject_simple(
         wandb_group: WandB run group
         wandb_interactive: Prompt for run details interactively
         wandb_metadata: Pre-collected metadata (goal, hypothesis, notes) for batch training
+        verbose: Logging verbosity level (0=silent, 1=minimal, 2=full). Default: 2.
 
     Returns:
         Results dict with keys:
@@ -886,4 +923,5 @@ def train_subject_simple(
         wandb_group=wandb_group,
         wandb_interactive=wandb_interactive,
         wandb_metadata=wandb_metadata,
+        verbose=verbose,
     )

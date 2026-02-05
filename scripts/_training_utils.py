@@ -133,6 +133,7 @@ def train_and_get_result(
     cache_only: bool = False,
     cache_index_path: str = ".cache_index.json",
     scheduler: Optional[str] = None,
+    verbose: int = 2,
 ) -> TrainingResult:
     """
     Train a model for a single subject and return TrainingResult.
@@ -155,6 +156,7 @@ def train_and_get_result(
         cache_only: If True, load data exclusively from cache index
         cache_index_path: Path to cache index file for cache_only mode
         scheduler: Learning rate scheduler type (e.g., 'wsd', 'cosine_annealing_warmup_decay')
+        verbose: Logging verbosity level (0=silent, 1=minimal, 2=full). Default: 2.
     """
     # Build config overrides for scheduler
     config_overrides = None
@@ -177,6 +179,7 @@ def train_and_get_result(
         cache_only=cache_only,
         cache_index_path=cache_index_path,
         config_overrides=config_overrides,
+        verbose=verbose,
     )
 
     if not result_dict:

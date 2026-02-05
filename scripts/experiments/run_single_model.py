@@ -104,6 +104,7 @@ def run_single_model(
     cache_only: bool = False,
     cache_index_path: str = ".cache_index.json",
     scheduler: Optional[str] = None,
+    verbose_first_only: bool = True,
 ) -> Tuple[List[TrainingResult], Dict]:
     """
     Train a single model on all specified subjects.
@@ -125,6 +126,9 @@ def run_single_model(
         cache_only: If True, load data exclusively from cache index
         cache_index_path: Path to cache index file for cache_only mode
         scheduler: Learning rate scheduler type (e.g., 'wsd', 'cosine_annealing_warmup_decay')
+        verbose_first_only: If True, only show full verbose output for the first trained subject.
+            Subsequent subjects show minimal output (subject header + training table + final eval).
+            Default: True.
 
     Returns:
         Tuple of (results_list, statistics_dict)
@@ -207,6 +211,9 @@ def run_single_model(
     if model_type not in cache:
         cache[model_type] = {}
 
+    # Track whether we've trained the first subject (for verbose control)
+    first_subject_trained = False
+
     total_subjects = len(subject_ids)
     for idx, subject_id in enumerate(subject_ids, 1):
         progress = f"[{idx}/{total_subjects}]"
@@ -221,6 +228,9 @@ def run_single_model(
 
         # Train
         log_train.info(f"{progress} {subject_id}: training {model_type}...")
+
+        # Determine verbose level: full (2) for first subject, minimal (1) for subsequent
+        verbose = 2 if (not first_subject_trained or not verbose_first_only) else 1
 
         try:
             # Reset seed before each training for reproducibility
@@ -241,7 +251,11 @@ def run_single_model(
                 cache_only=cache_only,
                 cache_index_path=cache_index_path,
                 scheduler=scheduler,
+                verbose=verbose,
             )
+
+            # Mark first subject as trained (for subsequent verbose control)
+            first_subject_trained = True
 
             results.append(result)
 
