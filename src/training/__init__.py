@@ -10,6 +10,7 @@ Modules:
 - schedulers: Custom LR schedulers (WSD, CosineDecayRestarts, CosineAnnealingWarmupDecay)
 - evaluation: Evaluation functions (majority_vote_accuracy)
 - trainer: WithinSubjectTrainer class
+- common: Shared training utilities (performance optimizations, model compilation, etc.)
 
 Usage:
     # Recommended: import from specific modules
@@ -40,6 +41,15 @@ from .schedulers import (
 from .evaluation import majority_vote_accuracy
 from .trainer import WithinSubjectTrainer as _WithinSubjectTrainer  # Alias to avoid conflict
 
+# Shared training utilities
+from .common import (
+    setup_performance_optimizations,
+    maybe_compile_model,
+    get_scheduler_config_from_preset,
+    create_two_phase_loaders,
+    apply_config_overrides,
+)
+
 __all__ = [
     # Main training API
     'WithinSubjectTrainer',
@@ -54,4 +64,10 @@ __all__ = [
     'visualize_lr_schedule',
     # Evaluation
     'majority_vote_accuracy',
+    # Shared utilities
+    'setup_performance_optimizations',
+    'maybe_compile_model',
+    'get_scheduler_config_from_preset',
+    'create_two_phase_loaders',
+    'apply_config_overrides',
 ]

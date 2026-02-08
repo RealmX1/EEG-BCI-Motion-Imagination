@@ -103,6 +103,12 @@ from .schedulers import (
 )
 from .evaluation import majority_vote_accuracy
 from .trainer import WithinSubjectTrainer
+from .common import (
+    setup_performance_optimizations,
+    maybe_compile_model,
+    get_scheduler_config_from_preset,
+    apply_config_overrides,
+)
 
 # Re-exports from src.config.training
 from ..config.training import SCHEDULER_PRESETS, get_default_config
@@ -333,12 +339,7 @@ def train_single_subject(
     wandb_callback = WandbCallback(wandb_logger) if wandb_logger.enabled else None
 
     # ========== PERFORMANCE OPTIMIZATION ==========
-    # Enable cuDNN auto-tuning for faster convolutions (20-50% speedup)
-    # This finds optimal algorithms for the specific input sizes
-    if device.type == 'cuda':
-        torch.backends.cudnn.benchmark = True
-        torch.backends.cudnn.deterministic = False
-        log_train.debug("cuDNN benchmark enabled")
+    setup_performance_optimizations(device, verbose)
 
     # Subject header (verbose >= 1)
     if verbose >= 1:
@@ -512,11 +513,7 @@ def train_single_subject(
 
     # Get scheduler config (from SCHEDULER_PRESETS or config override)
     scheduler_type = config['training'].get('scheduler', None)
-    scheduler_config = SCHEDULER_PRESETS.get(scheduler_type, {}).copy()
-
-    # Allow config overrides for scheduler parameters
-    if 'scheduler_config' in config:
-        scheduler_config.update(config['scheduler_config'])
+    scheduler_config = get_scheduler_config_from_preset(scheduler_type, config)
 
     # Get exploration phase parameters from scheduler config
     exploration_epochs = scheduler_config.get('exploration_epochs', 5)
@@ -595,40 +592,9 @@ def train_single_subject(
         print_metric("Parameters", f"{model.count_parameters():,}", Colors.CYAN)
         print_metric("Device", str(device), Colors.GREEN)
 
-    # ========== TF32 矩阵乘法优化 ==========
-    # TF32 在 Ampere+ GPU 上提供更快的矩阵乘法，精度损失可忽略
-    if device.type == 'cuda' and hasattr(torch, 'set_float32_matmul_precision'):
-        torch.set_float32_matmul_precision('high')
-        if verbose >= 2:
-            print_metric("TF32 matmul", "enabled (high precision)", Colors.GREEN)
-
     # ========== MODEL COMPILATION (PyTorch 2.0+) ==========
-    # torch.compile() requires Triton which is only available on Linux
-    # Skip compilation on Windows and Blackwell GPUs (sm_120+) to avoid compatibility issues
-    import platform
     use_compile = config.get('training', {}).get('use_compile', True)
-    is_windows = platform.system() == 'Windows'
-    is_blackwell = is_blackwell_gpu()
-
-    if is_windows:
-        if verbose >= 2:
-            print_metric("torch.compile", "skipped (Windows)", Colors.DIM)
-    elif is_blackwell:
-        if verbose >= 2:
-            print_metric("torch.compile", "skipped (Blackwell GPU)", Colors.DIM)
-    elif use_compile and hasattr(torch, 'compile') and device.type == 'cuda':
-        try:
-            compile_mode = 'reduce-overhead' if model_type == 'eegnet' else 'default'
-            model = torch.compile(model, mode=compile_mode)
-            if verbose >= 2:
-                print_metric("torch.compile", f"enabled ({compile_mode})", Colors.GREEN)
-        except Exception as e:
-            log_model.warning(f"torch.compile failed: {e}")
-            if verbose >= 2:
-                print_metric("torch.compile", "failed (fallback to eager)", Colors.YELLOW)
-    else:
-        if verbose >= 2:
-            print_metric("torch.compile", "disabled", Colors.DIM)
+    model = maybe_compile_model(model, model_type, device, use_compile, verbose)
 
     # ========== TRAINER SETUP ==========
     with Timer("trainer_setup", print_on_exit=(verbose >= 2)):
@@ -877,29 +843,7 @@ def train_subject_simple(
     config = get_default_config(model_type, task)
 
     # Apply config overrides with scheduler preset support
-    # Priority (high to low): user override > scheduler preset > model default
-    if config_overrides:
-        training_overrides = config_overrides.get('training', {})
-        new_scheduler = training_overrides.get('scheduler')
-
-        # If a new scheduler is specified, apply its preset first
-        if new_scheduler and new_scheduler in SCHEDULER_PRESETS:
-            preset = SCHEDULER_PRESETS[new_scheduler]
-            applied = []
-            # Preset overrides model default, but not user-specified values
-            for key in ('epochs', 'patience'):
-                if key in preset and key not in training_overrides:
-                    config['training'][key] = preset[key]
-                    applied.append(f"{key}={preset[key]}")
-            if applied:
-                log_train.info(f"Applied scheduler preset '{new_scheduler}': {', '.join(applied)}")
-
-        # Then apply all user overrides (highest priority)
-        for section, overrides in config_overrides.items():
-            if section in config and isinstance(overrides, dict):
-                config[section].update(overrides)
-            else:
-                config[section] = overrides
+    config = apply_config_overrides(config, config_overrides)
 
     return train_single_subject(
         subject_id=subject_id,
