@@ -22,6 +22,7 @@ from .constants import (
 from .training import (
     SCHEDULER_PRESETS,
     get_default_config,
+    load_yaml_config,
 )
 from .experiment_config import (
     ExperimentPreprocessConfig,
@@ -41,6 +42,7 @@ __all__ = [
     # Training
     'SCHEDULER_PRESETS',
     'get_default_config',
+    'load_yaml_config',
     # Experiment (research)
     'ExperimentPreprocessConfig',
     'ALL_EXPERIMENTS',

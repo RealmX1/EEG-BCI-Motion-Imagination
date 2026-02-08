@@ -43,11 +43,13 @@ from src.results.serialization import (
 from src.results.cache import (
     get_cache_path,
     find_latest_cache,
+    find_cache_by_tag,
     load_cache,
     save_cache,
     find_compatible_historical_results,
     build_data_sources_from_historical,
     prepare_combined_plot_data,
+    SelectionStrategy,
 )
 from src.results.statistics import (
     compute_model_statistics,
@@ -82,7 +84,7 @@ def discover_subjects(
     data_root: str,
     paradigm: str = 'imagery',
     task: str = 'binary',
-    use_cache_index: bool = False,
+    cache_only: bool = False,
     cache_index_path: str = ".cache_index.json"
 ) -> List[str]:
     """
@@ -92,13 +94,13 @@ def discover_subjects(
         data_root: Root directory containing subject folders
         paradigm: 'imagery' or 'movement'
         task: 'binary', 'ternary', or 'quaternary'
-        use_cache_index: If True, discover from cache index instead of filesystem
+        cache_only: If True, discover from cache index instead of filesystem
         cache_index_path: Path to cache index file (default: .cache_index.json)
 
     Returns:
         List of subject IDs (e.g., ['S01', 'S02', ...])
     """
-    if use_cache_index:
+    if cache_only:
         from src.preprocessing.data_loader import discover_subjects_from_cache_index
         return discover_subjects_from_cache_index(cache_index_path, paradigm, task)
     else:
@@ -124,6 +126,7 @@ def train_and_get_result(
     paradigm: str,
     data_root: str,
     save_dir: str,
+    run_tag: Optional[str] = None,
     no_wandb: bool = False,
     upload_model: bool = False,
     wandb_group: Optional[str] = None,
@@ -132,7 +135,7 @@ def train_and_get_result(
     wandb_metadata: Optional[Dict] = None,
     cache_only: bool = False,
     cache_index_path: str = ".cache_index.json",
-    scheduler: Optional[str] = None,
+    config_overrides: Optional[Dict] = None,
     verbose: int = 2,
 ) -> TrainingResult:
     """
@@ -155,14 +158,9 @@ def train_and_get_result(
         wandb_metadata: Pre-collected metadata (goal, hypothesis, notes) for batch training
         cache_only: If True, load data exclusively from cache index
         cache_index_path: Path to cache index file for cache_only mode
-        scheduler: Learning rate scheduler type (e.g., 'wsd', 'cosine_annealing_warmup_decay')
+        config_overrides: Config overrides dict (from YAML + CLI merge). Passed to train_subject_simple.
         verbose: Logging verbosity level (0=silent, 1=minimal, 2=full). Default: 2.
     """
-    # Build config overrides for scheduler
-    config_overrides = None
-    if scheduler is not None:
-        config_overrides = {'training': {'scheduler': scheduler}}
-
     result_dict = train_subject_simple(
         subject_id=subject_id,
         model_type=model_type,
@@ -170,6 +168,7 @@ def train_and_get_result(
         paradigm=paradigm,
         data_root=data_root,
         save_dir=save_dir,
+        run_tag=run_tag,
         no_wandb=no_wandb,
         upload_model=upload_model,
         wandb_group=wandb_group,

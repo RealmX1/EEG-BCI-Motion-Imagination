@@ -617,7 +617,8 @@ def train_single_subject(
 
         # Performance optimizations
         use_amp = True  # Enable AMP for both models
-        gradient_clip = 1.0 if model_type == 'cbramod' else 0.0  # Clip for CBraMod only
+        gradient_clip = train_config.get('gradient_clip', 1.0 if model_type == 'cbramod' else 0.0)
+        label_smoothing = train_config.get('label_smoothing', None)
 
         trainer = WithinSubjectTrainer(
             model, train_dataset, val_indices, device,
@@ -626,6 +627,7 @@ def train_single_subject(
             learning_rate=learning_rate,
             classifier_lr=classifier_lr,
             weight_decay=weight_decay,
+            label_smoothing=label_smoothing,
             scheduler_type=scheduler_type,
             scheduler_config=scheduler_config,
             use_amp=use_amp,
@@ -778,6 +780,8 @@ def train_subject_simple(
     data_root: str = 'data',
     save_dir: str = 'checkpoints',
     device: Optional[torch.device] = None,
+    # Run identification
+    run_tag: Optional[str] = None,
     cbramod_channels: int = 128,
     # Custom preprocessing config (for ML engineering experiments)
     preprocess_config: Optional[PreprocessConfig] = None,
@@ -833,12 +837,16 @@ def train_subject_simple(
         - epochs_trained, training_time, best_epoch, best_val_loss
         - history, val_evaluation, test_evaluation
     """
+    # Generate run_tag at start (if not provided)
+    if run_tag is None:
+        run_tag = datetime.now().strftime('%Y%m%d_%H%M')
+
     if device is None:
         device = get_device()
 
     data_root_path = Path(data_root) if isinstance(data_root, str) else data_root
     elc_path = data_root_path / 'biosemi128.ELC'
-    save_path = Path(save_dir) / f'{model_type}_within_subject' / task
+    save_path = Path(save_dir) / f'{run_tag}_{model_type}_within_subject' / task
 
     config = get_default_config(model_type, task)
 

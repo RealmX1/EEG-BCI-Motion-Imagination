@@ -164,3 +164,43 @@ def get_default_config(model_type: str, task: str) -> dict:
         }
 
     return config
+
+
+# ============================================================================
+# YAML Configuration Loader
+# ============================================================================
+
+def load_yaml_config(yaml_path: str) -> dict:
+    """加载 YAML 配置文件，返回可作为 config_overrides 的 dict。
+
+    YAML 文件中 'tasks', 'task', 'data' 等代码控制的 section 会被过滤。
+    仅保留 'model', 'training', 'scheduler_config' 等可覆盖的配置。
+
+    Args:
+        yaml_path: YAML 配置文件路径
+
+    Returns:
+        可直接传入 apply_config_overrides() 的 dict
+
+    Example:
+        >>> overrides = load_yaml_config('configs/cbramod_cawd_old.yaml')
+        >>> overrides['training']['scheduler']
+        'cosine_annealing_warmup_decay'
+    """
+    import yaml
+    from pathlib import Path
+
+    path = Path(yaml_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Config file not found: {yaml_path}")
+
+    with open(path, 'r', encoding='utf-8') as f:
+        raw = yaml.safe_load(f)
+
+    if raw is None:
+        raise ValueError(f"Config file is empty: {yaml_path}")
+    if not isinstance(raw, dict):
+        raise ValueError(f"Config file must be a YAML mapping: {yaml_path}")
+
+    # 过滤代码控制的 section
+    return {k: v for k, v in raw.items() if k not in {'tasks', 'task', 'data'}}

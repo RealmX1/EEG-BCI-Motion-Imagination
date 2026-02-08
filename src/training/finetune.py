@@ -255,6 +255,7 @@ def finetune_subject(
     pretrained_path: str,
     subject_id: str,
     freeze_strategy: FreezeStrategy = 'none',
+    run_tag: Optional[str] = None,
     epochs: Optional[int] = None,
     learning_rate: Optional[float] = None,
     batch_size: Optional[int] = None,
@@ -273,6 +274,7 @@ def finetune_subject(
         pretrained_path: Path to pretrained model checkpoint
         subject_id: Subject ID to finetune on (e.g., 'S01')
         freeze_strategy: 'none', 'backbone', or 'partial'
+        run_tag: Optional run tag (timestamp) for this experiment (None = auto-generate)
         epochs: Number of finetuning epochs (None = use default)
         learning_rate: Learning rate (None = use default based on strategy)
         batch_size: Batch size (None = use default)
@@ -295,6 +297,10 @@ def finetune_subject(
     total_start = time.perf_counter()
     Timer.reset()
     set_seed(seed)
+
+    # Generate run_tag at start of finetuning (if not provided)
+    if run_tag is None:
+        run_tag = datetime.now().strftime('%Y%m%d_%H%M')
 
     if device is None:
         device = get_device()
@@ -461,7 +467,7 @@ def finetune_subject(
     trainer.optimizer = optimizer
 
     # Setup save path
-    save_path = Path(save_dir) / f'{model_type}_{paradigm}_{task}' / subject_id
+    save_path = Path(save_dir) / f'{run_tag}_{model_type}_{paradigm}_{task}' / subject_id
     save_path.mkdir(parents=True, exist_ok=True)
 
     # ========== TRAINING ==========
@@ -518,6 +524,7 @@ def finetune_subject(
     Timer.print_summary(f"Finetuning {subject_id}")
 
     return {
+        'run_tag': run_tag,
         'model_path': str(save_path / 'best.pt'),
         'test_acc': test_acc,
         'val_acc': trainer.best_val_acc,
@@ -532,6 +539,7 @@ def finetune_all_subjects(
     pretrained_path: str,
     subjects: List[str],
     freeze_strategy: FreezeStrategy = 'none',
+    run_tag: Optional[str] = None,
     **kwargs,
 ) -> Dict[str, Dict]:
     """
@@ -541,11 +549,16 @@ def finetune_all_subjects(
         pretrained_path: Path to pretrained model
         subjects: List of subject IDs
         freeze_strategy: Freeze strategy to use
+        run_tag: Optional shared run tag for all subjects (None = auto-generate)
         **kwargs: Additional arguments passed to finetune_subject
 
     Returns:
         Dict mapping subject_id -> results
     """
+    # If run_tag not provided, generate a shared one for all subjects
+    if run_tag is None:
+        run_tag = datetime.now().strftime('%Y%m%d_%H%M')
+
     all_results = {}
 
     for i, subject_id in enumerate(subjects, 1):
@@ -558,6 +571,7 @@ def finetune_all_subjects(
                 pretrained_path=pretrained_path,
                 subject_id=subject_id,
                 freeze_strategy=freeze_strategy,
+                run_tag=run_tag,
                 **kwargs,
             )
             all_results[subject_id] = results
