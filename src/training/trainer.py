@@ -28,6 +28,10 @@ logger = logging.getLogger(__name__)
 log_model = SectionLogger(logger, 'model')
 log_train = SectionLogger(logger, 'train')
 
+# Scheduler classification by stepping frequency
+STEP_BASED_SCHEDULERS = {'wsd', 'cosine_decay', 'cosine_annealing_warmup_decay'}
+EPOCH_BASED_SCHEDULERS = {'plateau', 'cosine'}
+
 
 class WithinSubjectTrainer:
     """
@@ -51,6 +55,7 @@ class WithinSubjectTrainer:
         learning_rate: float = 1e-3,
         classifier_lr: Optional[float] = None,
         weight_decay: float = 0.0,
+        label_smoothing: Optional[float] = None,
         scheduler_type: Optional[str] = None,
         scheduler_config: Optional[Dict[str, Any]] = None,
         use_amp: bool = True,
@@ -64,8 +69,9 @@ class WithinSubjectTrainer:
         self.scheduler_type = scheduler_type
 
         # Loss function - apply label smoothing for regularization
-        # Default: 0.05 for CBraMod (moderate regularization)
-        label_smoothing = 0.05 if model_type == 'cbramod' else 0.0
+        # None = use model-specific default (0.05 for CBraMod, 0.0 for EEGNet)
+        if label_smoothing is None:
+            label_smoothing = 0.05 if model_type == 'cbramod' else 0.0
         if label_smoothing > 0:
             self.criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
             log_model.info(f"Label smoothing={label_smoothing}")
@@ -94,43 +100,12 @@ class WithinSubjectTrainer:
                 weight_decay=weight_decay
             )
 
-        # Create scheduler if requested
+        # All schedulers are created in train() when total_steps/epochs are known.
+        # This ensures consistent initialization regardless of model type.
         self.scheduler = None
         self.scheduler_needs_metric = False  # For ReduceLROnPlateau
-        if scheduler_type == 'cosine':
-            # For CBraMod, scheduler is created in train() with correct T_max
-            # Creating here would cause PyTorch warning about step order
-            if model_type != 'cbramod':
-                self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                    self.optimizer,
-                    T_max=50,
-                    eta_min=1e-6,
-                )
-        elif scheduler_type == 'plateau':
-            # ReduceLROnPlateau - uses combined score (val_acc + majority_acc) / 2
-            # mode='max' because we want to maximize the combined accuracy score
-            # Note: 'verbose' parameter removed in PyTorch 2.3+
-            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                self.optimizer,
-                mode='max',  # Maximize combined accuracy score
-                factor=0.3,
-                patience=2,
-                min_lr=1e-6,
-            )
-            self.scheduler_needs_metric = True
-            log_train.info("Scheduler: ReduceLROnPlateau (mode=max, factor=0.3, patience=2, metric=combined_score)")
-        elif scheduler_type == 'wsd':
-            # WSD scheduler will be created in train() when total_steps is known
-            self.scheduler = None  # Placeholder, created in train()
-            log_train.info("Scheduler: WSD (will be initialized in train())")
-        elif scheduler_type == 'cosine_decay':
-            # CosineDecayRestarts scheduler will be created in train() when total_steps is known
-            self.scheduler = None  # Placeholder, created in train()
-            log_train.info("Scheduler: CosineDecayRestarts (will be initialized in train())")
-        elif scheduler_type == 'cosine_annealing_warmup_decay':
-            # CosineAnnealingWarmupDecay scheduler will be created in train() when total_steps is known
-            self.scheduler = None  # Placeholder, created in train()
-            log_train.info("Scheduler: CosineAnnealingWarmupDecay (will be initialized in train())")
+        if scheduler_type:
+            log_train.info(f"Scheduler: {scheduler_type} (will be initialized in train())")
 
         # Scheduler-specific parameters (read from scheduler_config or use defaults)
         # These are stored for later initialization in train() when total_steps/epochs are known
@@ -271,8 +246,8 @@ class WithinSubjectTrainer:
                 torch.cuda.synchronize()
                 t_optim += time.perf_counter() - t0
 
-            # Per-step scheduler update (for CBraMod)
-            if self.scheduler is not None and self.model_type == 'cbramod':
+            # Per-step scheduler update (WSD, CosineDecayRestarts, CosineAnnealingWarmupDecay)
+            if self.scheduler is not None and self.scheduler_type in STEP_BASED_SCHEDULERS:
                 if self.scheduler_type == 'cosine_annealing_warmup_decay':
                     # Epoch-based scheduler: pass epoch and step position
                     self.scheduler.step(epoch, batch_idx + 1, steps_in_epoch)
@@ -389,24 +364,29 @@ class WithinSubjectTrainer:
         main_steps = (epochs - exploration_epochs) * len(main_train_loader)
         total_steps = exploration_steps + main_steps
 
-        # Recreate scheduler with correct T_max for per-step scheduling (CBraMod)
-        # Use T_max = total_steps / 5 for faster LR decay (reaches min at 50% of training)
-        if self.scheduler_type == 'cosine' and self.model_type == 'cbramod':
-            t_max = total_steps // 5  # Faster decay: reach min LR at 20% of training
-            # Log T_max overwrite (config value is ignored, hardcoded to total_steps // 5)
-            log_train.info(
-                f"{Colors.BRIGHT_YELLOW}T_max overwrite: "
-                f"config value ignored -> {t_max} (total_steps // 5, CBraMod hardcoded){Colors.RESET}"
+        # ============================================================
+        # Create scheduler (model-agnostic, based on scheduler_type only)
+        # ============================================================
+        if self.scheduler_type == 'plateau':
+            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                self.optimizer,
+                mode='max',  # Maximize combined accuracy score
+                factor=0.3,
+                patience=2,
+                min_lr=1e-6,
             )
+            self.scheduler_needs_metric = True
+            log_train.info("Scheduler: ReduceLROnPlateau (mode=max, factor=0.3, patience=2, metric=combined_score)")
+
+        elif self.scheduler_type == 'cosine':
             self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
                 self.optimizer,
-                T_max=t_max,
+                T_max=epochs,
                 eta_min=1e-6,
             )
-            log_train.info(f"Scheduler: CosineAnnealing (T_max={t_max}, fast decay)")
+            log_train.info(f"Scheduler: CosineAnnealing (T_max={epochs})")
 
-        # Create WSD scheduler for CBraMod
-        if self.scheduler_type == 'wsd' and self.model_type == 'cbramod':
+        elif self.scheduler_type == 'wsd':
             wsd_warmup_steps = int(total_steps * self.wsd_warmup_ratio)
             wsd_stable_steps = int(total_steps * self.wsd_stable_ratio)
             wsd_decay_steps = total_steps - wsd_warmup_steps - wsd_stable_steps
@@ -427,8 +407,7 @@ class WithinSubjectTrainer:
             )
             log_train.info(f"Scheduler: WSD (total_steps={total_steps}, warmup={self.wsd_warmup_ratio}, decay={self.wsd_decay_ratio})")
 
-        # Create CosineDecayRestarts scheduler for CBraMod
-        if self.scheduler_type == 'cosine_decay' and self.model_type == 'cbramod':
+        elif self.scheduler_type == 'cosine_decay':
             t_0 = total_steps // self.cosine_decay_cycles  # Cycle length
             log_train.info(
                 f"{Colors.BRIGHT_YELLOW}CosineDecayRestarts Scheduler: "
@@ -443,16 +422,11 @@ class WithinSubjectTrainer:
                 decay_factor=self.cosine_decay_factor,
                 eta_min=1e-6,
             )
-            # Show peak LR progression
             peaks = [self.cosine_decay_factor ** i for i in range(self.cosine_decay_cycles)]
             peak_str = " -> ".join([f"{p:.2f}" for p in peaks])
             log_train.info(f"Scheduler: CosineDecayRestarts (peak progression: {peak_str})")
 
-        # Create CosineAnnealingWarmupDecay scheduler for CBraMod
-        if self.scheduler_type == 'cosine_annealing_warmup_decay' and self.model_type == 'cbramod':
-            # NEW: Epoch-based phase calculation
-            # Phase boundaries are determined by epoch number, not step count.
-            # This ensures phase transitions happen at correct epoch positions regardless of batch size.
+        elif self.scheduler_type == 'cosine_annealing_warmup_decay':
             num_phases = epochs // self.phase_epochs
             if epochs % self.phase_epochs != 0:
                 num_phases += 1
@@ -473,7 +447,6 @@ class WithinSubjectTrainer:
                 lr_ramp_ratio=self.lr_ramp_ratio,
                 eta_min=self.cawd_eta_min,
             )
-            # Show peak LR progression
             peaks = [self.phase_decay ** i for i in range(num_phases)]
             peak_str = " -> ".join([f"{p:.0%}" for p in peaks])
             log_train.info(f"Scheduler: CosineAnnealingWarmupDecay (peak progression: {peak_str})")
@@ -539,9 +512,9 @@ class WithinSubjectTrainer:
             # Determine if this epoch improved
             is_best_epoch = False
 
-            # Update scheduler (only for EEGNet - CBraMod uses per-step scheduling in train_epoch)
-            # ReduceLROnPlateau uses combined_score (mode='max') to decide LR reduction
-            if self.scheduler is not None and self.model_type != 'cbramod':
+            # Update epoch-based schedulers (ReduceLROnPlateau, CosineAnnealingLR)
+            # Step-based schedulers are updated per-batch in train_epoch()
+            if self.scheduler is not None and self.scheduler_type in EPOCH_BASED_SCHEDULERS:
                 if self.scheduler_needs_metric:
                     self.scheduler.step(combined_score)  # ReduceLROnPlateau uses combined score
                 else:
