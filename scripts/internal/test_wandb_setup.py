@@ -98,7 +98,7 @@ def test_prompt_single_model(no_wandb: bool, no_interactive: bool):
 def test_prompt_comparison(no_wandb: bool, no_interactive: bool):
     """Simulate full comparison scenario."""
     print("\n" + "=" * 60)
-    print("  Simulating: run_full_comparison.py")
+    print("  Simulating: run_within_subject_comparison.py")
     print("=" * 60)
 
     models = ["eegnet", "cbramod"]
@@ -152,7 +152,7 @@ def main():
     parser.add_argument(
         '--mode', choices=['single', 'comparison', 'unit'],
         default='comparison',
-        help='Test mode: single (run_single_model), comparison (run_full_comparison), unit (logic tests only)'
+        help='Test mode: single (run_single_model), comparison (run_within_subject_comparison), unit (logic tests only)'
     )
     parser.add_argument(
         '--no-wandb', action='store_true',

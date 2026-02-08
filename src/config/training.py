@@ -98,7 +98,7 @@ def get_default_config(model_type: str, task: str) -> dict:
 
     Used by:
     - train_subject_simple(): Simplified API for external callers
-    - scripts/run_full_comparison.py: Batch training
+    - scripts/run_within_subject_comparison.py: Batch training
     - scripts/run_single_model.py: Single model training
 
     Args:

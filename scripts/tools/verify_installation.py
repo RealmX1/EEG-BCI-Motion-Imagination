@@ -296,7 +296,7 @@ def main() -> int:
         print(f"{Colors.GREEN}{Colors.BOLD}环境检查通过{Colors.END}")
         print("可以开始运行实验了！\n")
         print("快速开始:")
-        print("  uv run python scripts/run_full_comparison.py --help\n")
+        print("  uv run python scripts/run_within_subject_comparison.py --help\n")
         return 0
 
 

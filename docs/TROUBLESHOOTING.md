@@ -256,7 +256,7 @@ FileNotFoundError: [Errno 2] No such file or directory: 'data/S01/...'
 2. 确认从项目根目录运行命令:
    ```bash
    cd /path/to/EEG-BCI
-   uv run python scripts/run_full_comparison.py
+   uv run python scripts/run_within_subject_comparison.py
    ```
 
 ### MAT 文件读取错误

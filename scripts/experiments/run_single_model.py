@@ -9,7 +9,7 @@ Features:
 - Trains one model type across all subjects
 - Incremental caching: resumes from where it left off
 - Generates 2-panel visualization (bar chart + box plot)
-- Can be called programmatically by run_full_comparison.py
+- Can be called programmatically by run_within_subject_comparison.py
 
 Usage:
     # Train EEGNet on all subjects
@@ -50,6 +50,7 @@ from src.results import (
     TrainingResult,
     load_cache,
     save_cache,
+    find_cache_by_tag,
     prepare_combined_plot_data,
     generate_result_filename,
     result_to_dict,
@@ -103,7 +104,7 @@ def run_single_model(
     wandb_session_metadata: Optional[Dict[str, Optional[str]]] = None,
     cache_only: bool = False,
     cache_index_path: str = ".cache_index.json",
-    scheduler: Optional[str] = None,
+    config_overrides: Optional[Dict] = None,
     verbose_first_only: bool = True,
 ) -> Tuple[List[TrainingResult], Dict]:
     """
@@ -121,11 +122,11 @@ def run_single_model(
         no_wandb: Disable wandb logging
         upload_model: Upload model artifacts (.pt) to WandB (default: False)
         wandb_interactive: Prompt for run details interactively (only prompts once for batch training)
-        wandb_session_metadata: Pre-collected WandB metadata (from run_full_comparison.py).
+        wandb_session_metadata: Pre-collected WandB metadata (from run_within_subject_comparison.py).
             When provided, skips interactive prompting.
         cache_only: If True, load data exclusively from cache index
         cache_index_path: Path to cache index file for cache_only mode
-        scheduler: Learning rate scheduler type (e.g., 'wsd', 'cosine_annealing_warmup_decay')
+        config_overrides: Config overrides dict (from YAML + CLI merge). Passed to train_and_get_result.
         verbose_first_only: If True, only show full verbose output for the first trained subject.
             Subsequent subjects show minimal output (subject header + training table + final eval).
             Default: True.
@@ -187,7 +188,7 @@ def run_single_model(
     # Determine shared WandB metadata for batch training
     shared_wandb_metadata = None
     if wandb_session_metadata is not None:
-        # Use pre-collected metadata from run_full_comparison.py
+        # Use pre-collected metadata from run_within_subject_comparison.py
         shared_wandb_metadata = wandb_session_metadata
     else:
         # Single model run: check if we should prompt
@@ -243,6 +244,7 @@ def run_single_model(
                 paradigm=paradigm,
                 data_root=data_root,
                 save_dir=output_dir,
+                run_tag=run_tag,
                 no_wandb=no_wandb,
                 upload_model=upload_model,
                 wandb_group=wandb_group,
@@ -250,7 +252,7 @@ def run_single_model(
                 wandb_metadata=shared_wandb_metadata,
                 cache_only=cache_only,
                 cache_index_path=cache_index_path,
-                scheduler=scheduler,
+                config_overrides=config_overrides,
                 verbose=verbose,
             )
 
@@ -296,8 +298,11 @@ Examples:
   # Train CBraMod on specific subjects
   uv run python scripts/run_single_model.py --model cbramod --subjects S01 S02
 
-  # Start a NEW experiment (preserves old results)
-  uv run python scripts/run_single_model.py --model eegnet --new-run
+  # Resume the most recent run
+  uv run python scripts/run_single_model.py --model eegnet --resume
+
+  # Resume a specific run by datetime substring
+  uv run python scripts/run_single_model.py --model eegnet --resume 20260205
 
   # Load existing results only (no training)
   uv run python scripts/run_single_model.py --model eegnet --skip-training
@@ -337,8 +342,10 @@ Examples:
         help='Directory to save results (default: results)'
     )
     parser.add_argument(
-        '--new-run', action='store_true',
-        help='Start a NEW experiment run with datetime tag'
+        '--resume', nargs='?', const='', default=None,
+        metavar='TAG',
+        help='Resume a previous run. Without TAG: resume most recent. '
+             'With TAG: resume run matching the datetime substring (e.g., "20260205")'
     )
     parser.add_argument(
         '--force-retrain', action='store_true',
@@ -380,12 +387,16 @@ Examples:
         help='Learning rate scheduler (default: model-specific)'
     )
     parser.add_argument(
-        '--use-cache-index', action='store_true',
-        help='从缓存索引发现被试，而非扫描 data/ 目录（适用于仅有缓存无原始数据的场景）'
+        '--config', type=str, default=None, metavar='YAML_PATH',
+        help='YAML 配置文件路径 (覆盖模型默认配置，被 CLI 参数覆盖)'
+    )
+    parser.add_argument(
+        '--cache-only', action='store_true',
+        help='Load data exclusively from cache index (no filesystem scan)'
     )
     parser.add_argument(
         '--cache-index-path', type=str, default='.cache_index.json',
-        help='缓存索引文件路径（默认：.cache_index.json）'
+        help='Path to cache index file (default: .cache_index.json)'
     )
 
     # Historical comparison options
@@ -408,19 +419,49 @@ Examples:
     set_seed(args.seed)
     log_main.info(f"Seed: {args.seed}")
 
-    # Generate run tag if --new-run
-    run_tag = None
-    if args.new_run:
+    # Handle --resume vs new run (default)
+    if args.resume is not None:
+        # --resume was used
+        if args.resume == '':
+            # --resume without TAG: resume most recent
+            found = find_cache_by_tag(args.output_dir, args.paradigm, args.task)
+            if found:
+                _, run_tag = found
+                log_main.info(f"Resuming most recent run: {run_tag or '(untagged)'}")
+            else:
+                log_main.error("No previous run found to resume")
+                sys.exit(1)
+        else:
+            # --resume TAG: resume matching run
+            found = find_cache_by_tag(args.output_dir, args.paradigm, args.task, args.resume)
+            if found:
+                _, run_tag = found
+                log_main.info(f"Resuming run matching '{args.resume}': {run_tag}")
+            else:
+                log_main.error(f"No run found matching '{args.resume}'")
+                sys.exit(1)
+    else:
+        # Default: start new run
         run_tag = datetime.now().strftime("%Y%m%d_%H%M")
-        log_main.info(f"New run: {run_tag}")
+        log_main.info(f"Starting new run: {run_tag}")
 
     paradigm_desc = PARADIGM_CONFIG[args.paradigm]['description']
     log_main.info(f"Model: {args.model.upper()} | Paradigm: {paradigm_desc} | Task: {args.task}")
 
+    # Build merged config_overrides: YAML → CLI scheduler override
+    from src.config.training import load_yaml_config
+    config_overrides = load_yaml_config(args.config) if args.config else {}
+    if args.scheduler:
+        config_overrides.setdefault('training', {})['scheduler'] = args.scheduler
+    config_overrides = config_overrides or None
+
     # Show LR schedule visualization for CBraMod (non-blocking, once at start)
     if args.model == 'cbramod' and not args.skip_training:
-        # Get scheduler config
-        scheduler_type = args.scheduler or 'cosine_annealing_warmup_decay'
+        # Determine scheduler type from merged overrides
+        if config_overrides and 'training' in config_overrides:
+            scheduler_type = config_overrides['training'].get('scheduler', 'cosine_annealing_warmup_decay')
+        else:
+            scheduler_type = 'cosine_annealing_warmup_decay'
         if scheduler_type in SCHEDULER_PRESETS:
             scheduler_config = SCHEDULER_PRESETS[scheduler_type]
             default_config = get_default_config('cbramod', args.task)
@@ -457,7 +498,7 @@ Examples:
                 args.data_root,
                 args.paradigm,
                 args.task,
-                use_cache_index=args.use_cache_index,
+                cache_only=args.cache_only,
                 cache_index_path=args.cache_index_path
             )
 
@@ -467,8 +508,8 @@ Examples:
 
         log_main.info(f"Subjects: {subjects}")
 
-        if not args.force_retrain and not args.new_run:
-            log_main.info("Using cache (--new-run for fresh, --force-retrain to overwrite)")
+        if args.resume is not None:
+            log_main.info("Resuming from cache (--force-retrain to overwrite)")
 
         # Run training
         results, stats = run_single_model(
@@ -483,9 +524,9 @@ Examples:
             no_wandb=args.no_wandb,
             upload_model=args.upload_model,
             wandb_interactive=not args.no_wandb_interactive,
-            cache_only=args.use_cache_index,
+            cache_only=args.cache_only,
             cache_index_path=args.cache_index_path,
-            scheduler=args.scheduler,
+            config_overrides=config_overrides,
         )
 
     # Print summary

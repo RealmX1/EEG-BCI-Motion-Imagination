@@ -101,33 +101,33 @@ uv run python scripts/verify_installation.py
 # 2. 预处理数据 (ZIP → 缓存)
 uv run python scripts/preprocess_zip.py
 
-# 3. 运行全被试模型对比
-uv run python scripts/run_full_comparison.py
+# 3. 运行被试内模型对比
+uv run python scripts/run_within_subject_comparison.py
 ```
 
 ## 使用方法
 
-### 全被试模型对比 (推荐)
+### 被试内模型对比 (推荐)
 
 ```bash
 # 默认: Motor Imagery, Binary, 双模型对比
-uv run python scripts/run_full_comparison.py
+uv run python scripts/run_within_subject_comparison.py
 
 # 新实验 (保留历史结果)
-uv run python scripts/run_full_comparison.py --new-run
+uv run python scripts/run_within_subject_comparison.py --new-run
 
 # Motor Execution 范式
-uv run python scripts/run_full_comparison.py --paradigm movement
+uv run python scripts/run_within_subject_comparison.py --paradigm movement
 
 # 仅查看已有结果
-uv run python scripts/run_full_comparison.py --skip-training
+uv run python scripts/run_within_subject_comparison.py --skip-training
 
 # 指定模型
-uv run python scripts/run_full_comparison.py --models eegnet
-uv run python scripts/run_full_comparison.py --models cbramod
+uv run python scripts/run_within_subject_comparison.py --models eegnet
+uv run python scripts/run_within_subject_comparison.py --models cbramod
 
 # 启用 WandB 追踪
-uv run python scripts/run_full_comparison.py --wandb
+uv run python scripts/run_within_subject_comparison.py --wandb
 ```
 
 ### 单模型训练
@@ -360,7 +360,7 @@ EEG-BCI/
 │       └── timing.py              # 性能计时
 ├── scripts/
 │   ├── experiments/               # 训练实验脚本
-│   │   ├── run_full_comparison.py # 全被试模型对比
+│   │   ├── run_within_subject_comparison.py # 被试内模型对比
 │   │   ├── run_single_model.py    # 单模型训练
 │   │   └── run_cross_subject.py   # 跨被试预训练
 │   ├── preprocessing/             # 数据预处理脚本

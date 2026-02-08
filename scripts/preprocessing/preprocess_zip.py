@@ -89,7 +89,7 @@ from src.preprocessing.data_loader import (
 from src.preprocessing.cache_manager import get_cache
 
 
-# Paradigm configuration (aligned with run_full_comparison.py)
+# Paradigm configuration (aligned with run_within_subject_comparison.py)
 PARADIGM_CONFIG = {
     'imagery': {
         'description': 'Motor Imagery (MI)',

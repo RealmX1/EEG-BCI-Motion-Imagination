@@ -31,7 +31,7 @@ Usage (programmatic API):
 
 For batch training across subjects, use the scripts:
     uv run python scripts/run_single_model.py --model eegnet
-    uv run python scripts/run_full_comparison.py
+    uv run python scripts/run_within_subject_comparison.py
 """
 
 # Suppress RuntimeWarning from multiprocessing workers when using -m flag
@@ -710,7 +710,7 @@ def train_single_subject(
         'best_majority_acc': trainer.best_majority_acc,  # Val majority accuracy at best epoch
         'best_combined_score': trainer.best_combined_score,  # (val_acc + majority_acc) / 2 at best epoch
         'test_accuracy': test_acc,  # This is the main metric (Phase 3)
-        'test_accuracy_majority': test_acc,  # Alias for compatibility with run_full_comparison
+        'test_accuracy_majority': test_acc,  # Alias for compatibility with run_within_subject_comparison
         'final_accuracy': test_acc if test_acc > 0 else val_acc,  # For backwards compatibility
         # Training info
         'best_epoch': trainer.best_epoch,

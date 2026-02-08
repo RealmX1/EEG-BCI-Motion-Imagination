@@ -5,7 +5,7 @@ This module provides functions to manage WandB prompts across multiple training 
 ensuring users are only prompted once at the beginning of batch training.
 
 Used by:
-- run_full_comparison.py: Prompts once before model loop
+- run_within_subject_comparison.py: Prompts once before model loop
 - run_single_model.py: Prompts once at batch start (when called directly)
 """
 

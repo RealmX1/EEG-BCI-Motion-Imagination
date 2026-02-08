@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 """
-Full Model Comparison Script for EEG-BCI Project.
+Within-Subject Model Comparison Script for EEG-BCI Project.
 
-This script runs training and evaluation of both EEGNet and CBraMod
-on all available subjects, then compares their performance.
+This script trains EEGNet and CBraMod using within-subject paradigm
+(each subject trained independently) and compares their performance.
 
 Data Split (follows paper protocol):
 - Training: Offline + Session 1 (Base + Finetune) + Session 2 Base
@@ -17,25 +17,28 @@ Features:
 
 Usage:
     # Run on Motor Imagery (default paradigm, plots generated automatically)
-    uv run python scripts/run_full_comparison.py
+    uv run python scripts/run_within_subject_comparison.py
 
     # Run on Motor Execution
-    uv run python scripts/run_full_comparison.py --paradigm movement
+    uv run python scripts/run_within_subject_comparison.py --paradigm movement
 
-    # Start a NEW experiment (preserves old results/plots with datetime tag)
-    uv run python scripts/run_full_comparison.py --new-run
+    # Resume the most recent run
+    uv run python scripts/run_within_subject_comparison.py --resume
+
+    # Resume a specific run by datetime substring
+    uv run python scripts/run_within_subject_comparison.py --resume 20260205
 
     # Force retrain (overwrites existing cache)
-    uv run python scripts/run_full_comparison.py --force-retrain
+    uv run python scripts/run_within_subject_comparison.py --force-retrain
 
     # Run on specific subjects
-    uv run python scripts/run_full_comparison.py --subjects S01 S02 S03
+    uv run python scripts/run_within_subject_comparison.py --subjects S01 S02 S03
 
     # Run only EEGNet
-    uv run python scripts/run_full_comparison.py --models eegnet
+    uv run python scripts/run_within_subject_comparison.py --models eegnet
 
     # Load existing results only (no training)
-    uv run python scripts/run_full_comparison.py --skip-training
+    uv run python scripts/run_within_subject_comparison.py --skip-training
 """
 
 import argparse
@@ -59,6 +62,8 @@ from src.results import (
     compare_models,
     print_comparison_report,
     load_cache,
+    save_cache,
+    find_cache_by_tag,
     prepare_combined_plot_data,
     generate_result_filename,
     save_full_comparison_results,
@@ -90,29 +95,64 @@ log_io = SectionLogger(logger, 'io')
 
 
 # ============================================================================
+# Helper Functions
+# ============================================================================
+
+def compute_summary(results):
+    """计算每个模型的统计摘要。
+
+    Args:
+        results: Dict[str, List[TrainingResult]] - 模型类型到结果列表的映射
+
+    Returns:
+        Dict[str, Dict[str, float]] - 模型类型到统计摘要的映射
+    """
+    import numpy as np
+
+    summary = {}
+    for model_type, model_results in results.items():
+        if not model_results:
+            continue
+
+        test_accs = [r.test_acc for r in model_results]
+        summary[model_type] = {
+            'mean': float(np.mean(test_accs)),
+            'std': float(np.std(test_accs)),
+            'median': float(np.median(test_accs)),
+            'min': float(np.min(test_accs)),
+            'max': float(np.max(test_accs)),
+        }
+
+    return summary
+
+
+# ============================================================================
 # Main
 # ============================================================================
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Run full model comparison on all subjects',
+        description='Run within-subject model comparison on all subjects',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 Examples:
   # Run on Motor Imagery (default, plots generated automatically)
-  uv run python scripts/run_full_comparison.py
+  uv run python scripts/run_within_subject_comparison.py
 
   # Run on Motor Execution
-  uv run python scripts/run_full_comparison.py --paradigm movement
+  uv run python scripts/run_within_subject_comparison.py --paradigm movement
 
-  # Start a NEW experiment (preserves old results/plots with datetime tag)
-  uv run python scripts/run_full_comparison.py --new-run
+  # Resume the most recent run
+  uv run python scripts/run_within_subject_comparison.py --resume
+
+  # Resume a specific run by datetime substring
+  uv run python scripts/run_within_subject_comparison.py --resume 20260205
 
   # Force retrain (overwrites existing cache for this paradigm/task)
-  uv run python scripts/run_full_comparison.py --force-retrain
+  uv run python scripts/run_within_subject_comparison.py --force-retrain
 
   # Suppress plot generation
-  uv run python scripts/run_full_comparison.py --no-plot
+  uv run python scripts/run_within_subject_comparison.py --no-plot
 '''
     )
 
@@ -148,8 +188,10 @@ Examples:
         help='Directory to save results (default: results)'
     )
     parser.add_argument(
-        '--new-run', action='store_true',
-        help='Start a NEW experiment run with datetime tag (preserves old results)'
+        '--resume', nargs='?', const='', default=None,
+        metavar='TAG',
+        help='Resume a previous run. Without TAG: resume most recent. '
+             'With TAG: resume run matching the datetime substring (e.g., "20260205")'
     )
     parser.add_argument(
         '--force-retrain', action='store_true',
@@ -180,17 +222,21 @@ Examples:
         help='Disable interactive prompts for WandB run details (prompts are enabled by default)'
     )
     parser.add_argument(
-        '--use-cache-index', action='store_true',
-        help='从缓存索引发现被试，而非扫描 data/ 目录（适用于仅有缓存无原始数据的场景）'
+        '--cache-only', action='store_true',
+        help='Load data exclusively from cache index (no filesystem scan)'
     )
     parser.add_argument(
         '--cache-index-path', type=str, default='.cache_index.json',
-        help='缓存索引文件路径（默认：.cache_index.json）'
+        help='Path to cache index file (default: .cache_index.json)'
     )
     parser.add_argument(
         '--scheduler', type=str, default=None,
         choices=['plateau', 'cosine', 'wsd', 'cosine_decay', 'cosine_annealing_warmup_decay'],
         help='Learning rate scheduler (default: model-specific)'
+    )
+    parser.add_argument(
+        '--config', type=str, default=None, metavar='YAML_PATH',
+        help='YAML 配置文件路径 (覆盖模型默认配置，被 CLI 参数覆盖)'
     )
 
     args = parser.parse_args()
@@ -207,18 +253,48 @@ Examples:
     set_seed(args.seed)
     log_main.info(f"Seed: {args.seed}")
 
-    # Generate run tag if --new-run is specified
-    run_tag = None
-    if args.new_run:
+    # Handle --resume vs new run (default)
+    if args.resume is not None:
+        # --resume was used
+        if args.resume == '':
+            # --resume without TAG: resume most recent
+            found = find_cache_by_tag(args.output_dir, args.paradigm, args.task)
+            if found:
+                _, run_tag = found
+                log_main.info(f"Resuming most recent run: {run_tag or '(untagged)'}")
+            else:
+                log_main.error("No previous run found to resume")
+                sys.exit(1)
+        else:
+            # --resume TAG: resume matching run
+            found = find_cache_by_tag(args.output_dir, args.paradigm, args.task, args.resume)
+            if found:
+                _, run_tag = found
+                log_main.info(f"Resuming run matching '{args.resume}': {run_tag}")
+            else:
+                log_main.error(f"No run found matching '{args.resume}'")
+                sys.exit(1)
+    else:
+        # Default: start new run
         run_tag = datetime.now().strftime("%Y%m%d_%H%M")
-        log_main.info(f"New run: {run_tag}")
+        log_main.info(f"Starting new run: {run_tag}")
 
     paradigm_desc = PARADIGM_CONFIG[args.paradigm]['description']
     log_main.info(f"Paradigm: {paradigm_desc}")
 
+    # Build merged config_overrides: YAML → CLI scheduler override
+    from src.config.training import load_yaml_config
+    config_overrides = load_yaml_config(args.config) if args.config else {}
+    if args.scheduler:
+        config_overrides.setdefault('training', {})['scheduler'] = args.scheduler
+    config_overrides = config_overrides or None
+
     # Show LR schedule visualization for CBraMod (non-blocking, once at start)
     if 'cbramod' in args.models and not args.skip_training:
-        scheduler_type = args.scheduler or 'cosine_annealing_warmup_decay'
+        if config_overrides and 'training' in config_overrides:
+            scheduler_type = config_overrides['training'].get('scheduler', 'cosine_annealing_warmup_decay')
+        else:
+            scheduler_type = args.scheduler or 'cosine_annealing_warmup_decay'
         if scheduler_type in SCHEDULER_PRESETS:
             scheduler_config = SCHEDULER_PRESETS[scheduler_type]
             default_config = get_default_config('cbramod', args.task)
@@ -256,7 +332,7 @@ Examples:
                 args.data_root,
                 args.paradigm,
                 args.task,
-                use_cache_index=args.use_cache_index,
+                cache_only=args.cache_only,
                 cache_index_path=args.cache_index_path
             )
 
@@ -266,8 +342,8 @@ Examples:
 
         log_main.info(f"Subjects: {subjects} | Models: {args.models} | Task: {args.task}")
 
-        if not args.force_retrain and not args.new_run:
-            log_main.info("Using cache (--new-run for fresh, --force-retrain to overwrite)")
+        if args.resume is not None:
+            log_main.info("Resuming from cache (--force-retrain to overwrite)")
 
         # Collect WandB metadata once before model loop
         from scripts._wandb_setup import should_prompt_wandb, prompt_batch_session
@@ -314,9 +390,9 @@ Examples:
                 upload_model=args.upload_model,
                 wandb_interactive=False,  # Disable internal prompting
                 wandb_session_metadata=wandb_session_metadata,  # Use pre-collected metadata
-                cache_only=args.use_cache_index,
+                cache_only=args.cache_only,
                 cache_index_path=args.cache_index_path,
-                scheduler=args.scheduler,
+                config_overrides=config_overrides,
             )
             results[model_type] = model_results
 
@@ -331,8 +407,37 @@ Examples:
 
     print_comparison_report(results, comparison, args.task, args.paradigm, run_tag)
 
-    output_path = save_full_comparison_results(
-        results, comparison, args.task, args.paradigm, args.output_dir, run_tag
+    # Load existing cache to add summary and comparison data
+    cache, cache_metadata = load_cache(
+        args.output_dir, args.paradigm, args.task, run_tag, find_latest=(run_tag is None)
+    )
+
+    # Compute summary statistics
+    summary = compute_summary(results)
+
+    # Convert comparison to dict if present
+    from dataclasses import asdict
+    comparison_dict = asdict(comparison) if comparison else None
+
+    # Save updated cache with summary and comparison
+    # Preserve existing timestamp if available
+    existing_timestamp = cache_metadata.get('metadata', {}).get('timestamp')
+
+    output_path = save_cache(
+        output_dir=args.output_dir,
+        paradigm=args.paradigm,
+        task=args.task,
+        results=cache,  # Use existing cache
+        run_tag=run_tag,
+        wandb_groups=cache_metadata.get('wandb_groups', {}),
+        summary=summary,
+        comparison=comparison_dict,
+        n_subjects=len(set(
+            r.subject_id for model_results in results.values()
+            for r in model_results
+        )),
+        is_complete=True,
+        existing_timestamp=existing_timestamp,
     )
 
     # Generate plots by default (unless --no-plot is specified)
