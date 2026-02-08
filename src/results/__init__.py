@@ -27,6 +27,7 @@ from .cache import (
     get_cache_path,
     find_compatible_historical_results,
     build_data_sources_from_historical,
+    build_cross_subject_data_sources,
     prepare_combined_plot_data,
     SelectionStrategy,
     # Full comparison results IO
@@ -35,6 +36,10 @@ from .cache import (
     # Single model results IO
     save_single_model_results,
     load_single_model_results,
+    # Cross-subject results search
+    find_compatible_within_subject_results,
+    find_compatible_cross_subject_results,
+    save_cross_subject_result,
 )
 from .statistics import (
     compute_model_statistics,
@@ -60,6 +65,7 @@ __all__ = [
     'get_cache_path',
     'find_compatible_historical_results',
     'build_data_sources_from_historical',
+    'build_cross_subject_data_sources',
     'prepare_combined_plot_data',
     'SelectionStrategy',
     # Full comparison results IO
@@ -68,6 +74,10 @@ __all__ = [
     # Single model results IO
     'save_single_model_results',
     'load_single_model_results',
+    # Cross-subject results search
+    'find_compatible_within_subject_results',
+    'find_compatible_cross_subject_results',
+    'save_cross_subject_result',
     # Statistics
     'compute_model_statistics',
     'print_model_summary',

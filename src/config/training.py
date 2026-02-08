@@ -3,7 +3,9 @@ Training configuration for EEG-BCI project.
 
 This module contains:
 - SCHEDULER_PRESETS: Recommended epochs/patience for each scheduler type
-- get_default_config(): Default training configurations for each model
+- get_default_config(): Default training configurations for each model (within-subject)
+- get_cross_subject_config(): Cross-subject pretraining configurations
+- CROSS_SUBJECT_SCHEDULER_OVERRIDES: Scheduler parameter overrides for cross-subject
 
 Usage:
     from src.config.training import SCHEDULER_PRESETS, get_default_config
@@ -12,9 +14,14 @@ Usage:
     preset = SCHEDULER_PRESETS['cosine_annealing_warmup_decay']
     print(preset['epochs'])  # 100
 
-    # Get default config for a model
+    # Get default config for a model (within-subject)
     config = get_default_config('eegnet', 'binary')
     print(config['training']['learning_rate'])  # 1e-3
+
+    # Get cross-subject config (stronger regularization)
+    from src.config.training import get_cross_subject_config
+    config = get_cross_subject_config('cbramod', 'binary')
+    print(config['training']['weight_decay'])  # 0.12
 """
 
 from typing import Any, Dict
@@ -204,3 +211,75 @@ def load_yaml_config(yaml_path: str) -> dict:
 
     # 过滤代码控制的 section
     return {k: v for k, v in raw.items() if k not in {'tasks', 'task', 'data'}}
+
+
+# ============================================================================
+# Cross-Subject Scheduler Overrides
+# ============================================================================
+
+# Cross-subject training uses different scheduler parameters to address
+# the different optimization landscape (more data, higher overfitting risk)
+CROSS_SUBJECT_SCHEDULER_OVERRIDES: Dict[str, Dict[str, Any]] = {
+    'cosine_annealing_warmup_decay': {
+        'phase_epochs': 10,             # 6→10, 更长周期避免频繁重启导致重新过拟合
+        'phase_decay': 0.5,             # 0.7→0.5, 更激进的峰值衰减抑制过拟合
+        'exploration_epochs': 6,        # 保持不变
+        'exploration_batch_size': 64,   # 32→64, 多被试数据更稳定的梯度估计
+    },
+}
+
+
+# ============================================================================
+# Cross-Subject Model Configurations
+# ============================================================================
+
+def get_cross_subject_config(model_type: str, task: str) -> dict:
+    """
+    Get configuration for cross-subject pretraining.
+
+    Builds on get_default_config() but applies cross-subject-specific
+    hyperparameters optimized for multi-subject data pooling.
+
+    Key differences from within-subject:
+    - Stronger regularization (higher dropout, weight_decay, label_smoothing)
+    - Larger batch sizes (more data available)
+    - Lower learning rates (more diverse data distribution)
+    - Different scheduler parameters (longer phases, more aggressive decay)
+
+    Args:
+        model_type: 'eegnet' or 'cbramod'
+        task: 'binary', 'ternary', or 'quaternary'
+
+    Returns:
+        Configuration dict compatible with train_cross_subject()
+
+    Example:
+        >>> config = get_cross_subject_config('cbramod', 'binary')
+        >>> config['training']['weight_decay']
+        0.12
+    """
+    config = get_default_config(model_type, task)
+
+    if model_type == 'cbramod':
+        config['model']['dropout_rate'] = 0.35          # 0.15→0.35, classifier head 25600 维
+        config['training'].update({
+            'epochs': 100,                               # 与 within-subject 相同，靠 early stopping
+            'patience': 15,                              # 与 within-subject 相同，靠 early stopping
+            'batch_size': 256,                           # 2x within-subject
+            'learning_rate': 5e-5,                       # 1e-4→5e-5
+            'backbone_lr': 5e-5,                         # 1e-4→5e-5, 预训练权重温和调整
+            'classifier_lr': 1.5e-4,                     # 3e-4→1.5e-4, 保持 3x 比例
+            'weight_decay': 0.12,                        # 0.06→0.12, 4M 参数需更强正则
+            'label_smoothing': 0.15,                     # 0.05→0.15, 跨被试标签噪声更大
+            'gradient_clip': 0.5,                        # 1.0→0.5, 跨被试梯度方差更大
+        })
+    else:  # eegnet
+        config['training'].update({
+            'epochs': 50,                                # 30→50, 更多数据可以训练更久
+            'patience': 10,                              # 5→10, 跨被试数据更多样
+            'batch_size': 128,                           # 2x within-subject
+            'learning_rate': 5e-4,                       # 1e-3→5e-4
+            'weight_decay': 1e-4,                        # 0→1e-4, 轻微正则
+        })
+
+    return config

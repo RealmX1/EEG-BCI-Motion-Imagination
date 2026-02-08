@@ -236,6 +236,18 @@ class WandbLogger:
             return self._run.url
         return None
 
+    def update_config(self, config: Dict[str, Any]) -> None:
+        """Update run config after initialization.
+
+        Args:
+            config: Config dictionary to merge with existing config
+        """
+        if not self._enabled:
+            return
+
+        import wandb
+        wandb.config.update(config, allow_val_change=True)
+
     def log(
         self,
         metrics: Dict[str, Any],

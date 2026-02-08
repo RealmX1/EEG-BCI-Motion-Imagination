@@ -21,7 +21,9 @@ from .constants import (
 )
 from .training import (
     SCHEDULER_PRESETS,
+    CROSS_SUBJECT_SCHEDULER_OVERRIDES,
     get_default_config,
+    get_cross_subject_config,
     load_yaml_config,
 )
 from .experiment_config import (
@@ -41,7 +43,9 @@ __all__ = [
     'TASKS',
     # Training
     'SCHEDULER_PRESETS',
+    'CROSS_SUBJECT_SCHEDULER_OVERRIDES',
     'get_default_config',
+    'get_cross_subject_config',
     'load_yaml_config',
     # Experiment (research)
     'ExperimentPreprocessConfig',

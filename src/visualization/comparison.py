@@ -96,7 +96,10 @@ def generate_combined_plot(
         alpha = 1.0 if source.is_current_run else 0.4
         edgecolor = 'black' if source.is_current_run else 'gray'
         linewidth = 1.5 if source.is_current_run else 0.5
-        hatch = '' if source.is_current_run else '///'
+        if source.hatch is not None:
+            hatch = source.hatch
+        else:
+            hatch = '' if source.is_current_run else '///'
 
         bars = ax_bar.bar(
             x_positions, accs, bar_width,
@@ -142,6 +145,7 @@ def generate_combined_plot(
     box_labels = []
     box_colors = []
     box_alphas = []
+    box_hatches = []
 
     for source in data_sources:
         accs = [r.test_acc_majority for r in source.results]
@@ -150,17 +154,27 @@ def generate_combined_plot(
             box_labels.append(source.label)
             box_colors.append(colors[source.model_type])
             box_alphas.append(1.0 if source.is_current_run else 0.4)
+            if source.hatch is not None:
+                box_hatches.append(source.hatch)
+            else:
+                box_hatches.append('' if source.is_current_run else '///')
 
     if box_data:
+        # 交错标签：位置 2,4,... 下移一行，避免重叠
+        for i in range(len(box_labels)):
+            if i % 2 == 1:
+                box_labels[i] = '\n' + box_labels[i]
+
         bp = ax_box.boxplot(
             box_data, labels=box_labels, patch_artist=True,
             showmeans=True, meanline=True,
             meanprops={'color': mean_color, 'linewidth': 2, 'linestyle': (0, (3, 2))}
         )
 
-        for patch, color, alpha in zip(bp['boxes'], box_colors, box_alphas):
+        for patch, color, alpha, hatch in zip(bp['boxes'], box_colors, box_alphas, box_hatches):
             patch.set_facecolor(color)
             patch.set_alpha(alpha)
+            patch.set_hatch(hatch)
 
         for median in bp['medians']:
             median.set_color(median_color)
@@ -200,16 +214,13 @@ def generate_combined_plot(
     eegnet_current = next((s for s in eegnet_sources if s.is_current_run), None)
     eegnet_hist = next((s for s in eegnet_sources if not s.is_current_run), None)
     cbramod_current = next((s for s in cbramod_sources if s.is_current_run), None)
-    cbramod_hist = next((s for s in cbramod_sources if not s.is_current_run), None)
+    cbramod_hist_sources = [s for s in cbramod_sources if not s.is_current_run]
 
     # 使用 EEGNet 作为 X 轴基准（优先使用当前数据）
     eegnet_baseline = eegnet_current or eegnet_hist
 
-    # 配对颜色配置
-    pair_colors = {
-        'current': '#E94F37',   # 当前 CBraMod: 红色
-        'historical': '#E94F37',  # 历史 CBraMod: 红色 (alpha=0.5 半透明)
-    }
+    # 历史数据源 marker 样式（按顺序: 被试内=方块, 跨被试=菱形, ...）
+    hist_markers = ['s', 'D', '^', 'v']
 
     all_accs = []  # 用于计算坐标轴范围
     has_any_pair = False
@@ -227,8 +238,9 @@ def generate_combined_plot(
                 cbramod_accs = [cbramod_by_subj[s] for s in common]
                 all_accs.extend(eegnet_accs + cbramod_accs)
 
+                current_label = cbramod_current.label.replace('CBRAMOD', 'CBraMod')
                 ax_scatter.scatter(eegnet_accs, cbramod_accs, s=100, alpha=0.9,
-                                   c=pair_colors['current'], label='CBraMod (current)',
+                                   c='#E94F37', label=current_label,
                                    edgecolors='black', linewidths=1)
 
                 # 为当前运行添加被试标签
@@ -237,19 +249,23 @@ def generate_combined_plot(
                                         xytext=(5, 5), textcoords='offset points', fontsize=7)
                 has_any_pair = True
 
-        # 绘制历史配对：历史 CBraMod vs EEGNet
-        if cbramod_hist:
-            cbramod_hist_by_subj = {r.subject_id: r.test_acc_majority for r in cbramod_hist.results}
-            common_hist = sorted(set(eegnet_by_subj.keys()) & set(cbramod_hist_by_subj.keys()))
+        # 绘制所有历史配对：各历史 CBraMod vs EEGNet
+        for idx, hist_source in enumerate(cbramod_hist_sources):
+            hist_by_subj = {r.subject_id: r.test_acc_majority for r in hist_source.results}
+            common_hist = sorted(set(eegnet_by_subj.keys()) & set(hist_by_subj.keys()))
 
             if common_hist:
                 eegnet_accs_hist = [eegnet_by_subj[s] for s in common_hist]
-                cbramod_accs_hist = [cbramod_hist_by_subj[s] for s in common_hist]
+                cbramod_accs_hist = [hist_by_subj[s] for s in common_hist]
                 all_accs.extend(eegnet_accs_hist + cbramod_accs_hist)
 
-                ax_scatter.scatter(eegnet_accs_hist, cbramod_accs_hist, s=80, alpha=0.5,
-                                   c=pair_colors['historical'], label='CBraMod (hist)',
-                                   edgecolors='gray', linewidths=0.5, marker='s')
+                marker = hist_markers[idx % len(hist_markers)]
+                hist_label = hist_source.label.replace('CBRAMOD', 'CBraMod')
+                sc = ax_scatter.scatter(eegnet_accs_hist, cbramod_accs_hist, s=80, alpha=0.5,
+                                        c='#E94F37', label=hist_label,
+                                        edgecolors='gray', linewidths=0.5, marker=marker)
+                hist_hatch = hist_source.hatch if hist_source.hatch is not None else '///'
+                sc.set_hatch(hist_hatch)
                 has_any_pair = True
 
         if has_any_pair and all_accs:

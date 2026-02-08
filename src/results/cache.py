@@ -661,6 +661,231 @@ def build_data_sources_from_historical(
     return data_sources
 
 
+def _find_best_within_subject_for_model(
+    output_dir: str,
+    paradigm: str,
+    task: str,
+    model_type: str,
+    subjects_set: set,
+) -> Optional[List[TrainingResult]]:
+    """
+    为单个模型独立搜索最佳 within-subject 历史运行.
+
+    在所有 comparison_cache 文件中查找该模型的数据，条件:
+    - is_complete: true
+    - 该模型的被试集合覆盖 subjects_set
+    - 选择平均测试准确率最高的运行
+
+    Args:
+        output_dir: 结果目录
+        paradigm: 范式
+        task: 任务类型
+        model_type: 'eegnet' 或 'cbramod'
+        subjects_set: 需要覆盖的被试集合
+
+    Returns:
+        TrainingResult 列表（已过滤到 subjects_set），或 None
+    """
+    results_dir = Path(output_dir)
+    if not results_dir.exists():
+        return None
+
+    pattern = f'*comparison_cache_{paradigm}_{task}.json'
+    all_files = [f for f in results_dir.glob(pattern) if 'cross-subject' not in f.name]
+
+    best_results = None
+    best_mean_acc = -1.0
+    best_file = None
+
+    for file_path in all_files:
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                raw_data = json.load(f)
+
+            metadata = raw_data.get('metadata', {})
+            if not metadata.get('is_complete', False):
+                continue
+            if not metadata.get('timestamp'):
+                continue
+
+            results_data = raw_data.get('results', {})
+            model_data = results_data.get(model_type, {})
+            if not model_data:
+                continue
+
+            # 检查被试覆盖
+            if not (subjects_set <= set(model_data.keys())):
+                continue
+
+            # 转换并计算平均准确率
+            converted = _convert_cache_to_comparison_format(raw_data)
+            models_data = converted.get('models', {})
+            subjects_data = models_data.get(model_type, {}).get('subjects', [])
+            if not subjects_data:
+                continue
+
+            mean_acc = _compute_mean_accuracy(subjects_data)
+            if mean_acc > best_mean_acc:
+                best_mean_acc = mean_acc
+                best_results = subjects_data
+                best_file = file_path
+
+        except (json.JSONDecodeError, KeyError, OSError):
+            continue
+
+    if best_results is None:
+        return None
+
+    log_cache.info(
+        f"Best within-subject {model_type}: {best_file.name} "
+        f"(mean={best_mean_acc*100:.1f}%)"
+    )
+    results = [dict_to_result(s) for s in best_results]
+    return [r for r in results if r.subject_id in subjects_set]
+
+
+def build_cross_subject_data_sources(
+    current_results: Dict[str, Dict],
+    output_dir: str = 'results',
+    paradigm: str = 'imagery',
+    task: str = 'binary',
+    cross_subject_historical: Optional[Dict] = None,
+    # Legacy parameter — ignored, kept for API compat
+    within_subject_historical: Optional[Dict] = None,
+) -> List[PlotDataSource]:
+    """
+    为 cross-subject 比较构建 PlotDataSource 列表.
+
+    对每个模型独立搜索最佳 within-subject 历史运行（可来自不同文件）。
+
+    顺序:
+    1. 历史 Within-Subject EEGNet (alpha=0.4, 斜线填充)
+    2. 历史 Within-Subject CBraMod (alpha=0.4, 斜线填充)
+    3. 当前 Cross-Subject EEGNet (alpha=1.0)
+    4. 当前 Cross-Subject CBraMod (alpha=1.0)
+    5. (可选) 历史 Cross-Subject CBraMod (alpha=0.4)
+
+    Args:
+        current_results: 当前 cross-subject 训练结果 {model_type: train_cross_subject 返回值}
+        output_dir: 结果目录路径（用于搜索历史数据）
+        paradigm: 范式
+        task: 任务类型
+        cross_subject_historical: find_compatible_cross_subject_results() 返回值
+        within_subject_historical: (已废弃，忽略) 保留用于 API 兼容
+
+    Returns:
+        PlotDataSource 列表，可直接传递给 generate_combined_plot()
+    """
+    data_sources = []
+
+    # 收集所有被试（从当前结果）
+    all_subjects = set()
+    for result in current_results.values():
+        per_subj = (
+            result.get('per_subject_test_acc') or
+            result.get('results', {}).get('per_subject_test_acc', {})
+        )
+        all_subjects.update(per_subj.keys())
+    subjects_set = all_subjects
+
+    # 1 & 2: 历史 Within-Subject 数据 — 每个模型独立搜索
+    for model_type in ['eegnet', 'cbramod']:
+        hist_results = _find_best_within_subject_for_model(
+            output_dir=output_dir,
+            paradigm=paradigm,
+            task=task,
+            model_type=model_type,
+            subjects_set=subjects_set,
+        )
+        if hist_results:
+            data_sources.append(PlotDataSource(
+                model_type=model_type,
+                results=hist_results,
+                is_current_run=False,
+                label=f'{model_type.upper()} (Within)',
+                hatch='///',
+            ))
+
+    # 3 & 4: 当前 Cross-Subject 数据 (EEGNet, CBraMod)
+    for model_type in ['eegnet', 'cbramod']:
+        if model_type not in current_results:
+            continue
+        result = current_results[model_type]
+        per_subj = (
+            result.get('per_subject_test_acc') or
+            result.get('results', {}).get('per_subject_test_acc', {})
+        )
+        if not per_subj:
+            continue
+
+        task_val = result.get('task', result.get('metadata', {}).get('task', task))
+        val_acc = (
+            result.get('val_acc') or
+            result.get('val_majority_acc') or
+            result.get('results', {}).get('best_val_acc', 0)
+        )
+        best_epoch = (
+            result.get('best_epoch') or
+            result.get('results', {}).get('best_epoch', 0)
+        )
+        total_time = (
+            result.get('training_time') or
+            result.get('training_info', {}).get('training_time', 0)
+        )
+        n_subjects = len(per_subj) if per_subj else 1
+
+        training_results = []
+        for subject_id, test_acc in per_subj.items():
+            training_results.append(TrainingResult(
+                subject_id=subject_id,
+                task_type=task_val,
+                model_type=model_type,
+                best_val_acc=val_acc,
+                test_acc=test_acc,
+                test_acc_majority=test_acc,
+                epochs_trained=best_epoch,
+                training_time=total_time / max(n_subjects, 1),
+            ))
+
+        if training_results:
+            data_sources.append(PlotDataSource(
+                model_type=model_type,
+                results=training_results,
+                is_current_run=True,
+                label=f'{model_type.upper()} (Cross)'
+            ))
+
+    # 5: (可选) 历史 Cross-Subject CBraMod
+    # 要求覆盖所有当前被试
+    if cross_subject_historical:
+        per_subj_hist = cross_subject_historical.get('per_subject_test_acc', {})
+        hist_model = cross_subject_historical.get('model_type', 'cbramod')
+        if per_subj_hist and subjects_set <= set(per_subj_hist.keys()):
+            training_results = []
+            for subject_id, test_acc in per_subj_hist.items():
+                if subject_id in subjects_set:
+                    training_results.append(TrainingResult(
+                        subject_id=subject_id,
+                        task_type=task,
+                        model_type=hist_model,
+                        best_val_acc=0,
+                        test_acc=test_acc,
+                        test_acc_majority=test_acc,
+                        epochs_trained=0,
+                        training_time=0,
+                    ))
+            if training_results:
+                data_sources.append(PlotDataSource(
+                    model_type=hist_model,
+                    results=training_results,
+                    is_current_run=False,
+                    label=f'{hist_model.upper()} (Cross-Hist)',
+                    hatch='...',
+                ))
+
+    return data_sources
+
+
 def prepare_combined_plot_data(
     output_dir: str,
     paradigm: str,
@@ -969,3 +1194,351 @@ def load_single_model_results(
     return results, stats
 
 
+# ============================================================================
+# Cross-Subject Results Search
+# ============================================================================
+
+def find_compatible_within_subject_results(
+    output_dir: str,
+    paradigm: str,
+    task: str,
+    subjects: List[str],
+    selection_strategy: SelectionStrategy = SelectionStrategy.BEST_ACCURACY,
+) -> Optional[Dict]:
+    """
+    搜索兼容的 within-subject 历史结果（用于 cross-subject 对比图）.
+
+    条件:
+    - 文件模式: *comparison_cache_{paradigm}_{task}.json（排除 cross-subject 文件）
+    - is_complete: true
+    - 被试集合覆盖 subjects
+
+    Args:
+        output_dir: 结果目录路径
+        paradigm: 范式 ('imagery' 或 'movement')
+        task: 任务类型 ('binary', 'ternary', 'quaternary')
+        subjects: 需要覆盖的被试列表
+        selection_strategy: 选择策略 (BEST_ACCURACY 或 NEWEST)
+
+    Returns:
+        包含 eegnet 和 cbramod 结果的字典:
+        {
+            'source_file': str,
+            'timestamp': str,
+            'eegnet': {'subjects': [...], 'summary': {...}},
+            'cbramod': {'subjects': [...], 'summary': {...}},
+            'mean_accuracy': {'eegnet': float, 'cbramod': float},
+        }
+        如果找不到兼容结果，返回 None
+    """
+    results_dir = Path(output_dir)
+    if not results_dir.exists():
+        return None
+
+    # 搜索 within-subject 缓存文件（排除 cross-subject）
+    pattern = f'*comparison_cache_{paradigm}_{task}.json'
+    all_files = list(results_dir.glob(pattern))
+
+    # 排除 cross-subject 文件
+    all_files = [f for f in all_files if 'cross-subject' not in f.name]
+
+    if not all_files:
+        return None
+
+    subjects_set = set(subjects)
+    compatible_files = []
+
+    for file_path in all_files:
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                raw_data = json.load(f)
+
+            # 必须是新格式缓存文件
+            if 'results' not in raw_data or not isinstance(raw_data['results'], dict):
+                continue
+
+            # 检查 is_complete
+            metadata = raw_data.get('metadata', {})
+            if not metadata.get('is_complete', False):
+                continue
+
+            timestamp = metadata.get('timestamp')
+            if not timestamp:
+                continue
+
+            # 检查是否包含两个模型且被试集合覆盖
+            results_data = raw_data.get('results', {})
+            if 'eegnet' not in results_data or 'cbramod' not in results_data:
+                continue
+
+            # 获取 eegnet 被试集合
+            eegnet_subjects = set(results_data.get('eegnet', {}).keys())
+            if not (subjects_set <= eegnet_subjects):
+                continue
+
+            # 获取 cbramod 被试集合
+            cbramod_subjects = set(results_data.get('cbramod', {}).keys())
+            if not (subjects_set <= cbramod_subjects):
+                continue
+
+            # 转换为标准格式
+            data = _convert_cache_to_comparison_format(raw_data)
+            models_data = data.get('models', {})
+
+            # 计算各模型平均准确率
+            mean_accuracy = {}
+            for model_type in ['eegnet', 'cbramod']:
+                subjects_data = models_data.get(model_type, {}).get('subjects', [])
+                mean_accuracy[model_type] = _compute_mean_accuracy(subjects_data)
+
+            compatible_files.append({
+                'file_path': file_path,
+                'timestamp': timestamp,
+                'data': data,
+                'models_data': models_data,
+                'mean_accuracy': mean_accuracy,
+            })
+
+        except (json.JSONDecodeError, KeyError, OSError) as e:
+            log_cache.debug(f"Skipping {file_path.name}: {e}")
+            continue
+
+    if not compatible_files:
+        return None
+
+    # 根据策略选择
+    if selection_strategy == SelectionStrategy.NEWEST:
+        compatible_files.sort(key=lambda x: x['timestamp'], reverse=True)
+    else:  # BEST_ACCURACY - 使用两个模型的平均准确率
+        compatible_files.sort(
+            key=lambda x: (x['mean_accuracy'].get('eegnet', 0) + x['mean_accuracy'].get('cbramod', 0)) / 2,
+            reverse=True
+        )
+
+    selected = compatible_files[0]
+    log_cache.info(f"Found compatible within-subject results: {selected['file_path'].name}")
+
+    return {
+        'source_file': str(selected['file_path']),
+        'timestamp': selected['timestamp'],
+        'eegnet': selected['models_data'].get('eegnet', {}),
+        'cbramod': selected['models_data'].get('cbramod', {}),
+        'mean_accuracy': selected['mean_accuracy'],
+    }
+
+
+def find_compatible_cross_subject_results(
+    output_dir: str,
+    paradigm: str,
+    task: str,
+    subjects: List[str],
+    model_type: str = 'cbramod',
+    exclude_run_tag: Optional[str] = None,
+    selection_strategy: SelectionStrategy = SelectionStrategy.BEST_ACCURACY,
+) -> Optional[Dict]:
+    """
+    搜索兼容的 cross-subject 历史结果.
+
+    条件:
+    - 文件模式: *cross-subject_*_{paradigm}_{task}.json
+    - 被试集合匹配
+    - 排除当前运行 (exclude_run_tag)
+
+    Args:
+        output_dir: 结果目录路径
+        paradigm: 范式 ('imagery' 或 'movement')
+        task: 任务类型 ('binary', 'ternary', 'quaternary')
+        subjects: 需要匹配的被试列表
+        model_type: 要搜索的模型类型 (默认 'cbramod')
+        exclude_run_tag: 要排除的运行 tag (当前运行)
+        selection_strategy: 选择策略 (BEST_ACCURACY 或 NEWEST)
+
+    Returns:
+        包含单个模型结果的字典:
+        {
+            'source_file': str,
+            'timestamp': str,
+            'run_tag': str,
+            'model_type': str,
+            'per_subject_test_acc': {'S01': 0.85, ...},
+            'mean_test_acc': float,
+            'std_test_acc': float,
+            'subjects': [...] (被试列表)
+        }
+        如果找不到兼容结果，返回 None
+    """
+    results_dir = Path(output_dir)
+    if not results_dir.exists():
+        return None
+
+    # 搜索 cross-subject 结果文件
+    # 支持两种格式: *cross-subject_{model}_{paradigm}_{task}.json
+    #               *cross-subject_comparison_cache_{paradigm}_{task}.json
+    patterns = [
+        f'*cross-subject_{model_type}_{paradigm}_{task}.json',
+        f'*cross-subject_comparison_cache_{paradigm}_{task}.json',
+    ]
+
+    all_files = []
+    for pattern in patterns:
+        all_files.extend(results_dir.glob(pattern))
+
+    # 去重
+    all_files = list(set(all_files))
+
+    if not all_files:
+        return None
+
+    subjects_set = set(subjects)
+    compatible_files = []
+
+    for file_path in all_files:
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            metadata = data.get('metadata', {})
+            run_tag = metadata.get('run_tag')
+            timestamp = metadata.get('timestamp')
+
+            # 排除当前运行
+            if exclude_run_tag and run_tag == exclude_run_tag:
+                continue
+
+            if not timestamp:
+                continue
+
+            # 提取 per_subject_test_acc
+            # 支持两种格式: 直接在 results 中或在嵌套结构中
+            per_subject_acc = None
+            if 'results' in data and isinstance(data['results'], dict):
+                # 可能是 comparison cache 格式
+                if 'per_subject_test_acc' in data.get('results', {}):
+                    per_subject_acc = data['results']['per_subject_test_acc']
+                elif model_type in data['results']:
+                    # 模型在 results 字典中
+                    model_data = data['results'][model_type]
+                    if isinstance(model_data, dict):
+                        # 可能是 subjects 字典
+                        per_subject_acc = {
+                            k: v.get('test_acc_majority', v.get('test_acc', 0))
+                            for k, v in model_data.items()
+                            if isinstance(v, dict)
+                        }
+            elif 'per_subject_test_acc' in data:
+                per_subject_acc = data['per_subject_test_acc']
+
+            if not per_subject_acc:
+                continue
+
+            # 检查被试集合是否匹配
+            file_subjects = set(per_subject_acc.keys())
+            if not (subjects_set <= file_subjects):
+                continue
+
+            # 计算平均准确率
+            accs = list(per_subject_acc.values())
+            mean_acc = np.mean(accs) if accs else 0.0
+            std_acc = np.std(accs) if accs else 0.0
+
+            compatible_files.append({
+                'file_path': file_path,
+                'timestamp': timestamp,
+                'run_tag': run_tag,
+                'per_subject_test_acc': per_subject_acc,
+                'mean_test_acc': mean_acc,
+                'std_test_acc': std_acc,
+                'subjects': list(per_subject_acc.keys()),
+            })
+
+        except (json.JSONDecodeError, KeyError, OSError) as e:
+            log_cache.debug(f"Skipping {file_path.name}: {e}")
+            continue
+
+    if not compatible_files:
+        return None
+
+    # 根据策略选择
+    if selection_strategy == SelectionStrategy.NEWEST:
+        compatible_files.sort(key=lambda x: x['timestamp'], reverse=True)
+    else:  # BEST_ACCURACY
+        compatible_files.sort(key=lambda x: x['mean_test_acc'], reverse=True)
+
+    selected = compatible_files[0]
+    log_cache.info(
+        f"Found compatible cross-subject results: {selected['file_path'].name} "
+        f"(mean_acc={selected['mean_test_acc']:.4f})"
+    )
+
+    return {
+        'source_file': str(selected['file_path']),
+        'timestamp': selected['timestamp'],
+        'run_tag': selected['run_tag'],
+        'model_type': model_type,
+        'per_subject_test_acc': selected['per_subject_test_acc'],
+        'mean_test_acc': selected['mean_test_acc'],
+        'std_test_acc': selected['std_test_acc'],
+        'subjects': selected['subjects'],
+    }
+
+
+def save_cross_subject_result(
+    result: Dict,
+    model_type: str,
+    paradigm: str,
+    task: str,
+    output_dir: str,
+    run_tag: Optional[str] = None,
+) -> Path:
+    """
+    保存单模型跨被试训练结果到 JSON 文件.
+
+    Args:
+        result: train_cross_subject() 的返回值
+        model_type: 'eegnet' 或 'cbramod'
+        paradigm: 范式 ('imagery' 或 'movement')
+        task: 任务类型 ('binary', 'ternary', 'quaternary')
+        output_dir: 输出目录
+        run_tag: 运行标签
+
+    Returns:
+        保存的文件路径
+    """
+    from .serialization import generate_result_filename
+
+    output = {
+        'metadata': {
+            'type': 'cross-subject',
+            'model_type': model_type,
+            'paradigm': paradigm,
+            'task': task,
+            'subjects': result.get('subjects', list(result.get('per_subject_test_acc', {}).keys())),
+            'n_subjects': len(result.get('per_subject_test_acc', {})),
+            'run_tag': run_tag,
+            'timestamp': datetime.now().isoformat(),
+        },
+        'results': {
+            'per_subject_test_acc': result.get('per_subject_test_acc', {}),
+            'mean_test_acc': result.get('mean_test_acc', 0),
+            'std_test_acc': result.get('std_test_acc', 0),
+            'best_val_acc': result.get('val_acc', 0),
+            'best_epoch': result.get('best_epoch', 0),
+        },
+        'training_info': {
+            'training_time': result.get('training_time', 0),
+            'model_path': result.get('model_path', ''),
+        },
+    }
+
+    filename = generate_result_filename(
+        model_type, paradigm, task, 'json', run_tag, is_cross_subject=True
+    )
+
+    output_path = Path(output_dir) / filename
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(output_path, 'w', encoding='utf-8') as f:
+        json.dump(output, f, indent=2)
+
+    log_cache.info(f"Cross-subject results saved: {output_path}")
+    return output_path
