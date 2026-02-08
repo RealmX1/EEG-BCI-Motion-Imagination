@@ -32,11 +32,13 @@ class PlotDataSource:
         results: 训练结果列表
         is_current_run: True = 当前运行, False = 历史数据
         label: 图例标签
+        hatch: 填充图案 (None=自动推导, ''=无填充, '///'=斜线, '...'=点状)
     """
     model_type: str           # 'eegnet' 或 'cbramod'
     results: List[TrainingResult]
     is_current_run: bool      # True = 当前运行, False = 历史数据
     label: str                # 图例标签
+    hatch: Optional[str] = None  # 填充图案，None=自动推导
 
 
 @dataclass

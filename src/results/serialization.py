@@ -44,25 +44,46 @@ def generate_result_filename(
     paradigm: str,
     task: str,
     ext: str = 'json',
-    run_tag: Optional[str] = None
+    run_tag: Optional[str] = None,
+    is_cross_subject: bool = False,
 ) -> str:
     """
     生成统一格式的结果文件名: {timestamp}_{prefix}_{paradigm}_{task}.{ext}
 
+    对于 cross-subject 结果，文件名格式为:
+    {timestamp}_cross-subject_{prefix}_{paradigm}_{task}.{ext}
+
     Args:
-        prefix: 文件名前缀 (如 'comparison', 'eegnet', 'finetune_backbone')
+        prefix: 文件名前缀 (如 'comparison', 'combined', 'eegnet', 'cbramod')
         paradigm: 范式 ('imagery' 或 'movement')
         task: 任务类型 ('binary', 'ternary', 'quaternary')
         ext: 文件扩展名 (默认 'json')
         run_tag: 可选的运行标签，如果提供则替代自动生成的时间戳
+        is_cross_subject: 是否为跨被试训练结果 (默认 False)
 
     Returns:
-        格式化的文件名，如 '20260203_151711_comparison_imagery_binary.json'
+        格式化的文件名，如:
+        - '20260203_151711_comparison_imagery_binary.json' (within-subject)
+        - '20260203_151711_cross-subject_eegnet_imagery_binary.json' (cross-subject)
+
+    Examples:
+        >>> generate_result_filename('eegnet', 'imagery', 'binary', run_tag='20260205_1737')
+        '20260205_1737_eegnet_imagery_binary.json'
+
+        >>> generate_result_filename('eegnet', 'imagery', 'binary', run_tag='20260205_1737', is_cross_subject=True)
+        '20260205_1737_cross-subject_eegnet_imagery_binary.json'
+
+        >>> generate_result_filename('combined', 'imagery', 'binary', ext='png', is_cross_subject=True)
+        '20260205_123456_cross-subject_combined_imagery_binary.png'
     """
     if run_tag:
         timestamp = run_tag
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # 添加 cross-subject 前缀
+    if is_cross_subject:
+        prefix = f"cross-subject_{prefix}"
 
     parts = [timestamp, prefix, paradigm, task]
     return "_".join(parts) + f".{ext}"
