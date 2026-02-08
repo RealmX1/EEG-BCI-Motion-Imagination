@@ -1,0 +1,78 @@
+{
+  "metadata": {
+    "paradigm": "imagery",
+    "task": "binary",
+    "run_tag": "20260206_0949",
+    "timestamp": "2026-02-06T10:00:35.142455",
+    "n_subjects": null,
+    "is_complete": false
+  },
+  "wandb_groups": {
+    "eegnet": "eegnet_imagery_binary_20260206_0949"
+  },
+  "last_updated": "2026-02-06T10:00:35.142455",
+  "results": {
+    "eegnet": {
+      "S01": {
+        "subject_id": "S01",
+        "task_type": "binary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.7052599758162031,
+        "test_acc": 0.69375,
+        "test_acc_majority": 0.69375,
+        "epochs_trained": 24,
+        "training_time": 79.55549360000032
+      },
+      "S02": {
+        "subject_id": "S02",
+        "task_type": "binary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.7986090111883882,
+        "test_acc": 0.9125,
+        "test_acc_majority": 0.9125,
+        "epochs_trained": 34,
+        "training_time": 109.68129469999985
+      },
+      "S03": {
+        "subject_id": "S03",
+        "task_type": "binary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.7667876588021778,
+        "test_acc": 0.7875,
+        "test_acc_majority": 0.7875,
+        "epochs_trained": 24,
+        "training_time": 75.49914040000021
+      },
+      "S04": {
+        "subject_id": "S04",
+        "task_type": "binary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.6331102705848123,
+        "test_acc": 0.91875,
+        "test_acc_majority": 0.91875,
+        "epochs_trained": 35,
+        "training_time": 114.92187110000032
+      },
+      "S05": {
+        "subject_id": "S05",
+        "task_type": "binary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.7254672897196262,
+        "test_acc": 0.875,
+        "test_acc_majority": 0.875,
+        "epochs_trained": 32,
+        "training_time": 104.22820279999996
+      },
+      "S06": {
+        "subject_id": "S06",
+        "task_type": "binary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.6858947368421052,
+        "test_acc": 0.70625,
+        "test_acc_majority": 0.70625,
+        "epochs_trained": 22,
+        "training_time": 58.54329719999987
+      }
+    }
+  }
+}

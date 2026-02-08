@@ -1,0 +1,25 @@
+# CBraMod + CAWD: 跨被试强正则参数 (experimental)
+# 对应 get_cross_subject_config('cbramod') 的参数
+model:
+  classifier_type: two_layer
+  dropout_rate: 0.35
+  freeze_backbone: false
+
+training:
+  scheduler: cosine_annealing_warmup_decay
+  epochs: 100
+  patience: 15
+  batch_size: 256
+  backbone_lr: 1.0e-4
+  classifier_lr: 1.5e-4
+  weight_decay: 0.12
+  label_smoothing: 0.15
+  gradient_clip: 0.5
+
+scheduler_config:
+  phase_epochs: 10
+  phase_decay: 0.5
+  lr_ramp_ratio: 0.1
+  eta_min: 1.0e-6
+  exploration_epochs: 6
+  exploration_batch_size: 64

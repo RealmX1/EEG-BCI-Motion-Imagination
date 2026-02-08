@@ -1,0 +1,26 @@
+# EEGNet + CAWD: 旧 CBraMod 训练参数 + lr=5e-4 (experimental)
+# EEGNet 模型参数 + CBraMod baseline 训练超参 (更高学习率)
+model:
+  F1: 8
+  D: 2
+  F2: 16
+  kernel_length: 64
+  dropout_rate: 0.5
+
+training:
+  scheduler: cosine_annealing_warmup_decay
+  epochs: 100
+  patience: 15
+  batch_size: 128
+  learning_rate: 5.0e-4
+  weight_decay: 0.06
+  label_smoothing: 0.05
+  gradient_clip: 1.0
+
+scheduler_config:
+  phase_epochs: 6
+  phase_decay: 0.7
+  lr_ramp_ratio: 0.1
+  eta_min: 1.0e-6
+  exploration_epochs: 6
+  exploration_batch_size: 32

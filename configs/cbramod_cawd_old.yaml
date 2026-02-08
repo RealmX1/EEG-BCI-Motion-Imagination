@@ -1,0 +1,25 @@
+# CBraMod + CAWD: 被试内默认值 (baseline)
+# 对应 get_default_config('cbramod') 的原始参数
+model:
+  classifier_type: two_layer
+  dropout_rate: 0.15
+  freeze_backbone: false
+
+training:
+  scheduler: cosine_annealing_warmup_decay
+  epochs: 100
+  patience: 15
+  batch_size: 128
+  backbone_lr: 1.0e-4
+  classifier_lr: 3.0e-4
+  weight_decay: 0.06
+  label_smoothing: 0.05
+  gradient_clip: 1.0
+
+scheduler_config:
+  phase_epochs: 6
+  phase_decay: 0.7
+  lr_ramp_ratio: 0.1
+  eta_min: 1.0e-6
+  exploration_epochs: 6
+  exploration_batch_size: 32
