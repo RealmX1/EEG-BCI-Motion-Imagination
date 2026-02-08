@@ -24,15 +24,16 @@ uv pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/
 # 验证安装
 uv run python scripts/verify_installation.py
 
-# 全被试模型对比 (推荐)
-uv run python scripts/run_full_comparison.py                          # 训练所有被试
-uv run python scripts/run_full_comparison.py --new-run                # 新实验 (保留旧结果)
-uv run python scripts/run_full_comparison.py --skip-training          # 仅查看结果
-uv run python scripts/run_full_comparison.py --paradigm movement      # Motor Execution 范式
+# 被试内模型对比 (推荐)
+uv run python scripts/run_within_subject_comparison.py                # 新运行 (默认)
+uv run python scripts/run_within_subject_comparison.py --resume       # 恢复最近运行
+uv run python scripts/run_within_subject_comparison.py --resume 20260205  # 恢复特定运行
+uv run python scripts/run_within_subject_comparison.py --skip-training    # 仅查看结果
+uv run python scripts/run_within_subject_comparison.py --paradigm movement  # Motor Execution
 
-# 单模型训练
+# 单模型训练 (WandB 默认启用)
 uv run python scripts/run_single_model.py --subject S01 --model eegnet --task binary
-uv run python scripts/run_single_model.py --subject S01 --model cbramod --wandb
+uv run python scripts/run_single_model.py --subject S01 --model cbramod --no-wandb  # 禁用 WandB
 
 # 数据预处理 (ZIP -> 缓存)
 uv run python scripts/preprocess_zip.py                               # Motor Imagery
@@ -42,9 +43,12 @@ uv run python scripts/preprocess_zip.py --paradigm movement           # Motor Ex
 uv run python scripts/cache_helper.py --stats
 uv run python scripts/cache_helper.py --model cbramod --execute
 
-# 跨被试训练与迁移学习
-uv run python scripts/run_cross_subject.py --model eegnet                # 跨被试预训练
+# 跨被试训练与模型对比
+uv run python scripts/run_cross_subject.py --model eegnet                # 单模型跨被试预训练
 uv run python scripts/run_cross_subject.py --model cbramod --subjects S01 S02 S03 S04 S05
+uv run python scripts/run_cross_subject_comparison.py                    # 双模型对比 (EEGNet + CBraMod)
+uv run python scripts/run_cross_subject_comparison.py --paradigm movement  # Motor Execution
+uv run python scripts/run_cross_subject_comparison.py --no-within-subject-historical  # 无历史对比
 
 # 个体微调
 uv run python scripts/run_finetune.py \
@@ -98,9 +102,10 @@ uv run python scripts/run_transfer_comparison.py --task binary --models eegnet  
 ```
 scripts/
 ├── experiments/                # 训练实验脚本
-│   ├── run_full_comparison.py  # 全被试模型对比
-│   ├── run_single_model.py     # 单模型训练
-│   ├── run_cross_subject.py    # 跨被试预训练
+│   ├── run_within_subject_comparison.py  # 被试内模型对比
+│   ├── run_cross_subject_comparison.py   # 跨被试模型对比 (NEW)
+│   ├── run_single_model.py     # 单模型训练 (被试内)
+│   ├── run_cross_subject.py    # 单模型跨被试预训练
 │   ├── run_finetune.py         # 个体微调
 │   └── run_transfer_comparison.py
 ├── preprocessing/              # 数据预处理脚本

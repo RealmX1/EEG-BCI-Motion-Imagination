@@ -1,5 +1,78 @@
 # 开发变更记录
 
+## 2026-02-05
+
+### WandB 集成默认启用
+
+**设计改进**: 将 WandB 集成从 opt-in（需要 `--wandb` 启用）改为 opt-out（默认启用，需要 `--no-wandb` 禁用）
+
+**修改文件**:
+- `scripts/experiments/run_cross_subject.py`: 将 `--wandb` 改为 `--no-wandb`
+- `CLAUDE.md`: 更新示例命令
+
+**理由**:
+- 与 `run_single_model.py` 和 `run_full_comparison.py` 保持一致
+- 默认启用实验追踪是现代 ML 最佳实践
+- 减少遗漏实验记录的风险
+
+**使用示例**:
+```bash
+# 默认启用 WandB (无需额外参数)
+uv run python scripts/run_cross_subject.py --model cbramod --subjects S01 S02
+
+# 禁用 WandB
+uv run python scripts/run_cross_subject.py --model cbramod --subjects S01 S02 --no-wandb
+```
+
+---
+
+### 跨被试训练模块功能对等更新
+
+将跨被试训练模块更新至与被试内训练功能对等的状态，并抽象共享代码以减少重复。
+
+**新增文件**:
+- `src/training/common.py`: 共享训练工具模块（5 个辅助函数）
+
+**修改文件**:
+- `src/training/train_cross_subject.py`: 新增 9 项功能，全面重写
+- `src/training/train_within_subject.py`: 使用共享函数替换重复代码
+- `scripts/experiments/run_cross_subject.py`: 新增 9 个 CLI 参数
+- `src/training/__init__.py`: 导出共享工具函数
+
+**新增功能** (跨被试训练):
+1. 双阶段 batch size 策略 (探索阶段 + 主阶段)
+2. WandB 完整集成 (项目、实体、分组、模型上传)
+3. Scheduler presets 支持
+4. torch.compile 支持 (智能跳过不兼容平台)
+5. Verbose 日志级别控制 (0=静默, 1=最小, 2=完整)
+6. Cache-only 模式
+7. cuDNN benchmark + TF32 优化
+8. config_overrides 参数
+9. scheduler_config 传递到 trainer
+
+**共享工具函数** (`common.py`):
+- `setup_performance_optimizations()`: cuDNN + TF32 配置
+- `maybe_compile_model()`: torch.compile 智能应用
+- `get_scheduler_config_from_preset()`: 调度器配置提取
+- `create_two_phase_loaders()`: 双阶段 DataLoader 创建
+- `apply_config_overrides()`: 标准化配置覆盖逻辑
+
+**运行命令**:
+```bash
+# 基本用法 (向后兼容)
+uv run python scripts/run_cross_subject.py --model eegnet --subjects S01 S02 S03
+
+# WandB 日志 + 自定义调度器
+uv run python scripts/run_cross_subject.py --model cbramod --subjects S01 S02 S03 \
+    --wandb --scheduler wsd --upload-model
+
+# 精简输出
+uv run python scripts/run_cross_subject.py --model eegnet --subjects S01 S02 \
+    --verbose 1 --cache-only
+```
+
+**详细文档**: `docs/dev_log/2026-02-05_cross_subject_update.md`
+
 ## 2026-01-25
 
 ### CBraMod 预处理 ML Engineering 实验框架
