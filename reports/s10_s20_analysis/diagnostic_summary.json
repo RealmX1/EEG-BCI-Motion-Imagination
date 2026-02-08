@@ -1,0 +1,624 @@
+{
+  "generated_at": "2026-02-04T19:24:06.602295",
+  "target_subjects": [
+    "S10",
+    "S20"
+  ],
+  "control_subjects": [
+    "S09",
+    "S19",
+    "S03",
+    "S05"
+  ],
+  "diagnostics": {
+    "S03_eegnet_binary": {
+      "subject_id": "S03",
+      "model_type": "eegnet",
+      "task": "binary",
+      "primary_issue": "none",
+      "secondary_issues": [],
+      "data_quality_score": 1.0,
+      "generalization_gap": 0.08582419714579359,
+      "recommendations": [
+        "性能正常，无需特殊处理"
+      ]
+    },
+    "S05_eegnet_binary": {
+      "subject_id": "S05",
+      "model_type": "eegnet",
+      "task": "binary",
+      "primary_issue": "none",
+      "secondary_issues": [],
+      "data_quality_score": 1.0,
+      "generalization_gap": 0.07448554591885759,
+      "recommendations": [
+        "性能正常，无需特殊处理"
+      ]
+    },
+    "S03_cbramod_binary": {
+      "subject_id": "S03",
+      "model_type": "cbramod",
+      "task": "binary",
+      "primary_issue": "none",
+      "secondary_issues": [],
+      "data_quality_score": 1.0,
+      "generalization_gap": 0.07328895812299441,
+      "recommendations": [
+        "性能正常，无需特殊处理"
+      ]
+    },
+    "S05_cbramod_binary": {
+      "subject_id": "S05",
+      "model_type": "cbramod",
+      "task": "binary",
+      "primary_issue": "none",
+      "secondary_issues": [],
+      "data_quality_score": 1.0,
+      "generalization_gap": 0.12091117214644054,
+      "recommendations": [
+        "性能正常，无需特殊处理"
+      ]
+    },
+    "S03_eegnet_ternary": {
+      "subject_id": "S03",
+      "model_type": "eegnet",
+      "task": "ternary",
+      "primary_issue": "none",
+      "secondary_issues": [],
+      "data_quality_score": 1.0,
+      "generalization_gap": 0.054746076948501754,
+      "recommendations": [
+        "性能正常，无需特殊处理"
+      ]
+    },
+    "S05_eegnet_ternary": {
+      "subject_id": "S05",
+      "model_type": "eegnet",
+      "task": "ternary",
+      "primary_issue": "none",
+      "secondary_issues": [],
+      "data_quality_score": 1.0,
+      "generalization_gap": 0.06380405177921344,
+      "recommendations": [
+        "性能正常，无需特殊处理"
+      ]
+    },
+    "S03_cbramod_ternary": {
+      "subject_id": "S03",
+      "model_type": "cbramod",
+      "task": "ternary",
+      "primary_issue": "overfitting: gap=0.16",
+      "secondary_issues": [],
+      "data_quality_score": 1.0,
+      "generalization_gap": 0.1601028902779461,
+      "recommendations": [
+        "增加正则化 (dropout, weight_decay)",
+        "减少训练 epochs 或使用更严格的 early stopping"
+      ]
+    },
+    "S05_cbramod_ternary": {
+      "subject_id": "S05",
+      "model_type": "cbramod",
+      "task": "ternary",
+      "primary_issue": "overfitting: gap=0.20",
+      "secondary_issues": [],
+      "data_quality_score": 1.0,
+      "generalization_gap": 0.2046040039290447,
+      "recommendations": [
+        "增加正则化 (dropout, weight_decay)",
+        "减少训练 epochs 或使用更严格的 early stopping"
+      ]
+    },
+    "S19_eegnet_binary": {
+      "subject_id": "S19",
+      "model_type": "eegnet",
+      "task": "binary",
+      "primary_issue": "none",
+      "secondary_issues": [],
+      "data_quality_score": 1.0,
+      "generalization_gap": 0.0116713283664992,
+      "recommendations": [
+        "性能正常，无需特殊处理"
+      ]
+    },
+    "S20_eegnet_binary": {
+      "subject_id": "S20",
+      "model_type": "eegnet",
+      "task": "binary",
+      "primary_issue": "low_performance: acc=60.62%",
+      "secondary_issues": [],
+      "data_quality_score": 1.0,
+      "generalization_gap": 0.06747541723680306,
+      "recommendations": [
+        "考虑使用迁移学习",
+        "检查该被试的数据质量"
+      ]
+    },
+    "S09_cbramod_binary": {
+      "subject_id": "S09",
+      "model_type": "cbramod",
+      "task": "binary",
+      "primary_issue": "none",
+      "secondary_issues": [],
+      "data_quality_score": 1.0,
+      "generalization_gap": 0.057483465103759346,
+      "recommendations": [
+        "性能正常，无需特殊处理"
+      ]
+    },
+    "S10_cbramod_binary": {
+      "subject_id": "S10",
+      "model_type": "cbramod",
+      "task": "binary",
+      "primary_issue": "data_quality: severe_distribution_shift",
+      "secondary_issues": [
+        "low_performance: acc=55.00%",
+        "overfitting: gap=0.16",
+        "instability: volatility=1.09"
+      ],
+      "data_quality_score": 0.1,
+      "generalization_gap": 0.15873330194607715,
+      "recommendations": [
+        "检查训练集和验证集的数据分布差异",
+        "考虑对该被试使用不同的预处理参数",
+        "增加正则化 (dropout, weight_decay)",
+        "减少训练 epochs 或使用更严格的 early stopping",
+        "降低学习率",
+        "使用更平滑的学习率调度器"
+      ]
+    },
+    "S19_cbramod_binary": {
+      "subject_id": "S19",
+      "model_type": "cbramod",
+      "task": "binary",
+      "primary_issue": "none",
+      "secondary_issues": [],
+      "data_quality_score": 1.0,
+      "generalization_gap": 0.028325584509188984,
+      "recommendations": [
+        "性能正常，无需特殊处理"
+      ]
+    },
+    "S20_cbramod_binary": {
+      "subject_id": "S20",
+      "model_type": "cbramod",
+      "task": "binary",
+      "primary_issue": "low_performance: acc=68.12%",
+      "secondary_issues": [],
+      "data_quality_score": 1.0,
+      "generalization_gap": 0.13416723604146497,
+      "recommendations": [
+        "考虑使用迁移学习",
+        "检查该被试的数据质量"
+      ]
+    },
+    "S09_eegnet_ternary": {
+      "subject_id": "S09",
+      "model_type": "eegnet",
+      "task": "ternary",
+      "primary_issue": "none",
+      "secondary_issues": [],
+      "data_quality_score": 1.0,
+      "generalization_gap": 0.04195492755138486,
+      "recommendations": [
+        "性能正常，无需特殊处理"
+      ]
+    },
+    "S10_eegnet_ternary": {
+      "subject_id": "S10",
+      "model_type": "eegnet",
+      "task": "ternary",
+      "primary_issue": "data_quality: none",
+      "secondary_issues": [
+        "overfitting: gap=0.18"
+      ],
+      "data_quality_score": 0.7,
+      "generalization_gap": 0.1778041785351841,
+      "recommendations": [
+        "增加正则化 (dropout, weight_decay)",
+        "减少训练 epochs 或使用更严格的 early stopping"
+      ]
+    },
+    "S19_eegnet_ternary": {
+      "subject_id": "S19",
+      "model_type": "eegnet",
+      "task": "ternary",
+      "primary_issue": "none",
+      "secondary_issues": [],
+      "data_quality_score": 1.0,
+      "generalization_gap": 0.009264464844471743,
+      "recommendations": [
+        "性能正常，无需特殊处理"
+      ]
+    },
+    "S20_eegnet_ternary": {
+      "subject_id": "S20",
+      "model_type": "eegnet",
+      "task": "ternary",
+      "primary_issue": "low_performance: acc=32.92%",
+      "secondary_issues": [],
+      "data_quality_score": 1.0,
+      "generalization_gap": 0.05114238982894853,
+      "recommendations": [
+        "考虑使用迁移学习",
+        "检查该被试的数据质量"
+      ]
+    },
+    "S09_cbramod_ternary": {
+      "subject_id": "S09",
+      "model_type": "cbramod",
+      "task": "ternary",
+      "primary_issue": "none",
+      "secondary_issues": [],
+      "data_quality_score": 1.0,
+      "generalization_gap": 0.04985625759840573,
+      "recommendations": [
+        "性能正常，无需特殊处理"
+      ]
+    },
+    "S10_cbramod_ternary": {
+      "subject_id": "S10",
+      "model_type": "cbramod",
+      "task": "ternary",
+      "primary_issue": "data_quality: distribution_shift",
+      "secondary_issues": [
+        "low_performance: acc=42.08%",
+        "overfitting: gap=0.17",
+        "instability: volatility=1.55"
+      ],
+      "data_quality_score": 0.1,
+      "generalization_gap": 0.1701859957380289,
+      "recommendations": [
+        "增加正则化 (dropout, weight_decay)",
+        "减少训练 epochs 或使用更严格的 early stopping",
+        "降低学习率",
+        "使用更平滑的学习率调度器"
+      ]
+    },
+    "S19_cbramod_ternary": {
+      "subject_id": "S19",
+      "model_type": "cbramod",
+      "task": "ternary",
+      "primary_issue": "none",
+      "secondary_issues": [],
+      "data_quality_score": 1.0,
+      "generalization_gap": 0.10153582535551409,
+      "recommendations": [
+        "性能正常，无需特殊处理"
+      ]
+    },
+    "S20_cbramod_ternary": {
+      "subject_id": "S20",
+      "model_type": "cbramod",
+      "task": "ternary",
+      "primary_issue": "low_performance: acc=42.08%",
+      "secondary_issues": [
+        "overfitting: gap=0.16"
+      ],
+      "data_quality_score": 1.0,
+      "generalization_gap": 0.16430434508020714,
+      "recommendations": [
+        "增加正则化 (dropout, weight_decay)",
+        "减少训练 epochs 或使用更严格的 early stopping"
+      ]
+    }
+  },
+  "comparisons": {
+    "S10_ternary": {
+      "subject_id": "S10",
+      "task": "ternary",
+      "eegnet_test_acc": 0.5916666666666667,
+      "cbramod_test_acc": 0.42083333333333334,
+      "accuracy_diff": -0.17083333333333334,
+      "better_model": "eegnet",
+      "diagnosis": "CBraMod 在 S10 上存在特有问题。EEGNet (59.2%) 显著优于 CBraMod (42.1%)，说明该被试数据本身是可学习的。",
+      "recommendations": [
+        "检查 CBraMod 的预处理配置是否适合该被试",
+        "尝试增加正则化 (dropout, weight_decay)",
+        "考虑冻结 backbone，只微调分类器",
+        "检查该被试的 EEG 信号频带特征是否与 CBraMod 预训练数据不匹配"
+      ]
+    },
+    "S20_binary": {
+      "subject_id": "S20",
+      "task": "binary",
+      "eegnet_test_acc": 0.60625,
+      "cbramod_test_acc": 0.68125,
+      "accuracy_diff": 0.07500000000000007,
+      "better_model": "cbramod",
+      "diagnosis": "S20 对两个模型都具有挑战性。CBraMod (68.1%) 略优于 EEGNet (60.6%)，但两者均低于正常水平。",
+      "recommendations": [
+        "该被试可能存在数据质量问题或信号特征独特",
+        "尝试数据增强策略",
+        "考虑使用跨被试预训练进行迁移学习",
+        "检查原始 EEG 数据的信噪比"
+      ]
+    },
+    "S20_ternary": {
+      "subject_id": "S20",
+      "task": "ternary",
+      "eegnet_test_acc": 0.32916666666666666,
+      "cbramod_test_acc": 0.42083333333333334,
+      "accuracy_diff": 0.09166666666666667,
+      "better_model": "cbramod",
+      "diagnosis": "S20 对两个模型都具有挑战性。CBraMod (42.1%) 略优于 EEGNet (32.9%)，但两者均低于正常水平。",
+      "recommendations": [
+        "该被试可能存在数据质量问题或信号特征独特",
+        "尝试数据增强策略",
+        "考虑使用跨被试预训练进行迁移学习",
+        "检查原始 EEG 数据的信噪比"
+      ]
+    },
+    "S09_ternary": {
+      "subject_id": "S09",
+      "task": "ternary",
+      "eegnet_test_acc": 0.8541666666666666,
+      "cbramod_test_acc": 0.8458333333333333,
+      "accuracy_diff": -0.008333333333333304,
+      "better_model": "similar",
+      "diagnosis": "S09 上两个模型表现相近。EEGNet: 85.4%, CBraMod: 84.6%。",
+      "recommendations": [
+        "性能正常，无需特殊处理"
+      ]
+    },
+    "S19_binary": {
+      "subject_id": "S19",
+      "task": "binary",
+      "eegnet_test_acc": 0.94375,
+      "cbramod_test_acc": 0.9875,
+      "accuracy_diff": 0.04375000000000007,
+      "better_model": "similar",
+      "diagnosis": "S19 上两个模型表现相近。EEGNet: 94.4%, CBraMod: 98.8%。",
+      "recommendations": [
+        "性能正常，无需特殊处理"
+      ]
+    },
+    "S19_ternary": {
+      "subject_id": "S19",
+      "task": "ternary",
+      "eegnet_test_acc": 0.725,
+      "cbramod_test_acc": 0.9125,
+      "accuracy_diff": 0.1875,
+      "better_model": "cbramod",
+      "diagnosis": "CBraMod 在 S19 上表现更好。CBraMod (91.2%) 优于 EEGNet (72.5%)。",
+      "recommendations": [
+        "继续使用 CBraMod",
+        "可考虑进一步微调以提升性能"
+      ]
+    },
+    "S03_binary": {
+      "subject_id": "S03",
+      "task": "binary",
+      "eegnet_test_acc": 0.83125,
+      "cbramod_test_acc": 0.98125,
+      "accuracy_diff": 0.1499999999999999,
+      "better_model": "cbramod",
+      "diagnosis": "CBraMod 在 S03 上表现更好。CBraMod (98.1%) 优于 EEGNet (83.1%)。",
+      "recommendations": [
+        "继续使用 CBraMod",
+        "可考虑进一步微调以提升性能"
+      ]
+    },
+    "S03_ternary": {
+      "subject_id": "S03",
+      "task": "ternary",
+      "eegnet_test_acc": 0.725,
+      "cbramod_test_acc": 0.8291666666666667,
+      "accuracy_diff": 0.10416666666666674,
+      "better_model": "cbramod",
+      "diagnosis": "CBraMod 在 S03 上表现更好。CBraMod (82.9%) 优于 EEGNet (72.5%)。",
+      "recommendations": [
+        "继续使用 CBraMod",
+        "可考虑进一步微调以提升性能"
+      ]
+    },
+    "S05_binary": {
+      "subject_id": "S05",
+      "task": "binary",
+      "eegnet_test_acc": 0.88125,
+      "cbramod_test_acc": 0.84375,
+      "accuracy_diff": -0.03749999999999998,
+      "better_model": "similar",
+      "diagnosis": "S05 上两个模型表现相近。EEGNet: 88.1%, CBraMod: 84.4%。",
+      "recommendations": [
+        "性能正常，无需特殊处理"
+      ]
+    },
+    "S05_ternary": {
+      "subject_id": "S05",
+      "task": "ternary",
+      "eegnet_test_acc": 0.5541666666666667,
+      "cbramod_test_acc": 0.5416666666666666,
+      "accuracy_diff": -0.012500000000000067,
+      "better_model": "similar",
+      "diagnosis": "S05 上两个模型表现相近。EEGNet: 55.4%, CBraMod: 54.2%。",
+      "recommendations": [
+        "两个模型都未能很好地学习该被试的特征",
+        "建议进行数据质量检查",
+        "考虑被试特定的超参数调优"
+      ]
+    }
+  },
+  "summaries": {
+    "S10_binary": {
+      "subject_id": "S10",
+      "task": "binary",
+      "eegnet_accuracy": 0,
+      "cbramod_accuracy": 0.55,
+      "accuracy_gap": 0.55,
+      "problem_type": "both_low",
+      "overall_recommendations": [
+        "【S10 两模型均表现不佳】",
+        "EEGNet: 0.0%, CBraMod: 55.0%",
+        "该被试对两个模型都具有挑战性",
+        "",
+        "建议:",
+        "1. 检查原始 EEG 数据质量 (信噪比、伪迹)",
+        "2. 该被试可能需要特殊的预处理参数",
+        "3. 尝试数据增强策略",
+        "4. 考虑使用跨被试预训练进行迁移学习",
+        "5. 检查该被试的运动想象能力是否与其他被试不同"
+      ]
+    },
+    "S10_ternary": {
+      "subject_id": "S10",
+      "task": "ternary",
+      "eegnet_accuracy": 0.5916666666666667,
+      "cbramod_accuracy": 0.42083333333333334,
+      "accuracy_gap": -0.17083333333333334,
+      "problem_type": "normal",
+      "overall_recommendations": [
+        "【S10 性能正常】",
+        "EEGNet: 59.2%, CBraMod: 42.1%",
+        "无需特殊处理"
+      ]
+    },
+    "S20_binary": {
+      "subject_id": "S20",
+      "task": "binary",
+      "eegnet_accuracy": 0.60625,
+      "cbramod_accuracy": 0.68125,
+      "accuracy_gap": 0.07500000000000007,
+      "problem_type": "both_low",
+      "overall_recommendations": [
+        "【S20 两模型均表现不佳】",
+        "EEGNet: 60.6%, CBraMod: 68.1%",
+        "该被试对两个模型都具有挑战性",
+        "",
+        "建议:",
+        "1. 检查原始 EEG 数据质量 (信噪比、伪迹)",
+        "2. 该被试可能需要特殊的预处理参数",
+        "3. 尝试数据增强策略",
+        "4. 考虑使用跨被试预训练进行迁移学习",
+        "5. 检查该被试的运动想象能力是否与其他被试不同"
+      ]
+    },
+    "S20_ternary": {
+      "subject_id": "S20",
+      "task": "ternary",
+      "eegnet_accuracy": 0.32916666666666666,
+      "cbramod_accuracy": 0.42083333333333334,
+      "accuracy_gap": 0.09166666666666667,
+      "problem_type": "both_low",
+      "overall_recommendations": [
+        "【S20 两模型均表现不佳】",
+        "EEGNet: 32.9%, CBraMod: 42.1%",
+        "该被试对两个模型都具有挑战性",
+        "",
+        "建议:",
+        "1. 检查原始 EEG 数据质量 (信噪比、伪迹)",
+        "2. 该被试可能需要特殊的预处理参数",
+        "3. 尝试数据增强策略",
+        "4. 考虑使用跨被试预训练进行迁移学习",
+        "5. 检查该被试的运动想象能力是否与其他被试不同"
+      ]
+    },
+    "S09_binary": {
+      "subject_id": "S09",
+      "task": "binary",
+      "eegnet_accuracy": 0,
+      "cbramod_accuracy": 0.99375,
+      "accuracy_gap": 0.99375,
+      "problem_type": "eegnet_specific",
+      "overall_recommendations": [
+        "【S09 EEGNet 特有问题】",
+        "CBraMod (99.4%) 优于 EEGNet (0.0%)",
+        "",
+        "建议:",
+        "1. 该被试更适合使用 CBraMod",
+        "2. EEGNet 可能需要超参数调优"
+      ]
+    },
+    "S09_ternary": {
+      "subject_id": "S09",
+      "task": "ternary",
+      "eegnet_accuracy": 0.8541666666666666,
+      "cbramod_accuracy": 0.8458333333333333,
+      "accuracy_gap": -0.008333333333333304,
+      "problem_type": "normal",
+      "overall_recommendations": [
+        "【S09 性能正常】",
+        "EEGNet: 85.4%, CBraMod: 84.6%",
+        "无需特殊处理"
+      ]
+    },
+    "S19_binary": {
+      "subject_id": "S19",
+      "task": "binary",
+      "eegnet_accuracy": 0.94375,
+      "cbramod_accuracy": 0.9875,
+      "accuracy_gap": 0.04375000000000007,
+      "problem_type": "normal",
+      "overall_recommendations": [
+        "【S19 性能正常】",
+        "EEGNet: 94.4%, CBraMod: 98.8%",
+        "无需特殊处理"
+      ]
+    },
+    "S19_ternary": {
+      "subject_id": "S19",
+      "task": "ternary",
+      "eegnet_accuracy": 0.725,
+      "cbramod_accuracy": 0.9125,
+      "accuracy_gap": 0.1875,
+      "problem_type": "normal",
+      "overall_recommendations": [
+        "【S19 性能正常】",
+        "EEGNet: 72.5%, CBraMod: 91.2%",
+        "无需特殊处理"
+      ]
+    },
+    "S03_binary": {
+      "subject_id": "S03",
+      "task": "binary",
+      "eegnet_accuracy": 0.83125,
+      "cbramod_accuracy": 0.98125,
+      "accuracy_gap": 0.1499999999999999,
+      "problem_type": "normal",
+      "overall_recommendations": [
+        "【S03 性能正常】",
+        "EEGNet: 83.1%, CBraMod: 98.1%",
+        "无需特殊处理"
+      ]
+    },
+    "S03_ternary": {
+      "subject_id": "S03",
+      "task": "ternary",
+      "eegnet_accuracy": 0.725,
+      "cbramod_accuracy": 0.8291666666666667,
+      "accuracy_gap": 0.10416666666666674,
+      "problem_type": "normal",
+      "overall_recommendations": [
+        "【S03 性能正常】",
+        "EEGNet: 72.5%, CBraMod: 82.9%",
+        "无需特殊处理"
+      ]
+    },
+    "S05_binary": {
+      "subject_id": "S05",
+      "task": "binary",
+      "eegnet_accuracy": 0.88125,
+      "cbramod_accuracy": 0.84375,
+      "accuracy_gap": -0.03749999999999998,
+      "problem_type": "normal",
+      "overall_recommendations": [
+        "【S05 性能正常】",
+        "EEGNet: 88.1%, CBraMod: 84.4%",
+        "无需特殊处理"
+      ]
+    },
+    "S05_ternary": {
+      "subject_id": "S05",
+      "task": "ternary",
+      "eegnet_accuracy": 0.5541666666666667,
+      "cbramod_accuracy": 0.5416666666666666,
+      "accuracy_gap": -0.012500000000000067,
+      "problem_type": "normal",
+      "overall_recommendations": [
+        "【S05 性能正常】",
+        "EEGNet: 55.4%, CBraMod: 54.2%",
+        "无需特殊处理"
+      ]
+    }
+  }
+}

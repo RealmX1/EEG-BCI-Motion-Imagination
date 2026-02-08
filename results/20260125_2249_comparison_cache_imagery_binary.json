@@ -76,5 +76,10 @@
         "training_time": 215.43800680000277
       }
     }
+  },
+  "metadata": {
+    "is_complete": true,
+    "timestamp": "2026-01-25T22:49:00",
+    "n_subjects": 7
   }
 }
