@@ -44,8 +44,12 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.utils.device import set_seed, check_cuda_available, get_device
 from src.utils.logging import setup_logging
-from src.preprocessing.data_loader import discover_available_subjects
 from src.training.finetune import finetune_subject, finetune_all_subjects
+
+SCRIPTS_DIR = Path(__file__).parent.parent
+sys.path.insert(0, str(SCRIPTS_DIR))
+
+from _training_utils import add_wandb_args, discover_subjects
 
 
 setup_logging('finetune')
@@ -157,6 +161,18 @@ Examples:
         help='Path to save results JSON (default: results/finetune_results.json)'
     )
 
+    # Cache index arguments
+    parser.add_argument(
+        '--cache-only', action='store_true',
+        help='Load data exclusively from cache index (no filesystem scan)'
+    )
+    parser.add_argument(
+        '--cache-index-path', type=str, default='.cache_index.json',
+        help='Path to cache index file (default: .cache_index.json)'
+    )
+
+    add_wandb_args(parser)
+
     args = parser.parse_args()
 
     # Validate pretrained path
@@ -179,8 +195,10 @@ Examples:
     elif args.subjects:
         subjects = args.subjects
     else:  # --all-subjects
-        subjects = discover_available_subjects(
-            args.data_root, args.paradigm, args.task
+        subjects = discover_subjects(
+            args.data_root, args.paradigm, args.task,
+            cache_only=args.cache_only,
+            cache_index_path=args.cache_index_path,
         )
         if not subjects:
             logger.error(f"No subjects found in {args.data_root}")
@@ -203,6 +221,12 @@ Examples:
         'task': args.task,
         'device': device,
         'seed': args.seed,
+        'cache_only': args.cache_only,
+        'cache_index_path': args.cache_index_path,
+        'no_wandb': args.no_wandb,
+        'upload_model': args.upload_model,
+        'wandb_project': args.wandb_project,
+        'wandb_entity': args.wandb_entity,
     }
 
     # Run finetuning

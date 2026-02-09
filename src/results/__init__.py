@@ -18,7 +18,9 @@ from .serialization import (
     result_to_dict,
     dict_to_result,
     generate_result_filename,
+    cross_subject_result_to_training_results,
 )
+from ..config.constants import CacheType
 from .cache import (
     load_cache,
     save_cache,
@@ -28,6 +30,7 @@ from .cache import (
     find_compatible_historical_results,
     build_data_sources_from_historical,
     build_cross_subject_data_sources,
+    build_transfer_data_sources,
     prepare_combined_plot_data,
     SelectionStrategy,
     # Full comparison results IO
@@ -40,6 +43,7 @@ from .cache import (
     find_compatible_within_subject_results,
     find_compatible_cross_subject_results,
     save_cross_subject_result,
+    find_best_within_subject_for_model,
 )
 from .statistics import (
     compute_model_statistics,
@@ -49,6 +53,8 @@ from .statistics import (
 )
 
 __all__ = [
+    # Constants
+    'CacheType',
     # Data classes
     'TrainingResult',
     'PlotDataSource',
@@ -57,6 +63,7 @@ __all__ = [
     'result_to_dict',
     'dict_to_result',
     'generate_result_filename',
+    'cross_subject_result_to_training_results',
     # Cache
     'load_cache',
     'save_cache',
@@ -66,6 +73,7 @@ __all__ = [
     'find_compatible_historical_results',
     'build_data_sources_from_historical',
     'build_cross_subject_data_sources',
+    'build_transfer_data_sources',
     'prepare_combined_plot_data',
     'SelectionStrategy',
     # Full comparison results IO
@@ -78,6 +86,7 @@ __all__ = [
     'find_compatible_within_subject_results',
     'find_compatible_cross_subject_results',
     'save_cross_subject_result',
+    'find_best_within_subject_for_model',
     # Statistics
     'compute_model_statistics',
     'print_model_summary',

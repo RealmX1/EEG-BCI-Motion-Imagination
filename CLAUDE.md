@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 本项目是一个基于脑电图（EEG）的脑机接口（BCI）研究项目，对比验证 EEG 基座模型（CBraMod）与传统 CNN（EEGNet）在单指级别运动解码任务中的性能。
 
-**当前状态**: Phase 3 - 全被试训练进行中。框架已完成，**所有 21 个被试数据 (S01-S21) 已合并完成**。详见 `docs/dev_log/changelog.md`。
+**当前状态**: Phase 4 - 代码重构 + 迁移学习。跨被试预训练→个体微调管线已完成，WandB 参数标准化，结果缓存双类型 (`WITHIN_SUBJECT` / `TRANSFER`)。**所有 21 个被试数据 (S01-S21) 已合并完成**。详见 `docs/dev_log/changelog.md`。
 
 **缓存状态**: 3640 条预处理缓存（31.4 GB），覆盖所有 21 个被试。合并报告: `caches/MERGE_COMPLETE_REPORT.txt`
 
@@ -50,17 +50,22 @@ uv run python scripts/run_cross_subject_comparison.py                    # 双�
 uv run python scripts/run_cross_subject_comparison.py --paradigm movement  # Motor Execution
 uv run python scripts/run_cross_subject_comparison.py --no-within-subject-historical  # 无历史对比
 
-# 个体微调
+# 迁移学习对比 (自动查找最优跨被试预训练模型 → 逐被试微调 → 对比)
+uv run python scripts/run_transfer_comparison.py                           # 默认: backbone 冻结
+uv run python scripts/run_transfer_comparison.py --freeze-strategy partial # 部分冻结
+uv run python scripts/run_transfer_comparison.py --resume                  # 恢复运行
+uv run python scripts/run_transfer_comparison.py --paradigm movement       # Motor Execution
+uv run python scripts/run_transfer_comparison.py \
+    --pretrained-eegnet checkpoints/cross_subject/.../best.pt \
+    --pretrained-cbramod checkpoints/cross_subject/.../best.pt             # 手动指定检查点
+
+# 个体微调 (单模型)
 uv run python scripts/run_finetune.py \
     --pretrained checkpoints/cross_subject/eegnet_imagery_binary/best.pt \
     --subject S01
 uv run python scripts/run_finetune.py \
     --pretrained checkpoints/cross_subject/cbramod_imagery_binary/best.pt \
     --all-subjects --freeze-strategy backbone
-
-# 迁移学习完整对比实验
-uv run python scripts/run_transfer_comparison.py --task binary           # 完整对比
-uv run python scripts/run_transfer_comparison.py --task binary --models eegnet  # 仅 EEGNet
 ```
 
 ## 数据划分协议
@@ -89,6 +94,7 @@ uv run python scripts/run_transfer_comparison.py --task binary --models eegnet  
 | `src/preprocessing/cache_manager.py` | HDF5 预处理缓存 (v3.0) |
 | `src/models/eegnet.py` | EEGNet-8,2 实现 |
 | `src/models/cbramod_adapter.py` | CBraMod 适配器 (支持 19/128 通道) |
+| `src/training/common.py` | 共享训练工具 (时序分割、配置覆盖、性能优化) |
 | `src/training/train_within_subject.py` | 被试内训练模块 (API) |
 | `src/training/train_cross_subject.py` | 跨被试预训练模块 |
 | `src/training/finetune.py` | 个体微调模块 (支持冻结策略) |
@@ -103,11 +109,11 @@ uv run python scripts/run_transfer_comparison.py --task binary --models eegnet  
 scripts/
 ├── experiments/                # 训练实验脚本
 │   ├── run_within_subject_comparison.py  # 被试内模型对比
-│   ├── run_cross_subject_comparison.py   # 跨被试模型对比 (NEW)
+│   ├── run_cross_subject_comparison.py   # 跨被试模型对比
+│   ├── run_transfer_comparison.py       # 迁移学习对比 (跨被试→微调→对比)
 │   ├── run_single_model.py     # 单模型训练 (被试内)
 │   ├── run_cross_subject.py    # 单模型跨被试预训练
-│   ├── run_finetune.py         # 个体微调
-│   └── run_transfer_comparison.py
+│   └── run_finetune.py         # 个体微调
 ├── preprocessing/              # 数据预处理脚本
 │   ├── preprocess_zip.py       # ZIP 解压和预处理
 │   ├── cache_helper.py         # 缓存管理

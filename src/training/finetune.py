@@ -35,6 +35,7 @@ import logging
 import json
 import time
 from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Literal
 
@@ -62,6 +63,7 @@ from src.training.train_within_subject import (
 from src.utils.device import get_device, set_seed
 from src.utils.logging import SectionLogger
 from src.utils.timing import Timer, print_section_header, print_metric, colored, Colors
+from src.utils.wandb_logger import create_wandb_logger, WandbCallback
 
 logger = logging.getLogger(__name__)
 log_data = SectionLogger(logger, 'data')
@@ -266,6 +268,15 @@ def finetune_subject(
     task: str = 'binary',
     device: Optional[torch.device] = None,
     seed: int = 42,
+    # Cache-only mode
+    cache_only: bool = False,
+    cache_index_path: str = ".cache_index.json",
+    # WandB (默认禁用，向后兼容)
+    no_wandb: bool = True,
+    upload_model: bool = False,
+    wandb_project: str = 'eeg-bci',
+    wandb_entity: Optional[str] = None,
+    wandb_group: Optional[str] = None,
 ) -> Dict:
     """
     Finetune a pretrained model on a single subject's data.
@@ -297,6 +308,13 @@ def finetune_subject(
     total_start = time.perf_counter()
     Timer.reset()
     set_seed(seed)
+
+    # Validate pretrained path early
+    pretrained_file = Path(pretrained_path)
+    if not pretrained_file.exists():
+        raise FileNotFoundError(
+            f"Pretrained checkpoint not found: {pretrained_path}"
+        )
 
     # Generate run_tag at start of finetuning (if not provided)
     if run_tag is None:
@@ -375,6 +393,8 @@ def finetune_subject(
             session_folders=train_folders,
             target_classes=target_classes,
             elc_path=str(elc_path),
+            cache_only=cache_only,
+            cache_index_path=cache_index_path,
         )
 
     if len(train_dataset) == 0:
@@ -389,6 +409,8 @@ def finetune_subject(
             session_folders=test_folders,
             target_classes=target_classes,
             elc_path=str(elc_path),
+            cache_only=cache_only,
+            cache_index_path=cache_index_path,
         )
 
     print_metric("Train segments", len(train_dataset), Colors.CYAN)
@@ -434,6 +456,35 @@ def finetune_subject(
         shuffle_train=True,
     )
 
+    # ========== WANDB INITIALIZATION ==========
+    wandb_config = {
+        "model_type": model_type,
+        "task": task,
+        "paradigm": paradigm,
+        "training_type": "finetune",
+        "freeze_strategy": freeze_strategy,
+        "pretrained_path": pretrained_path,
+        "learning_rate": learning_rate,
+        "epochs": epochs,
+        "batch_size": batch_size,
+    }
+
+    wandb_logger = create_wandb_logger(
+        subject_id=subject_id,
+        model_type=model_type,
+        task=task,
+        paradigm=paradigm,
+        config=wandb_config,
+        enabled=not no_wandb,
+        project=wandb_project,
+        entity=wandb_entity,
+        group=wandb_group or f"finetune_{model_type}_{freeze_strategy}",
+        log_model=upload_model,
+        extra_tags=["finetune", f"freeze:{freeze_strategy}"],
+    )
+
+    wandb_callback = WandbCallback(wandb_logger) if wandb_logger.enabled else None
+
     # ========== OPTIMIZER SETUP ==========
     print_section_header("Finetuning Setup")
 
@@ -458,7 +509,7 @@ def finetune_subject(
         n_classes=n_classes,
         learning_rate=learning_rate,
         weight_decay=weight_decay,
-        scheduler_type='plateau' if model_type == 'eegnet' else 'wsd',
+        scheduler_type='plateau' if model_type == 'eegnet' else 'cosine_annealing_warmup_decay',
         use_amp=True,
         gradient_clip=1.0 if model_type == 'cbramod' else 0.0,
     )
@@ -470,6 +521,43 @@ def finetune_subject(
     save_path = Path(save_dir) / f'{run_tag}_{model_type}_{paradigm}_{task}' / subject_id
     save_path.mkdir(parents=True, exist_ok=True)
 
+    # ========== PRETRAINED BASELINE EVALUATION (Epoch 0) ==========
+    print_section_header("Pretrained Baseline (Epoch 0)")
+
+    with Timer("pretrained_baseline"):
+        baseline_val_loss, baseline_val_acc = trainer.validate(val_loader)
+        baseline_majority_acc, _ = majority_vote_accuracy(
+            model, train_dataset, val_indices, device, use_amp=True
+        )
+        baseline_combined = (baseline_val_acc + baseline_majority_acc) / 2.0
+
+    print_metric("Val Accuracy (segment)", f"{baseline_val_acc:.2%}", Colors.CYAN)
+    print_metric("Val Accuracy (majority)", f"{baseline_majority_acc:.2%}", Colors.CYAN)
+    print_metric("Combined Score", f"{baseline_combined:.2%}", Colors.YELLOW)
+
+    # Set trainer's initial best to pretrained baseline
+    trainer.best_val_acc = baseline_val_acc
+    trainer.best_majority_acc = baseline_majority_acc
+    trainer.best_combined_score = baseline_combined
+    trainer.best_val_loss = baseline_val_loss
+    trainer.best_epoch = 0  # Epoch 0 = pretrained model
+    trainer.best_state = model.state_dict().copy()
+
+    # Save pretrained as initial best.pt
+    torch.save({
+        'model_state_dict': trainer.best_state,
+        'epoch': 0,
+        'val_acc': baseline_val_acc,
+        'val_majority_acc': baseline_majority_acc,
+        'combined_score': baseline_combined,
+        'val_loss': baseline_val_loss,
+    }, save_path / 'best.pt')
+
+    log_train.info(
+        f"Pretrained baseline: combined={baseline_combined:.4f} "
+        f"(seg={baseline_val_acc:.4f}, maj={baseline_majority_acc:.4f})"
+    )
+
     # ========== TRAINING ==========
     with Timer("finetuning"):
         history = trainer.train(
@@ -478,7 +566,7 @@ def finetune_subject(
             epochs=epochs,
             patience=patience,
             save_path=save_path,
-            wandb_callback=None,
+            wandb_callback=wandb_callback,
         )
 
     # ========== TEST EVALUATION ==========
@@ -511,15 +599,35 @@ def finetune_subject(
         'best_epoch': trainer.best_epoch,
         'epochs_trained': len(history['train_loss']),
         'training_time': total_time,
+        'pretrained_baseline_combined': baseline_combined,
     }
 
     # Save results JSON
     with open(save_path / 'results.json', 'w') as f:
         json.dump(results, f, indent=2)
 
+    # Add pretrained baseline to history
+    history['pretrained_baseline'] = {
+        'val_loss': baseline_val_loss,
+        'val_acc': baseline_val_acc,
+        'val_majority_acc': baseline_majority_acc,
+        'combined_score': baseline_combined,
+    }
+
     # Save training history
     with open(save_path / 'history.json', 'w') as f:
         json.dump(history, f, indent=2)
+
+    # ========== WANDB FINALIZATION ==========
+    if wandb_callback is not None:
+        wandb_callback.on_train_end(
+            best_epoch=trainer.best_epoch,
+            best_val_acc=trainer.best_val_acc,
+            test_acc=test_acc,
+            test_majority_acc=test_acc,
+            model_path=save_path / 'best.pt',
+        )
+        wandb_logger.finish()
 
     Timer.print_summary(f"Finetuning {subject_id}")
 
@@ -532,6 +640,11 @@ def finetune_subject(
         'best_epoch': trainer.best_epoch,
         'training_time': total_time,
         'history': history,
+        'pretrained_baseline': {
+            'val_acc': baseline_val_acc,
+            'val_majority_acc': baseline_majority_acc,
+            'combined_score': baseline_combined,
+        },
     }
 
 

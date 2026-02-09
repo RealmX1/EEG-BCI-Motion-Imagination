@@ -2,25 +2,33 @@
 """
 Transfer Learning Comparison Script for EEG-BCI Project.
 
-Compares three training strategies:
-1. Baseline: Train from scratch on each subject (within-subject)
-2. Cross-subject: Pretrain on all subjects, evaluate directly
-3. Pretrain + Finetune: Pretrain, then finetune on each subject
+This script fine-tunes pretrained cross-subject models (from run_cross_subject_comparison.py)
+on individual subjects and compares the transfer learning performance of EEGNet vs CBraMod.
 
-This script runs the complete experiment and generates comparison reports.
+Workflow:
+1. Auto-discovers (or accepts manual) best cross-subject pretrained checkpoints
+2. Fine-tunes each model on each individual subject
+3. Compares fine-tuned EEGNet vs CBraMod (statistical tests)
+4. Generates combined plot: cross-subject baseline + transfer learning results
 
 Usage:
-    # Run full comparison with default settings
-    uv run python scripts/run_transfer_comparison.py --task binary
+    # Auto-discover best pretrained models and fine-tune
+    uv run python scripts/run_transfer_comparison.py
 
-    # Run for specific model only
-    uv run python scripts/run_transfer_comparison.py --task binary --models eegnet
+    # Specify freeze strategy
+    uv run python scripts/run_transfer_comparison.py --freeze-strategy partial
 
-    # Skip training, just compare existing results
-    uv run python scripts/run_transfer_comparison.py --task binary --skip-training
+    # Manual pretrained model paths
+    uv run python scripts/run_transfer_comparison.py \\
+        --pretrained-eegnet checkpoints/cross_subject/.../best.pt \\
+        --pretrained-cbramod chec kpoints/cross_subject/.../best.pt
 
-    # Use different freeze strategy for finetuning
-    uv run python scripts/run_transfer_comparison.py --task binary --freeze-strategy backbone
+    # Resume a previous run
+    uv run python scripts/run_transfer_comparison.py --resume
+    uv run python scripts/run_transfer_comparison.py --resume 20260208
+
+    # Motor Execution paradigm, ternary task
+    uv run python scripts/run_transfer_comparison.py --paradigm movement --task ternary
 """
 
 import argparse
@@ -28,470 +36,344 @@ import json
 import logging
 import sys
 import time
-from dataclasses import dataclass, asdict
+import traceback
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
-
-import numpy as np
-from scipy import stats
+from typing import Dict, List, Optional, Tuple
 
 # Add project root to path (scripts/experiments/ -> scripts/ -> project root)
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-SCRIPTS_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.config.constants import PARADIGM_CONFIG
+from src.utils.device import set_seed, check_cuda_available, get_device
+from src.utils.logging import SectionLogger, setup_logging
+
+from src.results import (
+    CacheType,
+    TrainingResult,
+    compare_models,
+    print_comparison_report,
+    find_compatible_cross_subject_results,
+    find_best_within_subject_for_model,
+    generate_result_filename,
+    result_to_dict,
+    dict_to_result,
+    compute_model_statistics,
+    print_model_summary,
+    cross_subject_result_to_training_results,
+    build_transfer_data_sources,
+    get_cache_path,
+    find_cache_by_tag,
+    load_cache,
+    save_cache,
+)
+from src.visualization import generate_combined_plot
+from src.training.finetune import finetune_subject
+
+SCRIPTS_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from src.utils.device import set_seed, check_cuda_available, get_device
-from src.utils.logging import setup_logging
-from src.preprocessing.data_loader import discover_available_subjects
-from src.training.train_cross_subject import train_cross_subject
-from src.training.finetune import finetune_all_subjects
-
-# Import baseline training
-from _training_utils import (
-    PARADIGM_CONFIG,
-    TrainingResult,
-    train_and_get_result,
-    result_to_dict,
-    compute_model_statistics,
-    generate_result_filename,
-)
+from _training_utils import discover_subjects, print_subject_result, add_wandb_args
 
 
 setup_logging('transfer_comparison')
 logger = logging.getLogger(__name__)
 
-
-@dataclass
-class TransferResult:
-    """Result from a single transfer learning approach."""
-    strategy: str  # 'baseline', 'cross_subject', 'finetuned'
-    model_type: str
-    subject_id: str
-    test_acc: float
-    val_acc: float
-    training_time: float
+log_main = SectionLogger(logger, 'main')
+log_train = SectionLogger(logger, 'train')
+log_io = SectionLogger(logger, 'io')
 
 
-def run_baseline_training(
-    subjects: List[str],
+
+
+# ============================================================================
+# Checkpoint Discovery
+# ============================================================================
+
+def find_best_checkpoint_path(
     model_type: str,
+    paradigm: str,
+    task: str,
+    subjects: List[str],
+    results_dir: str = 'results',
+) -> Optional[str]:
+    """
+    Auto-discover the best cross-subject pretrained checkpoint for a model.
+
+    Searches results/ for compatible cross-subject result JSONs, then extracts
+    the checkpoint path from training_info.model_path.
+    """
+    cross_result = find_compatible_cross_subject_results(
+        output_dir=results_dir,
+        paradigm=paradigm,
+        task=task,
+        subjects=subjects,
+        model_type=model_type,
+    )
+    if not cross_result:
+        return None
+
+    # Read source JSON to extract model_path
+    source_file = cross_result['source_file']
+    try:
+        with open(source_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        model_path = data.get('training_info', {}).get('model_path', '')
+        if model_path and Path(model_path).exists():
+            log_io.info(f"Found {model_type} checkpoint: {model_path}")
+            return model_path
+    except (json.JSONDecodeError, OSError) as e:
+        log_io.debug(f"Failed to read source file: {e}")
+
+    # Fallback: search checkpoints directory by pattern
+    checkpoint_dir = Path('checkpoints/cross_subject')
+    if checkpoint_dir.exists():
+        # Match patterns like *_{model}_{paradigm}_{task}/best.pt
+        for subdir in sorted(checkpoint_dir.iterdir(), reverse=True):
+            if subdir.is_dir() and model_type in subdir.name and paradigm in subdir.name and task in subdir.name:
+                best_pt = subdir / 'best.pt'
+                if best_pt.exists():
+                    log_io.info(f"Found {model_type} checkpoint (fallback): {best_pt}")
+                    return str(best_pt)
+
+    return None
+
+
+# ============================================================================
+# Training Helpers
+# ============================================================================
+
+def finetune_and_get_result(
+    subject_id: str,
+    model_type: str,
+    pretrained_path: str,
+    freeze_strategy: str,
+    task: str,
+    paradigm: str,
+    data_root: str,
+    run_tag: Optional[str] = None,
+    epochs: Optional[int] = None,
+    learning_rate: Optional[float] = None,
+    batch_size: Optional[int] = None,
+    patience: Optional[int] = None,
+    seed: int = 42,
+    # Cache-only mode
+    cache_only: bool = False,
+    cache_index_path: str = ".cache_index.json",
+    # WandB
+    no_wandb: bool = True,
+    upload_model: bool = False,
+    wandb_project: str = 'eeg-bci',
+    wandb_entity: Optional[str] = None,
+    wandb_group: Optional[str] = None,
+) -> TrainingResult:
+    """
+    Fine-tune a pretrained model on a single subject and return TrainingResult.
+
+    Wraps finetune_subject() and converts the result dict to TrainingResult.
+    """
+    result_dict = finetune_subject(
+        pretrained_path=pretrained_path,
+        subject_id=subject_id,
+        freeze_strategy=freeze_strategy,
+        run_tag=run_tag,
+        epochs=epochs,
+        learning_rate=learning_rate,
+        batch_size=batch_size,
+        patience=patience,
+        paradigm=paradigm,
+        task=task,
+        seed=seed,
+        data_root=data_root,
+        cache_only=cache_only,
+        cache_index_path=cache_index_path,
+        no_wandb=no_wandb,
+        upload_model=upload_model,
+        wandb_project=wandb_project,
+        wandb_entity=wandb_entity,
+        wandb_group=wandb_group,
+    )
+
+    return TrainingResult(
+        subject_id=subject_id,
+        task_type=task,
+        model_type=model_type,
+        best_val_acc=result_dict.get('val_acc', 0.0),
+        test_acc=result_dict['test_acc'],
+        test_acc_majority=result_dict['test_acc'],  # finetune already uses majority voting
+        epochs_trained=result_dict.get('best_epoch', 0),
+        training_time=result_dict.get('training_time', 0.0),
+    )
+
+
+def run_transfer_model(
+    model_type: str,
+    pretrained_path: str,
+    subject_ids: List[str],
+    freeze_strategy: str,
     task: str,
     paradigm: str,
     data_root: str,
     output_dir: str,
-) -> List[TransferResult]:
-    """Run baseline within-subject training for all subjects."""
-    results = []
+    run_tag: Optional[str] = None,
+    force_retrain: bool = False,
+    epochs: Optional[int] = None,
+    learning_rate: Optional[float] = None,
+    batch_size: Optional[int] = None,
+    patience: Optional[int] = None,
+    seed: int = 42,
+    transfer_config: Optional[Dict] = None,
+    # Cache-only mode
+    cache_only: bool = False,
+    cache_index_path: str = ".cache_index.json",
+    # WandB
+    no_wandb: bool = True,
+    upload_model: bool = False,
+    wandb_project: str = 'eeg-bci',
+    wandb_entity: Optional[str] = None,
+    wandb_group: Optional[str] = None,
+) -> Tuple[List[TrainingResult], Dict]:
+    """
+    Fine-tune a pretrained model on all specified subjects with cache support.
 
-    print("\n" + "=" * 70)
-    print(f" BASELINE: {model_type.upper()} (Train from scratch)")
-    print("=" * 70)
+    Follows the same cache-per-subject pattern as run_single_model().
+    """
+    log_train.info(f"Transfer Learning: {model_type.upper()} | freeze={freeze_strategy}")
+    log_train.info(f"Pretrained: {pretrained_path}")
 
-    for i, subject_id in enumerate(subjects, 1):
-        print(f"\n  [{i}/{len(subjects)}] Training {subject_id}...")
+    # Load existing cache
+    if force_retrain:
+        cache = {}
+    else:
+        cache, _ = load_cache(output_dir, paradigm, task, run_tag, cache_type=CacheType.TRANSFER)
+
+    if model_type not in cache:
+        cache[model_type] = {}
+
+    # Determine subjects to train
+    cached_subjects = set(cache[model_type].keys())
+    requested_subjects = set(subject_ids)
+    subjects_to_train = requested_subjects - cached_subjects if not force_retrain else requested_subjects
+
+    if cached_subjects & requested_subjects:
+        already = len(cached_subjects & requested_subjects)
+        to_train = len(subjects_to_train)
+        if subjects_to_train:
+            log_train.info(f"{already} cached, {to_train} to train ({', '.join(sorted(subjects_to_train))})")
+        else:
+            log_train.info(f"All {already} subjects cached (no training needed)")
+
+    results: List[TrainingResult] = []
+    total_subjects = len(subject_ids)
+
+    for idx, subject_id in enumerate(subject_ids, 1):
+        progress = f"[{idx}/{total_subjects}]"
+
+        # Check cache
+        if subject_id in cache[model_type] and not force_retrain:
+            log_train.info(f"{progress} {subject_id}: cached")
+            cached_result = dict_to_result(cache[model_type][subject_id])
+            results.append(cached_result)
+            print_subject_result(subject_id, model_type, cached_result)
+            continue
+
+        # Fine-tune
+        log_train.info(f"{progress} {subject_id}: fine-tuning {model_type}...")
 
         try:
-            set_seed(42)
-            training_result = train_and_get_result(
+            set_seed(seed)
+
+            result = finetune_and_get_result(
                 subject_id=subject_id,
                 model_type=model_type,
+                pretrained_path=pretrained_path,
+                freeze_strategy=freeze_strategy,
                 task=task,
                 paradigm=paradigm,
                 data_root=data_root,
-                save_dir=output_dir,
-                no_wandb=True,
+                run_tag=run_tag,
+                epochs=epochs,
+                learning_rate=learning_rate,
+                batch_size=batch_size,
+                patience=patience,
+                seed=seed,
+                cache_only=cache_only,
+                cache_index_path=cache_index_path,
+                no_wandb=no_wandb,
+                upload_model=upload_model,
+                wandb_project=wandb_project,
+                wandb_entity=wandb_entity,
+                wandb_group=wandb_group,
             )
 
-            results.append(TransferResult(
-                strategy='baseline',
-                model_type=model_type,
-                subject_id=subject_id,
-                test_acc=training_result.test_acc_majority,
-                val_acc=training_result.best_val_acc,
-                training_time=training_result.training_time,
-            ))
+            results.append(result)
 
-            print(f"    Test acc: {training_result.test_acc_majority:.2%}")
+            # Save to cache immediately
+            cache[model_type][subject_id] = result_to_dict(result)
+            save_cache(
+                output_dir, paradigm, task, cache, run_tag,
+                cache_type=CacheType.TRANSFER,
+                extra_metadata={'type': 'transfer-comparison', 'transfer_config': transfer_config or {}},
+            )
+
+            print_subject_result(subject_id, model_type, result)
 
         except Exception as e:
-            logger.error(f"Baseline training failed for {subject_id}: {e}")
+            log_train.error(f"{progress} {subject_id}: FAILED - {e}")
+            traceback.print_exc()
+            continue
 
-    return results
+    stats = compute_model_statistics(results)
 
-
-def run_transfer_comparison(
-    subjects: List[str],
-    model_type: str,
-    task: str,
-    paradigm: str,
-    data_root: str,
-    output_dir: str,
-    freeze_strategy: str = 'none',
-    skip_baseline: bool = False,
-    skip_cross_subject: bool = False,
-) -> Dict[str, List[TransferResult]]:
-    """
-    Run complete transfer learning comparison.
-
-    Args:
-        subjects: List of subject IDs
-        model_type: 'eegnet' or 'cbramod'
-        task: Classification task
-        paradigm: 'imagery' or 'movement'
-        data_root: Path to data
-        output_dir: Output directory
-        freeze_strategy: Freeze strategy for finetuning
-        skip_baseline: Skip baseline training
-        skip_cross_subject: Skip cross-subject pretraining
-
-    Returns:
-        Dict mapping strategy -> list of results
-    """
-    all_results = {
-        'baseline': [],
-        'cross_subject': [],
-        'finetuned': [],
-    }
-
-    device = get_device()
-
-    # ========== 1. BASELINE: TRAIN FROM SCRATCH ==========
-    if not skip_baseline:
-        baseline_results = run_baseline_training(
-            subjects=subjects,
-            model_type=model_type,
-            task=task,
-            paradigm=paradigm,
-            data_root=data_root,
-            output_dir=f'{output_dir}/baseline/{model_type}_{paradigm}_{task}',
-        )
-        all_results['baseline'] = baseline_results
-    else:
-        logger.info("Skipping baseline training")
-
-    # ========== 2. CROSS-SUBJECT PRETRAINING ==========
-    pretrained_path = None
-    if not skip_cross_subject:
-        print("\n" + "=" * 70)
-        print(f" CROSS-SUBJECT: {model_type.upper()} (Pretrain on all)")
-        print("=" * 70)
-
-        cross_subject_results = train_cross_subject(
-            subjects=subjects,
-            model_type=model_type,
-            task=task,
-            paradigm=paradigm,
-            save_dir=f'{output_dir}/cross_subject',
-            data_root=data_root,
-            device=device,
+    if results:
+        log_train.info(
+            f"{model_type.upper()} transfer done: {stats['mean']:.1%}+/-{stats['std']:.1%} "
+            f"(n={stats['n_subjects']}, best={stats['max']:.1%})"
         )
 
-        pretrained_path = cross_subject_results['model_path']
-
-        # Store cross-subject results (direct evaluation without finetuning)
-        for subject_id, test_acc in cross_subject_results['per_subject_test_acc'].items():
-            all_results['cross_subject'].append(TransferResult(
-                strategy='cross_subject',
-                model_type=model_type,
-                subject_id=subject_id,
-                test_acc=test_acc,
-                val_acc=cross_subject_results['val_acc'],
-                training_time=cross_subject_results['training_time'] / len(subjects),
-            ))
-    else:
-        # Try to find existing pretrained model
-        pretrained_dir = Path(output_dir) / 'cross_subject' / f'{model_type}_{paradigm}_{task}'
-        if (pretrained_dir / 'best.pt').exists():
-            pretrained_path = str(pretrained_dir / 'best.pt')
-            logger.info(f"Using existing pretrained model: {pretrained_path}")
-        else:
-            logger.warning("No pretrained model found, skipping finetuning")
-
-    # ========== 3. PRETRAIN + FINETUNE ==========
-    if pretrained_path:
-        print("\n" + "=" * 70)
-        print(f" PRETRAIN + FINETUNE: {model_type.upper()} (freeze={freeze_strategy})")
-        print("=" * 70)
-
-        finetune_results = finetune_all_subjects(
-            pretrained_path=pretrained_path,
-            subjects=subjects,
-            freeze_strategy=freeze_strategy,
-            save_dir=f'{output_dir}/finetuned',
-            data_root=data_root,
-            paradigm=paradigm,
-            task=task,
-            device=device,
-        )
-
-        for subject_id, result in finetune_results.items():
-            if 'error' not in result:
-                all_results['finetuned'].append(TransferResult(
-                    strategy='finetuned',
-                    model_type=model_type,
-                    subject_id=subject_id,
-                    test_acc=result['test_acc'],
-                    val_acc=result['val_acc'],
-                    training_time=result['training_time'],
-                ))
-
-    return all_results
+    return results, stats
 
 
-def print_comparison_report(
-    results: Dict[str, List[TransferResult]],
-    model_type: str,
-    task: str,
-):
-    """Print formatted comparison report."""
-    print("\n" + "=" * 80)
-    print(f" TRANSFER LEARNING COMPARISON: {model_type.upper()} - {task.upper()}")
-    print("=" * 80)
-
-    # Collect per-subject data
-    subjects = set()
-    for strategy_results in results.values():
-        for r in strategy_results:
-            subjects.add(r.subject_id)
-    subjects = sorted(subjects)
-
-    # Create lookup tables
-    lookup = {}
-    for strategy, strategy_results in results.items():
-        lookup[strategy] = {r.subject_id: r for r in strategy_results}
-
-    # Per-subject table
-    print(f"\n{'Subject':<10} {'Baseline':<12} {'Cross-Subj':<12} {'Finetuned':<12} {'Best':<15}")
-    print("-" * 65)
-
-    for subject_id in subjects:
-        baseline_acc = lookup.get('baseline', {}).get(subject_id)
-        cross_acc = lookup.get('cross_subject', {}).get(subject_id)
-        finetune_acc = lookup.get('finetuned', {}).get(subject_id)
-
-        b_str = f"{baseline_acc.test_acc:.2%}" if baseline_acc else "N/A"
-        c_str = f"{cross_acc.test_acc:.2%}" if cross_acc else "N/A"
-        f_str = f"{finetune_acc.test_acc:.2%}" if finetune_acc else "N/A"
-
-        # Determine best
-        accs = []
-        if baseline_acc:
-            accs.append(('baseline', baseline_acc.test_acc))
-        if cross_acc:
-            accs.append(('cross_subject', cross_acc.test_acc))
-        if finetune_acc:
-            accs.append(('finetuned', finetune_acc.test_acc))
-
-        if accs:
-            best_strategy, best_acc = max(accs, key=lambda x: x[1])
-            best_str = f"{best_strategy} (+{best_acc - min(a for _, a in accs):.1%})"
-        else:
-            best_str = "N/A"
-
-        print(f"{subject_id:<10} {b_str:<12} {c_str:<12} {f_str:<12} {best_str:<15}")
-
-    # Summary statistics
-    print("\n" + "-" * 65)
-    print(f"{'Strategy':<20} {'Mean':<12} {'Std':<12} {'Min':<12} {'Max':<12}")
-    print("-" * 65)
-
-    for strategy in ['baseline', 'cross_subject', 'finetuned']:
-        strategy_results = results.get(strategy, [])
-        if strategy_results:
-            accs = [r.test_acc for r in strategy_results]
-            print(f"{strategy:<20} {np.mean(accs):.2%}       {np.std(accs):.2%}       "
-                  f"{np.min(accs):.2%}       {np.max(accs):.2%}")
-        else:
-            print(f"{strategy:<20} N/A")
-
-    # Statistical comparison (if we have both baseline and finetuned)
-    if results.get('baseline') and results.get('finetuned'):
-        baseline_by_subj = {r.subject_id: r.test_acc for r in results['baseline']}
-        finetune_by_subj = {r.subject_id: r.test_acc for r in results['finetuned']}
-        common_subjects = set(baseline_by_subj.keys()) & set(finetune_by_subj.keys())
-
-        if len(common_subjects) >= 2:
-            baseline_accs = [baseline_by_subj[s] for s in sorted(common_subjects)]
-            finetune_accs = [finetune_by_subj[s] for s in sorted(common_subjects)]
-
-            t_stat, p_value = stats.ttest_rel(finetune_accs, baseline_accs)
-            mean_diff = np.mean(finetune_accs) - np.mean(baseline_accs)
-
-            print("\n" + "-" * 65)
-            print(" STATISTICAL COMPARISON: Finetuned vs Baseline")
-            print("-" * 65)
-            print(f"  Mean difference: {mean_diff:+.2%}")
-            print(f"  Paired t-test: t={t_stat:.3f}, p={p_value:.4f}")
-            if p_value < 0.05:
-                winner = "Finetuned" if mean_diff > 0 else "Baseline"
-                print(f"  Result: {winner} is significantly better (p < 0.05)")
-            else:
-                print(f"  Result: No significant difference (p = {p_value:.4f})")
-
-    print("=" * 80 + "\n")
-
-
-def save_comparison_results(
-    results: Dict[str, List[TransferResult]],
-    model_type: str,
-    task: str,
-    paradigm: str,
-    output_dir: str,
-):
-    """Save comparison results to JSON."""
-    output = {
-        'metadata': {
-            'model_type': model_type,
-            'task': task,
-            'paradigm': paradigm,
-            'timestamp': datetime.now().isoformat(),
-        },
-        'strategies': {},
-    }
-
-    for strategy, strategy_results in results.items():
-        if strategy_results:
-            accs = [r.test_acc for r in strategy_results]
-            output['strategies'][strategy] = {
-                'subjects': [asdict(r) for r in strategy_results],
-                'summary': {
-                    'mean': float(np.mean(accs)),
-                    'std': float(np.std(accs)),
-                    'min': float(np.min(accs)),
-                    'max': float(np.max(accs)),
-                    'n_subjects': len(accs),
-                },
-            }
-
-    # Save to file
-    results_dir = Path(output_dir) / 'transfer_comparison'
-    results_dir.mkdir(parents=True, exist_ok=True)
-
-    filename = generate_result_filename(f'transfer_{model_type}', paradigm, task, 'json')
-    output_path = results_dir / filename
-
-    with open(output_path, 'w') as f:
-        json.dump(output, f, indent=2)
-
-    logger.info(f"Results saved: {output_path}")
-    return output_path
-
-
-def generate_comparison_plot(
-    results: Dict[str, List[TransferResult]],
-    model_type: str,
-    paradigm: str,
-    task: str,
-    output_dir: str,
-):
-    """Generate comparison visualization."""
-    try:
-        import matplotlib.pyplot as plt
-    except ImportError:
-        logger.warning("matplotlib not installed, skipping plot")
-        return
-
-    # Collect data
-    strategies = ['baseline', 'cross_subject', 'finetuned']
-    strategy_labels = ['Baseline\n(from scratch)', 'Cross-Subject\n(no finetune)', 'Pretrain +\nFinetune']
-    colors = ['#2E86AB', '#A23B72', '#F18F01']
-
-    # Get subjects and accuracies
-    subjects = set()
-    for strategy_results in results.values():
-        for r in strategy_results:
-            subjects.add(r.subject_id)
-    subjects = sorted(subjects)
-
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-
-    # Panel 1: Per-subject grouped bar chart
-    ax1 = axes[0]
-    x = np.arange(len(subjects))
-    width = 0.25
-
-    for i, (strategy, color, label) in enumerate(zip(strategies, colors, strategy_labels)):
-        strategy_results = results.get(strategy, [])
-        lookup = {r.subject_id: r.test_acc for r in strategy_results}
-        accs = [lookup.get(s, 0) for s in subjects]
-
-        ax1.bar(x + (i - 1) * width, accs, width, label=label.replace('\n', ' '), color=color, alpha=0.8)
-
-    ax1.set_xlabel('Subject')
-    ax1.set_ylabel('Test Accuracy')
-    ax1.set_title(f'{model_type.upper()} Per-Subject Comparison')
-    ax1.set_xticks(x)
-    ax1.set_xticklabels(subjects, rotation=45)
-    ax1.legend()
-    ax1.set_ylim([0, 1])
-
-    # Chance level
-    chance = {'binary': 0.5, 'ternary': 1/3, 'quaternary': 0.25}.get(task, 0.5)
-    ax1.axhline(y=chance, color='gray', linestyle='--', alpha=0.5)
-
-    # Panel 2: Box plot comparison
-    ax2 = axes[1]
-    box_data = []
-    box_labels = []
-
-    for strategy, label in zip(strategies, strategy_labels):
-        strategy_results = results.get(strategy, [])
-        if strategy_results:
-            accs = [r.test_acc for r in strategy_results]
-            box_data.append(accs)
-            box_labels.append(label)
-
-    if box_data:
-        bp = ax2.boxplot(box_data, tick_labels=box_labels, patch_artist=True,
-                        showmeans=True, meanline=True)
-        for patch, color in zip(bp['boxes'], colors[:len(box_data)]):
-            patch.set_facecolor(color)
-            patch.set_alpha(0.7)
-
-    ax2.set_ylabel('Test Accuracy')
-    ax2.set_title(f'{model_type.upper()} Strategy Comparison')
-    ax2.axhline(y=chance, color='gray', linestyle='--', alpha=0.5)
-
-    plt.tight_layout()
-
-    # Save plot
-    results_dir = Path(output_dir) / 'transfer_comparison'
-    results_dir.mkdir(parents=True, exist_ok=True)
-    plot_filename = generate_result_filename(f'transfer_{model_type}', paradigm, task, 'png')
-    plot_path = results_dir / plot_filename
-    plt.savefig(plot_path, dpi=150, bbox_inches='tight')
-    logger.info(f"Plot saved: {plot_path}")
-    plt.close()
-
+# ============================================================================
+# Main
+# ============================================================================
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Transfer learning comparison experiment',
+        description='Transfer learning comparison: fine-tune cross-subject pretrained models on individual subjects',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 Examples:
-  # Full comparison for EEGNet
-  uv run python scripts/run_transfer_comparison.py --task binary --models eegnet
+  # Auto-discover best pretrained models and fine-tune
+  uv run python scripts/run_transfer_comparison.py
 
-  # Full comparison for both models
-  uv run python scripts/run_transfer_comparison.py --task binary
+  # Specify freeze strategy
+  uv run python scripts/run_transfer_comparison.py --freeze-strategy partial
 
-  # Use backbone freeze strategy
-  uv run python scripts/run_transfer_comparison.py --task binary --freeze-strategy backbone
+  # Manual pretrained model paths
+  uv run python scripts/run_transfer_comparison.py \\
+      --pretrained-eegnet checkpoints/cross_subject/.../best.pt \\
+      --pretrained-cbramod checkpoints/cross_subject/.../best.pt
+
+  # Resume a previous run
+  uv run python scripts/run_transfer_comparison.py --resume
 '''
     )
 
+    # Data arguments
     parser.add_argument(
-        '--task', type=str, default='binary',
-        choices=['binary', 'ternary', 'quaternary'],
-        help='Classification task (default: binary)'
+        '--data-root', type=str, default='data',
+        help='Path to data directory (default: data)'
+    )
+    parser.add_argument(
+        '--subjects', nargs='+', default=None,
+        help='Specific subjects to run (default: all available)'
     )
     parser.add_argument(
         '--models', nargs='+', default=['eegnet', 'cbramod'],
         choices=['eegnet', 'cbramod'],
-        help='Models to compare (default: both)'
+        help='Models to fine-tune (default: both)'
     )
     parser.add_argument(
         '--paradigm', type=str, default='imagery',
@@ -499,102 +381,362 @@ Examples:
         help='Experiment paradigm (default: imagery)'
     )
     parser.add_argument(
-        '--data-root', type=str, default='data',
-        help='Path to data directory (default: data)'
+        '--task', type=str, default='binary',
+        choices=['binary', 'ternary', 'quaternary'],
+        help='Classification task (default: binary)'
     )
+
+    # Transfer learning arguments
     parser.add_argument(
-        '--output-dir', type=str, default='results',
-        help='Output directory (default: results)'
-    )
-    parser.add_argument(
-        '--subjects', nargs='+', default=None,
-        help='Specific subjects (default: all available)'
-    )
-    parser.add_argument(
-        '--freeze-strategy', type=str, default='none',
+        '--freeze-strategy', type=str, default='backbone',
         choices=['none', 'backbone', 'partial'],
-        help='Freeze strategy for finetuning (default: none)'
+        help='Freeze strategy for fine-tuning (default: backbone)'
     )
     parser.add_argument(
-        '--skip-baseline', action='store_true',
-        help='Skip baseline (from-scratch) training'
+        '--pretrained-eegnet', type=str, default=None,
+        help='Manual path to pretrained EEGNet checkpoint (.pt)'
     )
     parser.add_argument(
-        '--skip-cross-subject', action='store_true',
-        help='Skip cross-subject pretraining (use existing)'
+        '--pretrained-cbramod', type=str, default=None,
+        help='Manual path to pretrained CBraMod checkpoint (.pt)'
+    )
+    parser.add_argument(
+        '--finetune-epochs', type=int, default=None,
+        help='Number of fine-tuning epochs (default: strategy/model-specific)'
+    )
+    parser.add_argument(
+        '--finetune-lr', type=float, default=None,
+        help='Fine-tuning learning rate (default: strategy-specific)'
+    )
+    parser.add_argument(
+        '--finetune-batch-size', type=int, default=None,
+        help='Fine-tuning batch size (default: model-specific)'
+    )
+    parser.add_argument(
+        '--finetune-patience', type=int, default=None,
+        help='Early stopping patience (default: 5)'
+    )
+
+    # Cache/resume arguments
+    parser.add_argument(
+        '--resume', nargs='?', const='', default=None,
+        metavar='TAG',
+        help='Resume a previous run. Without TAG: resume most recent. '
+             'With TAG: resume run matching the datetime substring (e.g., "20260205")'
+    )
+    parser.add_argument(
+        '--force-retrain', action='store_true',
+        help='Force retraining, ignore cache'
+    )
+    parser.add_argument(
+        '--results-dir', type=str, default='results',
+        help='Directory to save results and plots (default: results)'
+    )
+
+    # Output control
+    parser.add_argument(
+        '--no-plot', action='store_true',
+        help='Suppress plot generation'
+    )
+    parser.add_argument(
+        '--no-cross-subject-baseline', action='store_true',
+        help='Do not include cross-subject baseline in the plot'
     )
     parser.add_argument(
         '--seed', type=int, default=42,
         help='Random seed (default: 42)'
     )
+
+    add_wandb_args(parser)
+
+    # Cache index arguments
     parser.add_argument(
-        '--no-plot', action='store_true',
-        help='Skip plot generation'
+        '--cache-only', action='store_true',
+        help='Load data exclusively from cache index (no filesystem scan)'
+    )
+    parser.add_argument(
+        '--cache-index-path', type=str, default='.cache_index.json',
+        help='Path to cache index file (default: .cache_index.json)'
     )
 
     args = parser.parse_args()
 
+    # Start timer
+    start_time = time.time()
+
     # Check GPU
     check_cuda_available(required=True)
     device = get_device()
-    logger.info(f"Device: {device}")
+    log_main.info(f"Device: {device}")
 
     # Set seed
     set_seed(args.seed)
+    log_main.info(f"Seed: {args.seed}")
+
+    # Handle --resume vs new run
+    if args.resume is not None:
+        if args.resume == '':
+            found = find_cache_by_tag(args.results_dir, args.paradigm, args.task, cache_type=CacheType.TRANSFER)
+            if found:
+                _, run_tag = found
+                log_main.info(f"Resuming most recent transfer run: {run_tag or '(untagged)'}")
+            else:
+                log_main.error("No previous transfer run found to resume")
+                sys.exit(1)
+        else:
+            found = find_cache_by_tag(args.results_dir, args.paradigm, args.task, args.resume, cache_type=CacheType.TRANSFER)
+            if found:
+                _, run_tag = found
+                log_main.info(f"Resuming transfer run matching '{args.resume}': {run_tag}")
+            else:
+                log_main.error(f"No transfer run found matching '{args.resume}'")
+                sys.exit(1)
+    else:
+        run_tag = datetime.now().strftime("%Y%m%d_%H%M")
+        log_main.info(f"Starting new transfer comparison run: {run_tag}")
+
+    paradigm_desc = PARADIGM_CONFIG[args.paradigm]['description']
+    log_main.info(f"Paradigm: {paradigm_desc} | Task: {args.task} | Freeze: {args.freeze_strategy}")
 
     # Discover subjects
     if args.subjects:
         subjects = args.subjects
     else:
-        subjects = discover_available_subjects(
-            args.data_root, args.paradigm, args.task
+        subjects = discover_subjects(
+            args.data_root, args.paradigm, args.task,
+            cache_only=args.cache_only,
+            cache_index_path=args.cache_index_path,
         )
 
     if not subjects:
-        logger.error(f"No subjects found in {args.data_root}")
+        log_main.error(f"No subjects found in {args.data_root}")
         sys.exit(1)
 
-    logger.info(f"Subjects: {subjects}")
-    logger.info(f"Models: {args.models}")
-    logger.info(f"Task: {args.task}")
-    logger.info(f"Freeze strategy: {args.freeze_strategy}")
+    log_main.info(f"Subjects: {subjects} ({len(subjects)} total)")
 
-    start_time = time.time()
+    # ======================================================================
+    # Discover pretrained checkpoints
+    # ======================================================================
+    pretrained_paths = {}
+    manual_overrides = {
+        'eegnet': args.pretrained_eegnet,
+        'cbramod': args.pretrained_cbramod,
+    }
 
-    # Run comparison for each model
     for model_type in args.models:
-        print("\n" + "#" * 80)
-        print(f"  MODEL: {model_type.upper()}")
-        print("#" * 80)
+        # Manual override takes priority
+        if manual_overrides.get(model_type):
+            path = manual_overrides[model_type]
+            if not Path(path).exists():
+                log_main.error(f"Pretrained {model_type} not found: {path}")
+                sys.exit(1)
+            pretrained_paths[model_type] = path
+            log_main.info(f"{model_type.upper()} pretrained (manual): {path}")
+        else:
+            # Auto-discover best checkpoint
+            path = find_best_checkpoint_path(
+                model_type=model_type,
+                paradigm=args.paradigm,
+                task=args.task,
+                subjects=subjects,
+                results_dir=args.results_dir,
+            )
+            if path:
+                pretrained_paths[model_type] = path
+                log_main.info(f"{model_type.upper()} pretrained (auto): {path}")
+            else:
+                log_main.warning(
+                    f"No pretrained {model_type} checkpoint found for "
+                    f"{args.paradigm}/{args.task}. Skipping this model. "
+                    f"Run 'scripts/run_cross_subject_comparison.py' first to create one."
+                )
 
-        results = run_transfer_comparison(
-            subjects=subjects,
+    if not pretrained_paths:
+        log_main.error(
+            "No pretrained checkpoints found for any requested model. "
+            "Run cross-subject training first:\n"
+            "  uv run python scripts/run_cross_subject_comparison.py"
+        )
+        sys.exit(1)
+
+    # Build transfer config metadata
+    transfer_config = {
+        'freeze_strategy': args.freeze_strategy,
+        'finetune_epochs': args.finetune_epochs,
+        'finetune_lr': args.finetune_lr,
+        'finetune_batch_size': args.finetune_batch_size,
+        'pretrained_paths': {k: str(v) for k, v in pretrained_paths.items()},
+    }
+
+    # ======================================================================
+    # Fine-tune each model
+    # ======================================================================
+    results = {}
+    all_stats = {}
+
+    for model_type in args.models:
+        if model_type not in pretrained_paths:
+            continue
+
+        log_main.info(f"{'='*50} {model_type.upper()} TRANSFER {'='*50}")
+
+        model_results, model_stats = run_transfer_model(
             model_type=model_type,
+            pretrained_path=pretrained_paths[model_type],
+            subject_ids=subjects,
+            freeze_strategy=args.freeze_strategy,
             task=args.task,
             paradigm=args.paradigm,
             data_root=args.data_root,
-            output_dir=args.output_dir,
-            freeze_strategy=args.freeze_strategy,
-            skip_baseline=args.skip_baseline,
-            skip_cross_subject=args.skip_cross_subject,
+            output_dir=args.results_dir,
+            run_tag=run_tag,
+            force_retrain=args.force_retrain,
+            epochs=args.finetune_epochs,
+            learning_rate=args.finetune_lr,
+            batch_size=args.finetune_batch_size,
+            patience=args.finetune_patience,
+            seed=args.seed,
+            transfer_config=transfer_config,
+            cache_only=args.cache_only,
+            cache_index_path=args.cache_index_path,
+            no_wandb=args.no_wandb,
+            upload_model=args.upload_model,
+            wandb_project=args.wandb_project,
+            wandb_entity=args.wandb_entity,
+            wandb_group=f"transfer_{model_type}_{args.freeze_strategy}_{run_tag}",
         )
 
-        # Print report
-        print_comparison_report(results, model_type, args.task)
+        results[model_type] = model_results
+        all_stats[model_type] = model_stats
 
-        # Save results
-        save_comparison_results(
-            results, model_type, args.task, args.paradigm, args.output_dir
-        )
+    # ======================================================================
+    # Statistical comparison
+    # ======================================================================
+    comparison = None
+    if 'eegnet' in results and 'cbramod' in results:
+        if len(results['eegnet']) >= 2 and len(results['cbramod']) >= 2:
+            try:
+                comparison = compare_models(results['eegnet'], results['cbramod'])
+            except ValueError as e:
+                log_main.warning(f"Cannot compare: {e}")
 
-        # Generate plot
-        if not args.no_plot:
-            generate_comparison_plot(
-                results, model_type, args.paradigm, args.task, args.output_dir
+    # Print report
+    print_comparison_report(results, comparison, args.task, args.paradigm, run_tag)
+
+    # ======================================================================
+    # Save final cache with summary and comparison
+    # ======================================================================
+    # Build cache results dict
+    cache_results = {}
+    for model_type, model_results in results.items():
+        cache_results[model_type] = {
+            r.subject_id: result_to_dict(r) for r in model_results
+        }
+
+    # Compute summary
+    summary = {}
+    for model_type, stats in all_stats.items():
+        summary[model_type] = stats
+
+    comparison_dict = None
+    if comparison:
+        from dataclasses import asdict
+        comparison_dict = asdict(comparison)
+
+    n_subjects = len(set(r.subject_id for model_results in results.values() for r in model_results))
+
+    save_cache(
+        output_dir=args.results_dir,
+        paradigm=args.paradigm,
+        task=args.task,
+        results=cache_results,
+        run_tag=run_tag,
+        summary=summary,
+        comparison=comparison_dict,
+        n_subjects=n_subjects,
+        is_complete=True,
+        cache_type=CacheType.TRANSFER,
+        extra_metadata={'type': 'transfer-comparison', 'transfer_config': transfer_config or {}},
+    )
+
+    # ======================================================================
+    # Generate visualization
+    # ======================================================================
+    if not args.no_plot and results:
+        subjects_set = set(subjects)
+
+        # Retrieve within-subject baseline results for plotting
+        within_subject_results = {}
+        for model_type in ['eegnet', 'cbramod']:
+            ws_results = find_best_within_subject_for_model(
+                output_dir=args.results_dir,
+                paradigm=args.paradigm,
+                task=args.task,
+                model_type=model_type,
+                subjects_set=subjects_set,
             )
+            if ws_results:
+                within_subject_results[model_type] = ws_results
+                mean_acc = sum(r.test_acc_majority for r in ws_results) / len(ws_results)
+                log_io.info(
+                    f"Within-subject baseline for {model_type}: "
+                    f"mean={mean_acc:.1%}"
+                )
 
+        # Retrieve cross-subject baseline results for plotting
+        cross_subject_results = {}
+
+        if not args.no_cross_subject_baseline:
+            for model_type in ['eegnet', 'cbramod']:
+                cross_result = find_compatible_cross_subject_results(
+                    output_dir=args.results_dir,
+                    paradigm=args.paradigm,
+                    task=args.task,
+                    subjects=subjects,
+                    model_type=model_type,
+                )
+                if cross_result:
+                    cross_subject_results[model_type] = cross_result
+                    log_io.info(
+                        f"Cross-subject baseline for {model_type}: "
+                        f"mean={cross_result['mean_test_acc']:.1%}"
+                    )
+
+        # Build data sources
+        data_sources = build_transfer_data_sources(
+            transfer_results=results,
+            cross_subject_results=cross_subject_results,
+            subjects=subjects,
+            task=args.task,
+            within_subject_results=within_subject_results,
+        )
+
+        if data_sources:
+            plot_filename = generate_result_filename(
+                'transfer_combined', args.paradigm, args.task, 'png', run_tag
+            )
+            plot_path = Path(args.results_dir) / plot_filename
+
+            generate_combined_plot(
+                data_sources=data_sources,
+                output_path=str(plot_path),
+                task_type=args.task,
+                paradigm=args.paradigm,
+            )
+            log_io.info(f"Transfer comparison plot saved: {plot_path}")
+        else:
+            log_io.warning("No data sources available for plotting")
+
+    # ======================================================================
+    # Total time
+    # ======================================================================
     total_time = time.time() - start_time
-    logger.info(f"Total time: {total_time/60:.1f} minutes")
+    if total_time >= 3600:
+        log_main.info(f"Total time: {total_time/3600:.1f}h")
+    elif total_time >= 60:
+        log_main.info(f"Total time: {total_time/60:.1f}m")
+    else:
+        log_main.info(f"Total time: {total_time:.1f}s")
 
     return 0
 

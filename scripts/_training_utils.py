@@ -130,9 +130,9 @@ def train_and_get_result(
     no_wandb: bool = False,
     upload_model: bool = False,
     wandb_group: Optional[str] = None,
+    wandb_project: str = 'eeg-bci',
+    wandb_entity: Optional[str] = None,
     preprocess_config: Optional[PreprocessConfig] = None,
-    wandb_interactive: bool = False,
-    wandb_metadata: Optional[Dict] = None,
     cache_only: bool = False,
     cache_index_path: str = ".cache_index.json",
     config_overrides: Optional[Dict] = None,
@@ -153,9 +153,9 @@ def train_and_get_result(
         no_wandb: Disable wandb logging
         upload_model: Upload model to WandB
         wandb_group: WandB run group
+        wandb_project: WandB project name (default: eeg-bci)
+        wandb_entity: WandB entity (team/username)
         preprocess_config: Optional custom PreprocessConfig for ML engineering experiments
-        wandb_interactive: Prompt for run details interactively
-        wandb_metadata: Pre-collected metadata (goal, hypothesis, notes) for batch training
         cache_only: If True, load data exclusively from cache index
         cache_index_path: Path to cache index file for cache_only mode
         config_overrides: Config overrides dict (from YAML + CLI merge). Passed to train_subject_simple.
@@ -172,9 +172,9 @@ def train_and_get_result(
         no_wandb=no_wandb,
         upload_model=upload_model,
         wandb_group=wandb_group,
+        wandb_project=wandb_project,
+        wandb_entity=wandb_entity,
         preprocess_config=preprocess_config,
-        wandb_interactive=wandb_interactive,
-        wandb_metadata=wandb_metadata,
         cache_only=cache_only,
         cache_index_path=cache_index_path,
         config_overrides=config_overrides,
@@ -193,4 +193,28 @@ def train_and_get_result(
         test_acc_majority=result_dict.get('test_accuracy_majority', result_dict.get('test_accuracy', 0.0)),
         epochs_trained=result_dict.get('epochs_trained', result_dict.get('best_epoch', 0)),
         training_time=result_dict.get('training_time', 0.0),
+    )
+
+
+def add_wandb_args(parser) -> None:
+    """添加标准化 WandB CLI 参数到 argparse parser。
+
+    所有实验脚本共用，确保一致的 WandB 参数接口。
+    """
+    group = parser.add_argument_group('WandB')
+    group.add_argument(
+        '--no-wandb', action='store_true',
+        help='Disable WandB logging'
+    )
+    group.add_argument(
+        '--upload-model', action='store_true',
+        help='Upload model artifacts (.pt) to WandB'
+    )
+    group.add_argument(
+        '--wandb-project', type=str, default='eeg-bci',
+        help='WandB project name (default: eeg-bci)'
+    )
+    group.add_argument(
+        '--wandb-entity', type=str, default=None,
+        help='WandB entity (team/username)'
     )

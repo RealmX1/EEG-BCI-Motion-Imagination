@@ -108,6 +108,7 @@ from .common import (
     maybe_compile_model,
     get_scheduler_config_from_preset,
     apply_config_overrides,
+    temporal_split_by_group,
 )
 
 # Re-exports from src.config.training
@@ -264,8 +265,6 @@ def train_single_subject(
     wandb_project: str = 'eeg-bci',
     wandb_entity: Optional[str] = None,
     wandb_group: Optional[str] = None,
-    wandb_interactive: bool = False,
-    wandb_metadata: Optional[Dict[str, str]] = None,
     # Logging verbosity
     verbose: int = 2,
 ) -> Dict:
@@ -298,8 +297,6 @@ def train_single_subject(
         wandb_project: WandB project name
         wandb_entity: WandB entity (team/username)
         wandb_group: WandB run group
-        wandb_interactive: Prompt for run details interactively
-        wandb_metadata: Pre-collected metadata (goal, hypothesis, notes) for batch training
         verbose: Logging verbosity level (0=silent, 1=minimal, 2=full). Default: 2.
             Level 2: Full output (all sections)
             Level 1: Subject header + training table + final evaluation
@@ -332,8 +329,6 @@ def train_single_subject(
         entity=wandb_entity,
         group=wandb_group,
         log_model=upload_model,
-        interactive=wandb_interactive,
-        metadata=wandb_metadata,
     )
 
     wandb_callback = WandbCallback(wandb_logger) if wandb_logger.enabled else None
@@ -463,47 +458,18 @@ def train_single_subject(
         print_section_header("Data Splitting (Temporal - Last 20% for Validation)")
 
     with Timer("data_splitting", print_on_exit=(verbose >= 2)):
-        unique_trials = train_dataset.get_unique_trials()
-        n_trials = len(unique_trials)
         if verbose >= 2:
+            n_trials = len(train_dataset.get_unique_trials())
             print_metric("Total training trials", n_trials, Colors.CYAN)
 
-        # STRATIFIED temporal split: split within each session to ensure similar distributions
-        # This prevents validation set from being 100% one session type
-        from collections import defaultdict
-
-        # Group trials by session
-        session_to_trials = defaultdict(list)
-
-        for trial_idx in unique_trials:
-            # Find which session this trial belongs to
-            for info in train_dataset.trial_infos:
-                if info.trial_idx == trial_idx:
-                    session_to_trials[info.session_type].append(trial_idx)
-                    break
-
-        # For each session, split temporally (80/20)
-        val_ratio = 0.2
-        train_trials = []
-        val_trials = []
-
-        for session_type, trials in session_to_trials.items():
-            # Sort trials by index (chronological order within session)
-            trials = sorted(set(trials))
-            n_trials_session = len(trials)
-            n_val = max(1, int(n_trials_session * val_ratio))
-
-            # Temporal split within this session
-            train_trials.extend(trials[:-n_val])
-            val_trials.extend(trials[-n_val:])
-
-        # Get segment indices
-        train_indices = train_dataset.get_segment_indices_for_trials(train_trials)
-        val_indices = train_dataset.get_segment_indices_for_trials(val_trials)
+        # Stratified temporal split: split within each session to ensure
+        # similar distributions (prevents validation set from being 100%
+        # one session type).
+        train_indices, val_indices = temporal_split_by_group(
+            train_dataset, group_attr='session_type', val_ratio=0.2,
+        )
 
     if verbose >= 2:
-        print_metric("Train trials", len(train_trials), Colors.GREEN)
-        print_metric("Val trials", len(val_trials), Colors.YELLOW)
         print_metric("Train segments", len(train_indices), Colors.GREEN)
         print_metric("Val segments", len(val_indices), Colors.YELLOW)
 
@@ -796,8 +762,6 @@ def train_subject_simple(
     wandb_project: str = 'eeg-bci',
     wandb_entity: Optional[str] = None,
     wandb_group: Optional[str] = None,
-    wandb_interactive: bool = False,
-    wandb_metadata: Optional[Dict[str, str]] = None,
     # Logging verbosity
     verbose: int = 2,
 ) -> Dict:
@@ -826,8 +790,6 @@ def train_subject_simple(
         wandb_project: WandB project name
         wandb_entity: WandB entity (team/username)
         wandb_group: WandB run group
-        wandb_interactive: Prompt for run details interactively
-        wandb_metadata: Pre-collected metadata (goal, hypothesis, notes) for batch training
         verbose: Logging verbosity level (0=silent, 1=minimal, 2=full). Default: 2.
 
     Returns:
@@ -873,7 +835,5 @@ def train_subject_simple(
         wandb_project=wandb_project,
         wandb_entity=wandb_entity,
         wandb_group=wandb_group,
-        wandb_interactive=wandb_interactive,
-        wandb_metadata=wandb_metadata,
         verbose=verbose,
     )

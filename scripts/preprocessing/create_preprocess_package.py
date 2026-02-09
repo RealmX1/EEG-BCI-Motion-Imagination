@@ -30,14 +30,19 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 REQUIRED_FILES = [
     # Main scripts
     "scripts/preprocess_zip.py",
-    "scripts/package_caches.py",
+    "scripts/internal/package_caches.py",
     # Preprocessing module
     "src/__init__.py",
     "src/preprocessing/__init__.py",
     "src/preprocessing/cache_manager.py",
     "src/preprocessing/channel_selection.py",
     "src/preprocessing/data_loader.py",
-    "src/preprocessing/experiment_config.py",
+    "src/preprocessing/discovery.py",
+    "src/preprocessing/dataset.py",
+    "src/preprocessing/loader.py",
+    "src/preprocessing/pipeline.py",
+    "src/config/__init__.py",
+    "src/config/experiment_config.py",
     "src/preprocessing/filtering.py",
     "src/preprocessing/resampling.py",
     # Utils module (注意: __init__.py 使用精简版，见 UTILS_INIT_CONTENT)
@@ -199,13 +204,13 @@ python scripts/preprocess_zip.py --in-place --force
 
 ```bash
 # 默认: 分割成 ≤9GB 的 ZIP 文件
-python scripts/package_caches.py
+python scripts/internal/package_caches.py
 
 # 自定义大小限制 (单位: GB)
-python scripts/package_caches.py --max-size 4.5
+python scripts/internal/package_caches.py --max-size 4.5
 
 # 预览模式 (不创建文件)
-python scripts/package_caches.py --dry-run
+python scripts/internal/package_caches.py --dry-run
 ```
 
 输出文件在 `dist/` 目录：
@@ -250,16 +255,16 @@ dist/
 **被试范围示例**:
 ```bash
 # 单个被试
-python scripts/package_caches.py --subjects S08
+python scripts/internal/package_caches.py --subjects S08
 
 # 多个被试
-python scripts/package_caches.py --subjects S08 S09 S10
+python scripts/internal/package_caches.py --subjects S08 S09 S10
 
 # 被试范围
-python scripts/package_caches.py --subjects S08-S21
+python scripts/internal/package_caches.py --subjects S08-S21
 
 # 混合
-python scripts/package_caches.py --subjects S01 S03 S08-S15
+python scripts/internal/package_caches.py --subjects S01 S03 S08-S15
 ```
 
 ## 缓存系统说明
@@ -444,7 +449,7 @@ python scripts/preprocess_zip.py --in-place
 python scripts/preprocess_zip.py --in-place --paradigm movement
 
 # 打包缓存
-python scripts/package_caches.py
+python scripts/internal/package_caches.py
 ```
 
 ## 预处理管线概述
@@ -491,12 +496,12 @@ python scripts/preprocess_zip.py --models cbramod
 
 ### 打包成小于 5GB 的文件
 ```bash
-python scripts/package_caches.py --max-size 5
+python scripts/internal/package_caches.py --max-size 5
 ```
 
 ### 仅打包特定被试范围 (如 S08-S21)
 ```bash
-python scripts/package_caches.py --subjects S08-S21
+python scripts/internal/package_caches.py --subjects S08-S21
 ```
 
 ## 错误处理

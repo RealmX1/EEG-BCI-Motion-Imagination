@@ -22,10 +22,13 @@ class SelectionStrategy(Enum):
     NEWEST = "newest"           # 最新时间戳（用于训练恢复）
     BEST_ACCURACY = "best_acc"  # 最高准确率（用于图表生成）
 
-from ..config.constants import CACHE_FILENAME, CACHE_FILENAME_WITH_TAG, PARADIGM_CONFIG
+from ..config.constants import CACHE_FILENAME, CACHE_FILENAME_WITH_TAG, CacheType, PARADIGM_CONFIG
 from ..utils.logging import SectionLogger
 from .dataclasses import ComparisonResult, TrainingResult, PlotDataSource
-from .serialization import dict_to_result, result_to_dict, generate_result_filename
+from .serialization import (
+    dict_to_result, result_to_dict, generate_result_filename,
+    cross_subject_result_to_training_results,
+)
 from .statistics import compute_model_statistics
 
 logger = logging.getLogger(__name__)
@@ -52,12 +55,11 @@ def _extract_subject_accuracy(subject_data: dict) -> float:
     Returns:
         测试准确率，找不到时返回 0
     """
-    return (
-        subject_data.get('test_acc_majority') or
-        subject_data.get('test_accuracy_majority') or
-        subject_data.get('test_accuracy') or
-        subject_data.get('test_acc', 0)
-    )
+    for key in ('test_acc_majority', 'test_accuracy_majority', 'test_accuracy', 'test_acc'):
+        val = subject_data.get(key)
+        if val is not None:
+            return val
+    return 0
 
 
 def _compute_mean_accuracy(subjects_data: list) -> float:
@@ -76,27 +78,53 @@ def _compute_mean_accuracy(subjects_data: list) -> float:
     return float(np.mean(accs)) if accs else 0.0
 
 
-def get_cache_path(output_dir: str, paradigm: str, task: str, run_tag: Optional[str] = None) -> Path:
-    """Get path to cache file."""
+def _filter_cache_type(files: List[Path], cache_type: str) -> List[Path]:
+    """过滤 glob 结果，排除子串误匹配（如 comparison_cache 匹配到 transfer_comparison_cache）."""
+    if cache_type == CacheType.WITHIN_SUBJECT:
+        return [f for f in files if 'transfer_' not in f.name]
+    return files
+
+
+def get_cache_path(
+    output_dir: str,
+    paradigm: str,
+    task: str,
+    run_tag: Optional[str] = None,
+    cache_type: str = CacheType.WITHIN_SUBJECT,
+) -> Path:
+    """Get path to cache file.
+
+    Args:
+        output_dir: 结果目录
+        paradigm: 范式
+        task: 任务类型
+        run_tag: 可选运行标签
+        cache_type: 缓存类型 (CacheType.WITHIN_SUBJECT 或 CacheType.TRANSFER)
+    """
     if run_tag:
-        filename = CACHE_FILENAME_WITH_TAG.format(tag=run_tag, paradigm=paradigm, task=task)
+        filename = f'{run_tag}_{cache_type}_{paradigm}_{task}.json'
     else:
-        filename = CACHE_FILENAME.format(paradigm=paradigm, task=task)
+        filename = f'{cache_type}_{paradigm}_{task}.json'
     return Path(output_dir) / filename
 
 
-def find_latest_cache(output_dir: str, paradigm: str, task: str) -> Optional[Path]:
+def find_latest_cache(
+    output_dir: str,
+    paradigm: str,
+    task: str,
+    cache_type: str = CacheType.WITHIN_SUBJECT,
+) -> Optional[Path]:
     """Find the latest cache file (tagged or untagged) for the given paradigm and task."""
     results_dir = Path(output_dir)
     if not results_dir.exists():
         return None
 
     # Pattern matches both tagged and untagged cache files
-    pattern = f'*comparison_cache_{paradigm}_{task}.json'
-    cache_files = list(results_dir.glob(pattern))
+    pattern = f'*{cache_type}_{paradigm}_{task}.json'
+    cache_files = _filter_cache_type(list(results_dir.glob(pattern)), cache_type)
 
-    if not cache_files:
-        # Fallback: try old format without paradigm
+    if not cache_files and cache_type == CacheType.WITHIN_SUBJECT:
+        # Fallback: try old format without paradigm (only for within-subject)
         old_pattern = f'*comparison_cache_{task}.json'
         cache_files = list(results_dir.glob(old_pattern))
 
@@ -119,6 +147,7 @@ def find_cache_by_tag(
     paradigm: str,
     task: str,
     tag_substring: Optional[str] = None,
+    cache_type: str = CacheType.WITHIN_SUBJECT,
 ) -> Optional[Tuple[Path, str]]:
     """
     根据时间戳子串查找缓存文件.
@@ -128,6 +157,7 @@ def find_cache_by_tag(
         paradigm: 范式 ('imagery' 或 'movement')
         task: 任务类型 ('binary', 'ternary', 'quaternary')
         tag_substring: 时间戳子串（如 "20260205"）。如果为 None，返回最新的缓存。
+        cache_type: 缓存类型 (CacheType.WITHIN_SUBJECT 或 CacheType.TRANSFER)
 
     Returns:
         Tuple of (cache_path, run_tag) 或 None（找不到时）
@@ -146,18 +176,17 @@ def find_cache_by_tag(
         return None
 
     # 搜索所有可能的缓存文件
-    pattern = f'*comparison_cache_{paradigm}_{task}.json'
-    cache_files = list(results_dir.glob(pattern))
+    pattern = f'*{cache_type}_{paradigm}_{task}.json'
+    cache_files = _filter_cache_type(list(results_dir.glob(pattern)), cache_type)
 
     if not cache_files:
         return None
 
+    suffix = f'_{cache_type}_{paradigm}_{task}.json'
+
     def extract_run_tag(path: Path) -> Optional[str]:
         """从文件名中提取 run_tag."""
-        # 文件名格式: {tag}_comparison_cache_{paradigm}_{task}.json
-        # 或: comparison_cache_{paradigm}_{task}.json (无 tag)
         name = path.name
-        suffix = f'_comparison_cache_{paradigm}_{task}.json'
         if name.endswith(suffix):
             tag = name[:-len(suffix)]
             return tag if tag else None
@@ -196,7 +225,8 @@ def load_cache(
     paradigm: str,
     task: str,
     run_tag: Optional[str] = None,
-    find_latest: bool = False
+    find_latest: bool = False,
+    cache_type: str = CacheType.WITHIN_SUBJECT,
 ) -> Tuple[Dict[str, Dict[str, dict]], Dict]:
     """Load cached results with backward compatibility for old cache format.
 
@@ -206,6 +236,7 @@ def load_cache(
         task: 'binary', 'ternary', or 'quaternary'
         run_tag: Optional tag for specific run (e.g., '20260110_2317')
         find_latest: If True and run_tag is None, find the latest cache file
+        cache_type: 缓存类型 (CacheType.WITHIN_SUBJECT 或 CacheType.TRANSFER)
 
     Returns:
         Tuple of (results_dict, metadata_dict) where metadata contains:
@@ -256,7 +287,7 @@ def load_cache(
         }
 
     if find_latest and not run_tag:
-        latest_cache = find_latest_cache(output_dir, paradigm, task)
+        latest_cache = find_latest_cache(output_dir, paradigm, task, cache_type=cache_type)
         if latest_cache:
             try:
                 with open(latest_cache, 'r', encoding='utf-8') as f:
@@ -267,7 +298,7 @@ def load_cache(
                 log_cache.warning(f"Failed to load latest cache: {e}")
         return {}, empty_metadata
 
-    cache_path = get_cache_path(output_dir, paradigm, task, run_tag)
+    cache_path = get_cache_path(output_dir, paradigm, task, run_tag, cache_type=cache_type)
     if cache_path.exists():
         try:
             with open(cache_path, 'r', encoding='utf-8') as f:
@@ -304,6 +335,8 @@ def save_cache(
     n_subjects: Optional[int] = None,
     is_complete: bool = False,
     existing_timestamp: Optional[str] = None,
+    cache_type: str = CacheType.WITHIN_SUBJECT,
+    extra_metadata: Optional[Dict] = None,
 ) -> Path:
     """Save results to cache using atomic write to prevent corruption.
 
@@ -319,26 +352,32 @@ def save_cache(
         n_subjects: Optional total number of subjects
         is_complete: Whether all training is complete (default: False)
         existing_timestamp: Optional existing timestamp to preserve (for updates)
+        cache_type: 缓存类型 (CacheType.WITHIN_SUBJECT 或 CacheType.TRANSFER)
+        extra_metadata: 额外元数据字典，合并到 metadata 中（如 transfer_config）
 
     Returns:
         Path to saved cache file
     """
-    cache_path = get_cache_path(output_dir, paradigm, task, run_tag)
+    cache_path = get_cache_path(output_dir, paradigm, task, run_tag, cache_type=cache_type)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Preserve existing timestamp or create new one
     timestamp = existing_timestamp or datetime.now().isoformat()
 
     # Create/update metadata structure
+    metadata = {
+        'paradigm': paradigm,
+        'task': task,
+        'run_tag': run_tag,
+        'timestamp': timestamp,
+        'n_subjects': n_subjects,
+        'is_complete': is_complete,
+    }
+    if extra_metadata:
+        metadata.update(extra_metadata)
+
     data = {
-        'metadata': {
-            'paradigm': paradigm,
-            'task': task,
-            'run_tag': run_tag,
-            'timestamp': timestamp,
-            'n_subjects': n_subjects,
-            'is_complete': is_complete,
-        },
+        'metadata': metadata,
         'wandb_groups': wandb_groups or {},
         'last_updated': datetime.now().isoformat(),
         'results': results,
@@ -420,8 +459,9 @@ def _collect_compatible_files(
     for pattern in cache_patterns:
         all_files.extend(results_dir.glob(pattern))
 
-    # 去重
+    # 去重并排除 transfer / cross-subject 缓存的误匹配
     all_files = list(set(all_files))
+    all_files = [f for f in all_files if 'transfer_' not in f.name and 'cross-subject' not in f.name]
 
     if not all_files:
         return []
@@ -661,7 +701,7 @@ def build_data_sources_from_historical(
     return data_sources
 
 
-def _find_best_within_subject_for_model(
+def find_best_within_subject_for_model(
     output_dir: str,
     paradigm: str,
     task: str,
@@ -691,7 +731,10 @@ def _find_best_within_subject_for_model(
         return None
 
     pattern = f'*comparison_cache_{paradigm}_{task}.json'
-    all_files = [f for f in results_dir.glob(pattern) if 'cross-subject' not in f.name]
+    all_files = [
+        f for f in results_dir.glob(pattern)
+        if 'cross-subject' not in f.name and 'transfer' not in f.name
+    ]
 
     best_results = None
     best_mean_acc = -1.0
@@ -790,7 +833,7 @@ def build_cross_subject_data_sources(
 
     # 1 & 2: 历史 Within-Subject 数据 — 每个模型独立搜索
     for model_type in ['eegnet', 'cbramod']:
-        hist_results = _find_best_within_subject_for_model(
+        hist_results = find_best_within_subject_for_model(
             output_dir=output_dir,
             paradigm=paradigm,
             task=task,
@@ -811,42 +854,8 @@ def build_cross_subject_data_sources(
         if model_type not in current_results:
             continue
         result = current_results[model_type]
-        per_subj = (
-            result.get('per_subject_test_acc') or
-            result.get('results', {}).get('per_subject_test_acc', {})
-        )
-        if not per_subj:
-            continue
 
-        task_val = result.get('task', result.get('metadata', {}).get('task', task))
-        val_acc = (
-            result.get('val_acc') or
-            result.get('val_majority_acc') or
-            result.get('results', {}).get('best_val_acc', 0)
-        )
-        best_epoch = (
-            result.get('best_epoch') or
-            result.get('results', {}).get('best_epoch', 0)
-        )
-        total_time = (
-            result.get('training_time') or
-            result.get('training_info', {}).get('training_time', 0)
-        )
-        n_subjects = len(per_subj) if per_subj else 1
-
-        training_results = []
-        for subject_id, test_acc in per_subj.items():
-            training_results.append(TrainingResult(
-                subject_id=subject_id,
-                task_type=task_val,
-                model_type=model_type,
-                best_val_acc=val_acc,
-                test_acc=test_acc,
-                test_acc_majority=test_acc,
-                epochs_trained=best_epoch,
-                training_time=total_time / max(n_subjects, 1),
-            ))
-
+        training_results = cross_subject_result_to_training_results(result, model_type, task)
         if training_results:
             data_sources.append(PlotDataSource(
                 model_type=model_type,
@@ -861,19 +870,10 @@ def build_cross_subject_data_sources(
         per_subj_hist = cross_subject_historical.get('per_subject_test_acc', {})
         hist_model = cross_subject_historical.get('model_type', 'cbramod')
         if per_subj_hist and subjects_set <= set(per_subj_hist.keys()):
-            training_results = []
-            for subject_id, test_acc in per_subj_hist.items():
-                if subject_id in subjects_set:
-                    training_results.append(TrainingResult(
-                        subject_id=subject_id,
-                        task_type=task,
-                        model_type=hist_model,
-                        best_val_acc=0,
-                        test_acc=test_acc,
-                        test_acc_majority=test_acc,
-                        epochs_trained=0,
-                        training_time=0,
-                    ))
+            all_hist = cross_subject_result_to_training_results(
+                cross_subject_historical, hist_model, task
+            )
+            training_results = [r for r in all_hist if r.subject_id in subjects_set]
             if training_results:
                 data_sources.append(PlotDataSource(
                     model_type=hist_model,
@@ -882,6 +882,88 @@ def build_cross_subject_data_sources(
                     label=f'{hist_model.upper()} (Cross-Hist)',
                     hatch='...',
                 ))
+
+    return data_sources
+
+
+def build_transfer_data_sources(
+    transfer_results: Dict[str, List[TrainingResult]],
+    cross_subject_results: Dict[str, Dict],
+    subjects: List[str],
+    task: str,
+    within_subject_results: Optional[Dict[str, List[TrainingResult]]] = None,
+) -> List[PlotDataSource]:
+    """
+    为 transfer learning 比较构建 PlotDataSource 列表.
+
+    顺序:
+    1. Within-Subject EEGNet (baseline, alpha=0.4, hatch='///')
+    2. Within-Subject CBraMod (baseline, alpha=0.4, hatch='///')
+    3. Cross-Subject EEGNet (baseline, alpha=0.4, hatch='...')
+    4. Cross-Subject CBraMod (baseline, alpha=0.4, hatch='...')
+    5. Transfer EEGNet (current, alpha=1.0)
+    6. Transfer CBraMod (current, alpha=1.0)
+
+    Args:
+        transfer_results: 迁移学习结果 {model_type: List[TrainingResult]}
+        cross_subject_results: 跨被试基线结果 {model_type: cross_subject_result_dict}
+        subjects: 被试列表
+        task: 任务类型
+        within_subject_results: 被试内基线结果 {model_type: List[TrainingResult]}
+
+    Returns:
+        PlotDataSource 列表，可直接传递给 generate_combined_plot()
+    """
+    subjects_set = set(subjects)
+    data_sources = []
+
+    # 1 & 2: Within-subject baselines
+    if within_subject_results:
+        for model_type in ['eegnet', 'cbramod']:
+            ws_results = within_subject_results.get(model_type, [])
+            filtered = [r for r in ws_results if r.subject_id in subjects_set]
+
+            if filtered:
+                data_sources.append(PlotDataSource(
+                    model_type=model_type,
+                    results=filtered,
+                    is_current_run=False,
+                    label=f'{model_type.upper()} (Within)',
+                    hatch='///',
+                ))
+
+    # 3 & 4: Cross-subject baselines
+    for model_type in ['eegnet', 'cbramod']:
+        cross_result = cross_subject_results.get(model_type)
+        if not cross_result:
+            continue
+
+        baseline_results = cross_subject_result_to_training_results(
+            cross_result, model_type, task
+        )
+        filtered = [r for r in baseline_results if r.subject_id in subjects_set]
+
+        if filtered:
+            data_sources.append(PlotDataSource(
+                model_type=model_type,
+                results=filtered,
+                is_current_run=False,
+                label=f'{model_type.upper()} (Cross)',
+                hatch='...',
+            ))
+
+    # 5 & 6: Transfer learning results (current)
+    for model_type in ['eegnet', 'cbramod']:
+        results = transfer_results.get(model_type, [])
+        filtered = [r for r in results if r.subject_id in subjects_set]
+
+        if filtered:
+            data_sources.append(PlotDataSource(
+                model_type=model_type,
+                results=filtered,
+                is_current_run=True,
+                label=f'{model_type.upper()} (Transfer)',
+            ))
 
     return data_sources
 
@@ -1239,8 +1321,11 @@ def find_compatible_within_subject_results(
     pattern = f'*comparison_cache_{paradigm}_{task}.json'
     all_files = list(results_dir.glob(pattern))
 
-    # 排除 cross-subject 文件
-    all_files = [f for f in all_files if 'cross-subject' not in f.name]
+    # 排除 cross-subject 和 transfer 文件
+    all_files = [
+        f for f in all_files
+        if 'cross-subject' not in f.name and 'transfer' not in f.name
+    ]
 
     if not all_files:
         return None

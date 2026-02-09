@@ -9,10 +9,12 @@ Functions:
     maybe_compile_model: Apply torch.compile if supported
     get_scheduler_config_from_preset: Extract scheduler config from SCHEDULER_PRESETS
     create_two_phase_loaders: Create exploration and main phase DataLoaders
+    temporal_split_by_group: Shared temporal split logic for train/val splitting
 """
 
 import logging
 import platform
+from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -271,3 +273,45 @@ def apply_config_overrides(
             config[section] = overrides
 
     return config
+
+
+def temporal_split_by_group(
+    dataset,
+    group_attr: str,
+    val_ratio: float = 0.2,
+) -> Tuple[List[int], List[int]]:
+    """
+    Temporal split: group trials by an attribute, split each group 80/20.
+
+    Within each group, trials are sorted chronologically and the last
+    ``val_ratio`` fraction is assigned to the validation set.  This
+    prevents data leakage from future trials to past.
+
+    Args:
+        dataset: FingerEEGDataset (must have ``.trial_infos`` and
+            ``.get_segment_indices_for_trials()``).
+        group_attr: Attribute of ``trial_infos`` entries to group by.
+            - ``'subject_id'`` for cross-subject training
+            - ``'session_type'`` for within-subject stratified split
+        val_ratio: Fraction of each group's trials for validation.
+
+    Returns:
+        ``(train_indices, val_indices)`` — segment-level index lists.
+    """
+    group_to_trials: Dict[str, set] = defaultdict(set)
+    for info in dataset.trial_infos:
+        group_to_trials[getattr(info, group_attr)].add(info.trial_idx)
+
+    train_trials: List[int] = []
+    val_trials: List[int] = []
+
+    for _group_key, trials in group_to_trials.items():
+        sorted_trials = sorted(trials)
+        n_val = max(1, int(len(sorted_trials) * val_ratio))
+        train_trials.extend(sorted_trials[:-n_val])
+        val_trials.extend(sorted_trials[-n_val:])
+
+    train_indices = dataset.get_segment_indices_for_trials(train_trials)
+    val_indices = dataset.get_segment_indices_for_trials(val_trials)
+
+    return train_indices, val_indices
