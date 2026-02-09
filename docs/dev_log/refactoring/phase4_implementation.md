@@ -20,7 +20,6 @@ scripts/
 ├── run_single_model.py
 ├── run_cross_subject.py
 ├── run_finetune.py
-├── run_transfer_comparison.py
 ├── preprocess_zip.py
 ├── cache_helper.py
 ├── verify_installation.py
@@ -36,12 +35,11 @@ scripts/
 ├── _training_utils.py          # 保留: 共享工具
 ├── _wandb_setup.py             # 保留: WandB 设置
 ├── run_*.py                    # Wrapper 脚本 (向后兼容)
-├── experiments/                # 训练实验脚本 (5 个)
+├── experiments/                # 训练实验脚本 (4 个)
 │   ├── run_full_comparison.py
 │   ├── run_single_model.py
 │   ├── run_cross_subject.py
-│   ├── run_finetune.py
-│   └── run_transfer_comparison.py
+│   └── run_finetune.py
 ├── preprocessing/              # 数据预处理脚本 (4 个)
 │   ├── preprocess_zip.py
 │   ├── cache_helper.py
@@ -69,7 +67,7 @@ scripts/
 
 ## 迁移的文件
 
-### experiments/ (5 个脚本)
+### experiments/ (4 个脚本)
 
 | 文件 | 原位置 | 说明 |
 |------|--------|------|
@@ -77,7 +75,6 @@ scripts/
 | `run_single_model.py` | scripts/ | 单模型训练 |
 | `run_cross_subject.py` | scripts/ | 跨被试预训练 |
 | `run_finetune.py` | scripts/ | 个体微调 |
-| `run_transfer_comparison.py` | scripts/ | 迁移学习对比 |
 
 ### preprocessing/ (4 个脚本)
 
@@ -155,7 +152,6 @@ if __name__ == '__main__':
 - `scripts/run_single_model.py`
 - `scripts/run_cross_subject.py`
 - `scripts/run_finetune.py`
-- `scripts/run_transfer_comparison.py`
 - `scripts/preprocess_zip.py`
 - `scripts/verify_installation.py`
 - `scripts/cache_helper.py`

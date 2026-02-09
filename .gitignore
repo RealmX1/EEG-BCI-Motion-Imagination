@@ -95,3 +95,4 @@ results/finetune/
 *_CACHE_STATUS.txt
 results/comparison_cache_imagery_ternary.json
 nul
+analysis_data/wandb_data.json

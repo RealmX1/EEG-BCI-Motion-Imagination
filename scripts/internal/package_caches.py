@@ -111,14 +111,16 @@ def get_file_hash(file_path: Path, chunk_size: int = 8192) -> str:
 def get_cache_files(
     cache_dir: Path,
     subjects: Optional[List[str]] = None,
+    paradigm: Optional[str] = None,
     verbose: bool = False,
 ) -> List[Tuple[Path, int]]:
     """
-    Get cache files with their sizes, optionally filtered by subject.
+    Get cache files with their sizes, optionally filtered by subject and paradigm.
 
     Args:
         cache_dir: Path to cache directory
         subjects: List of subject IDs to include (None = all)
+        paradigm: Task type to include: 'imagery' or 'movement' (None = all)
         verbose: Show detailed breakdown by subject/model
 
     Returns:
@@ -143,7 +145,7 @@ def get_cache_files(
         for entry in cache_index.values():
             subj = entry.get('subject', 'unknown')
             model_raw = entry.get('model', 'unknown')
-            paradigm = entry.get('collection_paradigm', 'unknown')
+            collection = entry.get('collection_paradigm', 'unknown')
             n_cls = entry.get('n_classes', 0)
 
             # Normalize model name (cbramod_128ch -> cbramod)
@@ -159,7 +161,7 @@ def get_cache_files(
                                    'offline': 0, 'online': 0}
             by_subject[subj]['total'] += 1
             by_subject[subj][model] = by_subject[subj].get(model, 0) + 1
-            by_subject[subj][paradigm] = by_subject[subj].get(paradigm, 0) + 1
+            by_subject[subj][collection] = by_subject[subj].get(collection, 0) + 1
 
         print("\nCache index breakdown by subject:")
         print(f"{'Subject':<10} {'Total':<8} {'EEGNet':<8} {'CBraMod':<8} {'Offline':<8} {'Online':<8}")
@@ -170,21 +172,33 @@ def get_cache_files(
                   f"{s.get('cbramod',0):<8} {s.get('offline',0):<8} {s.get('online',0):<8}")
         print()
 
-    # Build set of cache keys for selected subjects
+    # Build set of cache keys for selected subjects and paradigm
     selected_keys = None
-    if subjects:
-        # Normalize to uppercase for case-insensitive matching
-        subjects_set = {s.upper() for s in subjects}
+    if subjects or paradigm:
         selected_keys = set()
+        subjects_set = {s.upper() for s in subjects} if subjects else None
         unmatched_subjects = set()
+
         for cache_key, entry in cache_index.items():
-            entry_subject = entry.get('subject', '')
-            # Case-insensitive comparison
-            if entry_subject.upper() in subjects_set:
-                selected_keys.add(cache_key)
-            else:
-                unmatched_subjects.add(entry_subject)
-        print(f"Filtering for subjects: {sorted(subjects_set)}")
+            # Subject filter
+            if subjects_set:
+                entry_subject = entry.get('subject', '')
+                if entry_subject.upper() not in subjects_set:
+                    unmatched_subjects.add(entry_subject)
+                    continue
+
+            # Paradigm filter (subject_task_type: 'imagery' or 'movement')
+            if paradigm:
+                entry_paradigm = entry.get('subject_task_type', '')
+                if entry_paradigm != paradigm:
+                    continue
+
+            selected_keys.add(cache_key)
+
+        if subjects_set:
+            print(f"Filtering for subjects: {sorted(subjects_set)}")
+        if paradigm:
+            print(f"Filtering for paradigm: {paradigm}")
         print(f"Matched {len(selected_keys)} cache entries")
         # Show what subjects exist in cache but weren't selected
         if unmatched_subjects:
@@ -323,6 +337,7 @@ def package_caches(
     dry_run: bool = False,
     compression: int = zipfile.ZIP_DEFLATED,
     subjects: Optional[List[str]] = None,
+    paradigm: Optional[str] = None,
     verbose: bool = False,
 ) -> int:
     """
@@ -335,6 +350,7 @@ def package_caches(
         dry_run: If True, only preview without creating files
         compression: ZIP compression method
         subjects: List of subject IDs to include (None = all)
+        paradigm: Task type to include: 'imagery' or 'movement' (None = all)
 
     Returns:
         0 on success, 1 on error
@@ -350,10 +366,12 @@ def package_caches(
     print(f"Max size per ZIP: {max_size_gb} GB")
     if subjects:
         print(f"Subjects filter: {subjects}")
+    if paradigm:
+        print(f"Paradigm filter: {paradigm}")
     print()
 
-    # Get cache files (filtered by subjects if specified)
-    files = get_cache_files(cache_dir, subjects=subjects, verbose=verbose)
+    # Get cache files (filtered by subjects/paradigm if specified)
+    files = get_cache_files(cache_dir, subjects=subjects, paradigm=paradigm, verbose=verbose)
 
     if not files:
         print("No cache files found!")
@@ -667,6 +685,14 @@ def main():
     )
 
     parser.add_argument(
+        '--paradigm',
+        type=str,
+        choices=['imagery', 'movement'],
+        default=None,
+        help='Filter by paradigm: imagery (MI) or movement (ME). Default: all paradigms',
+    )
+
+    parser.add_argument(
         '--verbose', '-v',
         action='store_true',
         help='Show detailed breakdown of cache entries by subject/model',
@@ -698,6 +724,7 @@ def main():
         dry_run=args.dry_run,
         compression=compression,
         subjects=subjects,
+        paradigm=args.paradigm,
         verbose=args.verbose,
     )
 

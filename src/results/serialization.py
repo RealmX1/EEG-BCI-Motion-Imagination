@@ -6,7 +6,7 @@ objects to/from dictionaries for JSON serialization.
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Dict, List, Optional
 
 from .dataclasses import TrainingResult
 
@@ -87,3 +87,69 @@ def generate_result_filename(
 
     parts = [timestamp, prefix, paradigm, task]
     return "_".join(parts) + f".{ext}"
+
+
+def cross_subject_result_to_training_results(
+    result: Dict,
+    model_type: str,
+    task: str,
+) -> List[TrainingResult]:
+    """
+    将 cross-subject 结果字典转换为 TrainingResult 列表.
+
+    支持多种输入格式:
+    - train_cross_subject() 返回的字典 (有 per_subject_test_acc, val_acc, best_epoch 等)
+    - find_compatible_cross_subject_results() 返回的字典 (仅 per_subject_test_acc)
+    - 从 JSON 加载的跨被试结果
+
+    Args:
+        result: 跨被试训练结果字典
+        model_type: 模型类型 ('eegnet' 或 'cbramod')
+        task: 任务类型
+
+    Returns:
+        TrainingResult 列表
+    """
+    per_subject = (
+        result.get('per_subject_test_acc')
+        if result.get('per_subject_test_acc') is not None
+        else result.get('results', {}).get('per_subject_test_acc', {})
+    )
+    val_acc = next(
+        (v for v in (
+            result.get('val_acc'),
+            result.get('val_majority_acc'),
+            result.get('results', {}).get('best_val_acc'),
+        ) if v is not None),
+        0,
+    )
+    best_epoch = next(
+        (v for v in (
+            result.get('best_epoch'),
+            result.get('results', {}).get('best_epoch'),
+        ) if v is not None),
+        0,
+    )
+    total_time = next(
+        (v for v in (
+            result.get('training_time'),
+            result.get('training_info', {}).get('training_time'),
+        ) if v is not None),
+        0,
+    )
+    n_subjects = len(per_subject) if per_subject else 1
+
+    training_results = []
+    for subject_id, test_acc in per_subject.items():
+        training_results.append(TrainingResult(
+            subject_id=subject_id,
+            task_type=task,
+            model_type=model_type,
+            best_val_acc=val_acc,
+            test_acc=test_acc,
+            test_acc_majority=test_acc,
+            epochs_trained=best_epoch,
+            training_time=total_time / max(n_subjects, 1),
+        ))
+
+    return training_results

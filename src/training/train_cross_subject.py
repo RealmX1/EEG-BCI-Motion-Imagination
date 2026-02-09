@@ -68,6 +68,7 @@ from src.training.common import (
     get_scheduler_config_from_preset,
     create_two_phase_loaders,
     apply_config_overrides,
+    temporal_split_by_group,
 )
 from src.config.training import SCHEDULER_PRESETS, get_cross_subject_config
 from src.utils.device import get_device, set_seed
@@ -164,44 +165,12 @@ def temporal_split_cross_subject(
     """
     Perform temporal split on cross-subject dataset.
 
-    For each subject's data within the dataset:
-    - Sort trials chronologically
-    - First (1-val_ratio) trials -> training
-    - Last val_ratio trials -> validation
+    Groups trials by subject, sorts chronologically within each subject,
+    and assigns the last ``val_ratio`` fraction to validation.
 
-    This ensures temporal ordering is preserved within each subject,
-    preventing data leakage from future trials to past.
-
-    Args:
-        dataset: Combined multi-subject dataset
-        val_ratio: Fraction of each subject's trials for validation
-
-    Returns:
-        Tuple of (train_indices, val_indices)
+    Delegates to :func:`~src.training.common.temporal_split_by_group`.
     """
-    # Group trials by subject
-    subject_to_trials = defaultdict(set)
-    for idx, info in enumerate(dataset.trial_infos):
-        subject_to_trials[info.subject_id].add(info.trial_idx)
-
-    train_trials = []
-    val_trials = []
-
-    for subject_id, trials in subject_to_trials.items():
-        # Sort trials chronologically
-        sorted_trials = sorted(trials)
-        n_trials = len(sorted_trials)
-        n_val = max(1, int(n_trials * val_ratio))
-
-        # Temporal split
-        train_trials.extend(sorted_trials[:-n_val])
-        val_trials.extend(sorted_trials[-n_val:])
-
-    # Convert trial indices to segment indices
-    train_indices = dataset.get_segment_indices_for_trials(train_trials)
-    val_indices = dataset.get_segment_indices_for_trials(val_trials)
-
-    return train_indices, val_indices
+    return temporal_split_by_group(dataset, group_attr='subject_id', val_ratio=val_ratio)
 
 
 def create_cross_subject_model(
@@ -267,7 +236,6 @@ def train_cross_subject(
     wandb_project: str = 'eeg-bci',
     wandb_entity: Optional[str] = None,
     wandb_group: Optional[str] = None,
-    wandb_metadata: Optional[Dict[str, str]] = None,
     # Logging verbosity
     verbose: int = 2,
 ) -> Dict:
@@ -297,7 +265,6 @@ def train_cross_subject(
         wandb_project: WandB project name
         wandb_entity: WandB entity (team/username)
         wandb_group: WandB run group
-        wandb_metadata: Pre-collected metadata for WandB
         verbose: Logging verbosity (0=silent, 1=minimal, 2=full)
 
     Returns:
@@ -340,7 +307,6 @@ def train_cross_subject(
         entity=wandb_entity,
         group=wandb_group or f"cross_subject_{model_type}",
         log_model=upload_model,
-        metadata=wandb_metadata,
     )
 
     wandb_callback = WandbCallback(wandb_logger) if wandb_logger.enabled else None
@@ -359,14 +325,14 @@ def train_cross_subject(
     # ========== CONFIG SETUP ==========
     config = get_cross_subject_config(model_type, task)
 
-    # Apply CLI overrides (if user explicitly specified)
+    # Apply config_overrides dict first (e.g. scheduler presets)
+    config = apply_config_overrides(config, config_overrides, log_prefix="[Cross-Subject] ")
+
+    # CLI args override everything (highest priority)
     if batch_size is not None:
         config['training']['batch_size'] = batch_size
     if epochs is not None:
         config['training']['epochs'] = epochs
-
-    # Apply config overrides (same logic as within-subject)
-    config = apply_config_overrides(config, config_overrides, log_prefix="[Cross-Subject] ")
 
     # Task configuration
     task_config = config['tasks'][task]

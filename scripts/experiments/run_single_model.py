@@ -75,6 +75,7 @@ from _training_utils import (
     discover_subjects,
     print_subject_result,
     train_and_get_result,
+    add_wandb_args,
 )
 
 
@@ -100,8 +101,8 @@ def run_single_model(
     run_tag: Optional[str] = None,
     no_wandb: bool = False,
     upload_model: bool = False,
-    wandb_interactive: bool = False,
-    wandb_session_metadata: Optional[Dict[str, Optional[str]]] = None,
+    wandb_project: str = 'eeg-bci',
+    wandb_entity: Optional[str] = None,
     cache_only: bool = False,
     cache_index_path: str = ".cache_index.json",
     config_overrides: Optional[Dict] = None,
@@ -121,9 +122,8 @@ def run_single_model(
         run_tag: Optional datetime tag for new runs
         no_wandb: Disable wandb logging
         upload_model: Upload model artifacts (.pt) to WandB (default: False)
-        wandb_interactive: Prompt for run details interactively (only prompts once for batch training)
-        wandb_session_metadata: Pre-collected WandB metadata (from run_within_subject_comparison.py).
-            When provided, skips interactive prompting.
+        wandb_project: WandB project name (default: eeg-bci)
+        wandb_entity: WandB entity (team/username)
         cache_only: If True, load data exclusively from cache index
         cache_index_path: Path to cache index file for cache_only mode
         config_overrides: Config overrides dict (from YAML + CLI merge). Passed to train_and_get_result.
@@ -185,28 +185,6 @@ def run_single_model(
         elif subjects_to_train:
             log_train.info(f"{len(subjects_to_train)} to train ({', '.join(sorted(subjects_to_train))})")
 
-    # Determine shared WandB metadata for batch training
-    shared_wandb_metadata = None
-    if wandb_session_metadata is not None:
-        # Use pre-collected metadata from run_within_subject_comparison.py
-        shared_wandb_metadata = wandb_session_metadata
-    else:
-        # Single model run: check if we should prompt
-        from scripts._wandb_setup import should_prompt_wandb, prompt_batch_session
-        if should_prompt_wandb(
-            wandb_enabled=not no_wandb,
-            interactive=wandb_interactive,
-            has_training=bool(subjects_to_train),
-        ):
-            shared_wandb_metadata = prompt_batch_session(
-                models=[model_type],
-                task=task,
-                paradigm=paradigm,
-                subjects_to_train=len(subjects_to_train),
-            )
-    # Don't prompt again for individual subjects
-    wandb_interactive = False
-
     results: List[TrainingResult] = []
 
     if model_type not in cache:
@@ -248,8 +226,8 @@ def run_single_model(
                 no_wandb=no_wandb,
                 upload_model=upload_model,
                 wandb_group=wandb_group,
-                wandb_interactive=wandb_interactive,
-                wandb_metadata=shared_wandb_metadata,
+                wandb_project=wandb_project,
+                wandb_entity=wandb_entity,
                 cache_only=cache_only,
                 cache_index_path=cache_index_path,
                 config_overrides=config_overrides,
@@ -365,18 +343,7 @@ Examples:
         '--no-plot', action='store_true',
         help='Suppress plot generation'
     )
-    parser.add_argument(
-        '--no-wandb', action='store_true',
-        help='Disable wandb logging'
-    )
-    parser.add_argument(
-        '--upload-model', action='store_true',
-        help='Upload model artifacts (.pt files) to WandB (default: disabled to save bandwidth)'
-    )
-    parser.add_argument(
-        '--no-wandb-interactive', action='store_true',
-        help='Disable interactive prompts for WandB run details (prompts are enabled by default)'
-    )
+    add_wandb_args(parser)
     parser.add_argument(
         '--seed', type=int, default=42,
         help='Random seed (default: 42)'
@@ -523,7 +490,8 @@ Examples:
             run_tag=run_tag,
             no_wandb=args.no_wandb,
             upload_model=args.upload_model,
-            wandb_interactive=not args.no_wandb_interactive,
+            wandb_project=args.wandb_project,
+            wandb_entity=args.wandb_entity,
             cache_only=args.cache_only,
             cache_index_path=args.cache_index_path,
             config_overrides=config_overrides,

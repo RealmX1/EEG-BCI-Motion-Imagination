@@ -54,6 +54,7 @@ from src.results import (
     build_cross_subject_data_sources,
     generate_result_filename,
     TrainingResult,
+    cross_subject_result_to_training_results,
 )
 from src.visualization import generate_combined_plot
 from src.training.train_cross_subject import train_cross_subject
@@ -62,7 +63,7 @@ from src.config.training import SCHEDULER_PRESETS
 SCRIPTS_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from _training_utils import discover_subjects
+from _training_utils import discover_subjects, add_wandb_args
 
 
 setup_logging('cross_subject_comparison')
@@ -71,33 +72,6 @@ logger = logging.getLogger(__name__)
 log_main = SectionLogger(logger, 'main')
 log_stats = SectionLogger(logger, 'stats')
 log_io = SectionLogger(logger, 'io')
-
-
-def results_to_training_results(result: dict, model_type: str, task: str) -> list:
-    """Convert cross-subject result dict to list of TrainingResult for statistics."""
-    training_results = []
-    per_subject = (
-        result.get('per_subject_test_acc') or
-        result.get('results', {}).get('per_subject_test_acc', {})
-    )
-    val_acc = result.get('val_acc', result.get('results', {}).get('best_val_acc', 0))
-    best_epoch = result.get('best_epoch', result.get('results', {}).get('best_epoch', 0))
-    total_time = result.get('training_time', result.get('training_info', {}).get('training_time', 0))
-    n_subjects = len(per_subject) if per_subject else 1
-
-    for subject_id, test_acc in per_subject.items():
-        training_results.append(TrainingResult(
-            subject_id=subject_id,
-            task_type=task,
-            model_type=model_type,
-            best_val_acc=val_acc,
-            test_acc=test_acc,
-            test_acc_majority=test_acc,
-            epochs_trained=best_epoch,
-            training_time=total_time / max(n_subjects, 1),
-        ))
-
-    return training_results
 
 
 def main():
@@ -201,23 +175,7 @@ Examples:
         help='Path to cache index file (default: .cache_index.json)'
     )
 
-    # WandB arguments
-    parser.add_argument(
-        '--no-wandb', action='store_true',
-        help='Disable WandB logging'
-    )
-    parser.add_argument(
-        '--upload-model', action='store_true',
-        help='Upload model artifacts to WandB'
-    )
-    parser.add_argument(
-        '--wandb-project', type=str, default='eeg-bci',
-        help='WandB project name (default: eeg-bci)'
-    )
-    parser.add_argument(
-        '--wandb-entity', type=str, default=None,
-        help='WandB entity (team/username)'
-    )
+    add_wandb_args(parser)
 
     # Verbosity arguments
     parser.add_argument(
@@ -318,7 +276,7 @@ Examples:
     # Convert to TrainingResult lists for comparison
     results_as_training = {}
     for model_type, model_results in results.items():
-        results_as_training[model_type] = results_to_training_results(
+        results_as_training[model_type] = cross_subject_result_to_training_results(
             model_results, model_type, args.task
         )
 
