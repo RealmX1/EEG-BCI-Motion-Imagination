@@ -138,6 +138,14 @@ def run_single_model(
     paradigm_config = PARADIGM_CONFIG[paradigm]
     log_train.info(f"Model: {model_type.upper()} | Paradigm: {paradigm_config['description']}")
 
+    # Resolve effective classifier_type for cache metadata
+    effective_config = get_default_config(model_type, task)
+    if config_overrides and 'model' in config_overrides:
+        effective_config['model'].update(config_overrides['model'])
+    cache_extra_metadata = {
+        'classifier_type': effective_config['model'].get('classifier_type'),
+    } if model_type == 'cbramod' else None
+
     # Load existing cache and metadata (including wandb_groups)
     wandb_group = None
     cache_wandb_groups = {}
@@ -241,13 +249,22 @@ def run_single_model(
 
             # Save to cache immediately (including wandb_groups metadata)
             cache[model_type][subject_id] = result_to_dict(result)
-            save_cache(output_dir, paradigm, task, cache, run_tag, wandb_groups=cache_wandb_groups)
+            save_cache(output_dir, paradigm, task, cache, run_tag,
+                       wandb_groups=cache_wandb_groups,
+                       extra_metadata=cache_extra_metadata)
 
             print_subject_result(subject_id, model_type, result)
 
         except Exception as e:
             log_train.error(f"{progress} {subject_id}: FAILED - {e}")
             traceback.print_exc()
+            # Clean up any active wandb run left by failed training
+            try:
+                import wandb
+                if wandb.run is not None:
+                    wandb.finish(exit_code=1, quiet=True)
+            except Exception:
+                pass
             continue
 
     # Compute statistics

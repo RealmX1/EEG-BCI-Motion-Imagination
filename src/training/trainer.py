@@ -451,6 +451,15 @@ class WithinSubjectTrainer:
             peak_str = " -> ".join([f"{p:.0%}" for p in peaks])
             log_train.info(f"Scheduler: CosineAnnealingWarmupDecay (peak progression: {peak_str})")
 
+        # Milestone checkpoint tracking
+        # Strategy: During the initial continuous best streak, don't save
+        # each one individually. When the streak first breaks, save the last
+        # streak epoch as the first milestone. After that, save every new best.
+        milestones = []  # List of {'epoch', 'combined_score', 'val_acc', 'val_majority_acc', 'path'}
+        initial_streak_active = True
+        last_streak_epoch = None
+        last_streak_info = None  # Holds checkpoint dict for the last streak best
+
         for epoch in range(epochs):
             epoch_timer.start_epoch()
 
@@ -530,18 +539,54 @@ class WithinSubjectTrainer:
                 no_improve = 0
                 is_best_epoch = True
 
+                checkpoint_dict = {
+                    'model_state_dict': self.best_state,
+                    'epoch': self.best_epoch,
+                    'val_acc': self.best_val_acc,
+                    'val_majority_acc': self.best_majority_acc,
+                    'combined_score': self.best_combined_score,
+                    'val_loss': self.best_val_loss,
+                }
+
                 if save_path:
-                    torch.save({
-                        'model_state_dict': self.best_state,
-                        'epoch': self.best_epoch,
-                        'val_acc': self.best_val_acc,
-                        'val_majority_acc': self.best_majority_acc,
-                        'combined_score': self.best_combined_score,
-                        'val_loss': self.best_val_loss,
-                    }, save_path / 'best.pt')
+                    torch.save(checkpoint_dict, save_path / 'best.pt')
                     log_train.debug(f"Best model saved (combined={combined_score:.4f}, val_acc={val_acc:.4f}, maj_acc={majority_acc:.4f})")
+
+                # Milestone tracking
+                if initial_streak_active:
+                    # Still in initial continuous best streak — just remember
+                    last_streak_epoch = epoch + 1
+                    last_streak_info = checkpoint_dict
+                elif save_path:
+                    # Post-streak: save every new best as a milestone
+                    milestone_path = save_path / f'best_epoch{epoch+1:03d}.pt'
+                    torch.save(checkpoint_dict, milestone_path)
+                    milestones.append({
+                        'epoch': epoch + 1,
+                        'combined_score': combined_score,
+                        'val_acc': val_acc,
+                        'val_majority_acc': majority_acc,
+                        'path': str(milestone_path),
+                    })
+                    log_train.debug(f"Milestone saved: epoch {epoch+1} (combined={combined_score:.4f})")
             else:
                 no_improve += 1
+
+                # First non-best epoch breaks the initial streak
+                if initial_streak_active:
+                    initial_streak_active = False
+                    if last_streak_epoch is not None and save_path and last_streak_info is not None:
+                        milestone_path = save_path / f'best_epoch{last_streak_epoch:03d}.pt'
+                        torch.save(last_streak_info, milestone_path)
+                        milestones.append({
+                            'epoch': last_streak_epoch,
+                            'combined_score': last_streak_info['combined_score'],
+                            'val_acc': last_streak_info['val_acc'],
+                            'val_majority_acc': last_streak_info['val_majority_acc'],
+                            'path': str(milestone_path),
+                        })
+                        log_train.debug(f"Streak milestone saved: epoch {last_streak_epoch}")
+                    last_streak_info = None  # Free memory
 
             # Check if early stopping will trigger
             will_stop = no_improve >= patience
@@ -571,6 +616,31 @@ class WithinSubjectTrainer:
             # Early stopping check
             if will_stop:
                 break
+
+        # Edge case: training ended while still in initial streak
+        # (every epoch was a new best, or early stopping during streak)
+        if initial_streak_active and last_streak_epoch is not None and save_path:
+            info = last_streak_info or {
+                'model_state_dict': self.best_state,
+                'epoch': self.best_epoch,
+                'val_acc': self.best_val_acc,
+                'val_majority_acc': self.best_majority_acc,
+                'combined_score': self.best_combined_score,
+                'val_loss': self.best_val_loss,
+            }
+            milestone_path = save_path / f'best_epoch{last_streak_epoch:03d}.pt'
+            torch.save(info, milestone_path)
+            milestones.append({
+                'epoch': last_streak_epoch,
+                'combined_score': info['combined_score'],
+                'val_acc': info['val_acc'],
+                'val_majority_acc': info['val_majority_acc'],
+                'path': str(milestone_path),
+            })
+        last_streak_info = None  # Free memory
+
+        # Add milestone info to history
+        self.history['milestones'] = milestones
 
         # Restore best model (prefer disk checkpoint if available)
         if save_path and (save_path / 'best.pt').exists():

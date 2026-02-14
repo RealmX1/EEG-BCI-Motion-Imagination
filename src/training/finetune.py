@@ -104,7 +104,7 @@ def load_pretrained_model(
             n_classes=n_classes,
             pretrained_path=None,  # Don't load pretrained weights again
             freeze_backbone=False,
-            classifier_type='two_layer',
+            classifier_type=model_config.get('classifier_type', 'two_layer'),
             dropout=0.1,
         )
     else:
@@ -459,6 +459,7 @@ def finetune_subject(
     # ========== WANDB INITIALIZATION ==========
     wandb_config = {
         "model_type": model_type,
+        "classifier_type": model_config.get('classifier_type', 'two_layer'),
         "task": task,
         "paradigm": paradigm,
         "training_type": "finetune",
@@ -583,6 +584,50 @@ def finetune_subject(
     print(f"  {colored('Test Accuracy:', Colors.WHITE, bold=True)} "
           f"{colored(f'{test_acc:.2%}', test_color, bold=True)}")
 
+    # ========== MILESTONE EVALUATION ==========
+    milestone_test_results = []
+    milestones = history.get('milestones', [])
+
+    if milestones and len(milestones) > 1 and len(test_dataset) > 0:
+        print_section_header(f"Milestone Evaluation ({len(milestones)} checkpoints)")
+
+        for ms in milestones:
+            ms_path = Path(ms['path'])
+            if not ms_path.exists():
+                log_train.warning(f"Milestone checkpoint not found: {ms_path}")
+                continue
+
+            ms_checkpoint = torch.load(ms_path, map_location=device, weights_only=True)
+            model.load_state_dict(ms_checkpoint['model_state_dict'])
+
+            ms_test_acc, _ = majority_vote_accuracy(
+                model, test_dataset, test_indices, device
+            )
+
+            milestone_test_results.append({
+                'epoch': ms['epoch'],
+                'combined_score': ms['combined_score'],
+                'val_acc': ms.get('val_acc', 0),
+                'val_majority_acc': ms.get('val_majority_acc', 0),
+                'test_accuracy': ms_test_acc,
+            })
+
+            ms_color = Colors.BRIGHT_GREEN if ms_test_acc > 0.7 else (
+                Colors.YELLOW if ms_test_acc > 0.5 else Colors.RED
+            )
+            print(f"  Epoch {ms['epoch']:3d}: "
+                  f"val_combined={ms['combined_score']:.4f}  "
+                  f"test_acc={colored(f'{ms_test_acc:.4f}', ms_color)}")
+
+        # Restore best model after milestone evaluation
+        if (save_path / 'best.pt').exists():
+            best_ckpt = torch.load(save_path / 'best.pt', map_location=device, weights_only=True)
+            model.load_state_dict(best_ckpt['model_state_dict'])
+        elif trainer.best_state is not None:
+            model.load_state_dict(trainer.best_state)
+
+    history['milestone_test_results'] = milestone_test_results
+
     # ========== SAVE RESULTS ==========
     total_time = time.perf_counter() - total_start
 
@@ -618,6 +663,20 @@ def finetune_subject(
     with open(save_path / 'history.json', 'w') as f:
         json.dump(history, f, indent=2)
 
+    # ========== MILESTONE COMPARISON FIGURE ==========
+    if milestone_test_results and len(milestone_test_results) > 1:
+        from src.visualization.milestone import generate_milestone_plot
+
+        milestone_plot_path = save_path / 'milestone_comparison.png'
+        generate_milestone_plot(
+            history=history,
+            milestone_test_results=milestone_test_results,
+            output_path=str(milestone_plot_path),
+            subject_id=subject_id,
+            model_type=model_type,
+        )
+        print(colored(f"  Milestone plot: {milestone_plot_path}", Colors.DIM))
+
     # ========== WANDB FINALIZATION ==========
     if wandb_callback is not None:
         wandb_callback.on_train_end(
@@ -645,6 +704,7 @@ def finetune_subject(
             'val_majority_acc': baseline_majority_acc,
             'combined_score': baseline_combined,
         },
+        'milestone_test_results': milestone_test_results,
     }
 
 

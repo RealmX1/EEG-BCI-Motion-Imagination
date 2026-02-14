@@ -143,6 +143,119 @@ class FingerBCIClassifier(nn.Module):
         return self.classifier(x)
 
 
+class DualAttentionPoolingClassifier(nn.Module):
+    """
+    Dual Attention Pooling classification head for CBraMod.
+
+    Replaces Flatten→MLP with two-step attention-based pooling:
+    1. Channel Attention: learns which EEG channels are most informative
+       (e.g., C3/C4 motor cortex channels for motor imagery)
+    2. Temporal Attention: learns which time patches are most discriminative
+       (e.g., ERD peak timing)
+
+    Parameter efficiency: ~1,200 params (binary) vs ~25.6M for two_layer MLP
+    with 128 channels. This eliminates the massive Linear(128000, 200) layer
+    that was the primary source of overfitting.
+
+    Interpretability: attention weights reveal which channels and time periods
+    contribute most to classification, enabling topographic visualization.
+    """
+
+    def __init__(
+        self,
+        n_channels: int,
+        n_patches: int,
+        d_model: int = 200,
+        n_classes: int = 2,
+        dropout: float = 0.1,
+    ):
+        """
+        Initialize Dual Attention Pooling classifier.
+
+        Args:
+            n_channels: Number of EEG channels (e.g., 128 for BioSemi)
+            n_patches: Number of time patches (e.g., 5 for 5-second trial)
+            d_model: Model dimension from backbone (default 200)
+            n_classes: Number of output classes
+            dropout: Dropout probability
+        """
+        super().__init__()
+        self.n_channels = n_channels
+        self.n_patches = n_patches
+        self.d_model = d_model
+
+        # Channel attention: score each channel based on its feature representation
+        self.channel_attn = nn.Linear(d_model, 1)
+
+        # Temporal attention: score each time patch
+        self.temporal_attn = nn.Linear(d_model, 1)
+
+        # Classification head
+        self.norm = nn.LayerNorm(d_model)
+        self.dropout = nn.Dropout(dropout)
+        self.classifier = nn.Linear(d_model, n_classes)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass with dual attention pooling.
+
+        Args:
+            x: Backbone features [batch, n_channels, n_patches, d_model]
+
+        Returns:
+            Logits [batch, n_classes]
+        """
+        # Step 1: Channel attention pooling
+        # Average across patches to get per-channel representation
+        channel_features = x.mean(dim=2)  # [batch, n_channels, d_model]
+
+        # Score each channel
+        channel_scores = self.channel_attn(channel_features).squeeze(-1)  # [batch, n_channels]
+        channel_weights = F.softmax(channel_scores, dim=1)  # [batch, n_channels]
+
+        # Weighted sum over channels via einsum (avoids full-size intermediate tensor)
+        pooled = torch.einsum('bcpd,bc->bpd', x, channel_weights)  # [batch, n_patches, d_model]
+
+        # Step 2: Temporal attention pooling
+        temporal_scores = self.temporal_attn(pooled).squeeze(-1)  # [batch, n_patches]
+        temporal_weights = F.softmax(temporal_scores, dim=1)  # [batch, n_patches]
+
+        # Weighted sum over patches via einsum
+        features = torch.einsum('bpd,bp->bd', pooled, temporal_weights)  # [batch, d_model]
+
+        # Step 3: Classify
+        features = self.norm(features)
+        features = self.dropout(features)
+        logits = self.classifier(features)
+
+        return logits
+
+    def get_attention_weights(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Extract attention weights for interpretability.
+
+        Args:
+            x: Backbone features [batch, n_channels, n_patches, d_model]
+
+        Returns:
+            (channel_weights, temporal_weights):
+                channel_weights: [batch, n_channels] - importance of each EEG channel
+                temporal_weights: [batch, n_patches] - importance of each time patch
+        """
+        with torch.no_grad():
+            # Channel attention
+            channel_features = x.mean(dim=2)
+            channel_scores = self.channel_attn(channel_features).squeeze(-1)
+            channel_weights = F.softmax(channel_scores, dim=1)
+
+            # Temporal attention (using channel-pooled features)
+            pooled = torch.einsum('bcpd,bc->bpd', x, channel_weights)
+            temporal_scores = self.temporal_attn(pooled).squeeze(-1)
+            temporal_weights = F.softmax(temporal_scores, dim=1)
+
+        return channel_weights, temporal_weights
+
+
 class CBraModForFingerBCI(nn.Module):
     """
     CBraMod model adapted for FINGER-EEG-BCI task.
@@ -197,7 +310,7 @@ class CBraModForFingerBCI(nn.Module):
             n_layers: Number of transformer layers (must be 12)
             n_heads: Number of attention heads (must be 8)
             dropout: Dropout probability
-            classifier_type: Type of classification head
+            classifier_type: 'two_layer' (default), 'attention_pool', 'three_layer', or 'one_layer'
             pretrained_path: Path to pretrained weights
             freeze_backbone: Whether to freeze backbone weights
         """
@@ -271,19 +384,32 @@ class CBraModForFingerBCI(nn.Module):
             logger.info("Backbone weights frozen")
 
         # Classification head
-        classifier_input_dim = n_channels * n_patches * d_model
-        self.classifier = FingerBCIClassifier(
-            input_dim=classifier_input_dim,
-            n_classes=n_classes,
-            d_model=d_model,
-            dropout=dropout,
-            classifier_type=classifier_type,
-        )
+        self.classifier_type = classifier_type
+        if classifier_type == 'attention_pool':
+            self.classifier = DualAttentionPoolingClassifier(
+                n_channels=n_channels,
+                n_patches=n_patches,
+                d_model=d_model,
+                n_classes=n_classes,
+                dropout=dropout,
+            )
+        else:
+            classifier_input_dim = n_channels * n_patches * d_model
+            self.classifier = FingerBCIClassifier(
+                input_dim=classifier_input_dim,
+                n_classes=n_classes,
+                d_model=d_model,
+                dropout=dropout,
+                classifier_type=classifier_type,
+            )
 
         logger.debug(f"CBraModForFingerBCI initialized:")
         logger.debug(f"  - Channels: {n_channels}, Patches: {n_patches}")
         logger.debug(f"  - Classes: {n_classes}")
-        logger.debug(f"  - Classifier input dim: {classifier_input_dim:,}")
+        logger.debug(f"  - Classifier type: {classifier_type}")
+        if classifier_type != 'attention_pool':
+            classifier_input_dim = n_channels * n_patches * d_model
+            logger.debug(f"  - Classifier input dim: {classifier_input_dim:,}")
         logger.debug(f"  - Using official CBraMod: {self._using_official}")
 
         # Warn about memory usage for high channel counts
@@ -356,6 +482,22 @@ class CBraModForFingerBCI(nn.Module):
             x = x.view(batch_size, n_channels, n_patches, self.patch_size)
 
         return self.backbone(x)
+
+    def get_attention_weights(self, x: torch.Tensor) -> Optional[Tuple[torch.Tensor, torch.Tensor]]:
+        """
+        Extract attention weights if using attention_pool classifier.
+
+        Args:
+            x: Input EEG [batch, n_channels, n_samples]
+               or [batch, n_channels, n_patches, patch_size]
+
+        Returns:
+            (channel_weights, temporal_weights) if using attention_pool, else None
+        """
+        if not hasattr(self.classifier, 'get_attention_weights'):
+            return None
+        features = self.get_features(x)
+        return self.classifier.get_attention_weights(features)
 
     def get_parameter_groups(self, backbone_lr: float = 1e-4, classifier_lr: float = 5e-4):
         """

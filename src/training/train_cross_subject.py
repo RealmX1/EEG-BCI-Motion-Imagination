@@ -286,9 +286,28 @@ def train_cross_subject(
     if device is None:
         device = get_device()
 
+    # ========== PERFORMANCE OPTIMIZATION ==========
+    setup_performance_optimizations(device, verbose)
+
+    # Subject header (verbose >= 1)
+    if verbose >= 1:
+        print()
+        print(colored("=" * 70, Colors.BRIGHT_BLUE, bold=True))
+        print(colored(f"  Cross-Subject Pretraining: {model_type.upper()}", Colors.BRIGHT_BLUE, bold=True))
+        print(colored(f"  Subjects: {', '.join(subjects)}", Colors.BRIGHT_BLUE))
+        print(colored("=" * 70, Colors.BRIGHT_BLUE, bold=True))
+
+    # ========== CONFIG SETUP ==========
+    config = get_cross_subject_config(model_type, task)
+
+    # Apply config_overrides dict first (e.g. scheduler presets)
+    config = apply_config_overrides(config, config_overrides, log_prefix="[Cross-Subject] ")
+
     # ========== WANDB INITIALIZATION ==========
     wandb_config = {
         "model_type": model_type,
+        "model_config": config.get('model', {}),
+        "training_config": config.get('training', {}),
         "task": task,
         "paradigm": paradigm,
         "subjects": subjects,
@@ -310,23 +329,6 @@ def train_cross_subject(
     )
 
     wandb_callback = WandbCallback(wandb_logger) if wandb_logger.enabled else None
-
-    # ========== PERFORMANCE OPTIMIZATION ==========
-    setup_performance_optimizations(device, verbose)
-
-    # Subject header (verbose >= 1)
-    if verbose >= 1:
-        print()
-        print(colored("=" * 70, Colors.BRIGHT_BLUE, bold=True))
-        print(colored(f"  Cross-Subject Pretraining: {model_type.upper()}", Colors.BRIGHT_BLUE, bold=True))
-        print(colored(f"  Subjects: {', '.join(subjects)}", Colors.BRIGHT_BLUE))
-        print(colored("=" * 70, Colors.BRIGHT_BLUE, bold=True))
-
-    # ========== CONFIG SETUP ==========
-    config = get_cross_subject_config(model_type, task)
-
-    # Apply config_overrides dict first (e.g. scheduler presets)
-    config = apply_config_overrides(config, config_overrides, log_prefix="[Cross-Subject] ")
 
     # CLI args override everything (highest priority)
     if batch_size is not None:
@@ -536,6 +538,7 @@ def train_cross_subject(
             'n_channels': n_channels,
             'n_samples': n_samples,
             'n_classes': n_classes,
+            'classifier_type': config['model'].get('classifier_type', 'two_layer'),
         },
         'training_config': {
             'subjects': subjects,

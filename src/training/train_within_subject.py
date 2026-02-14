@@ -527,7 +527,10 @@ def train_single_subject(
         if model_type == 'cbramod':
             # CBraMod expects patches
             n_patches = n_samples // 200  # 200 samples per patch (1s @ 200Hz)
-            pretrained_path = get_default_pretrained_path()
+            if model_config.get('no_pretrained', False):
+                pretrained_path = None
+            else:
+                pretrained_path = get_default_pretrained_path()
 
             model = CBraModForFingerBCI(
                 n_channels=n_channels,
@@ -535,7 +538,7 @@ def train_single_subject(
                 n_classes=n_classes,
                 pretrained_path=pretrained_path,
                 freeze_backbone=model_config.get('freeze_backbone', False),
-                classifier_type=model_config.get('classifier_type', 'three_layer'),
+                classifier_type=model_config.get('classifier_type', 'two_layer'),
                 dropout=model_config.get('dropout_rate', 0.1),
             )
             model_name = "CBraMod"
@@ -654,6 +657,54 @@ def train_single_subject(
         if verbose >= 1:
             print(colored("  No test data available (Online_Finetune)", Colors.YELLOW))
 
+    # ========== MILESTONE EVALUATION ==========
+    milestone_test_results = []
+    milestones = history.get('milestones', [])
+
+    if milestones and len(milestones) > 1 and len(test_dataset) > 0:
+        if verbose >= 1:
+            print_section_header(f"Milestone Evaluation ({len(milestones)} checkpoints)")
+
+        test_indices_ms = list(range(len(test_dataset)))
+
+        for ms in milestones:
+            ms_path = Path(ms['path'])
+            if not ms_path.exists():
+                log_train.warning(f"Milestone checkpoint not found: {ms_path}")
+                continue
+
+            ms_checkpoint = torch.load(ms_path, map_location=device, weights_only=True)
+            model.load_state_dict(ms_checkpoint['model_state_dict'])
+
+            ms_test_acc, _ = majority_vote_accuracy(
+                model, test_dataset, test_indices_ms, device
+            )
+
+            milestone_test_results.append({
+                'epoch': ms['epoch'],
+                'combined_score': ms['combined_score'],
+                'val_acc': ms.get('val_acc', 0),
+                'val_majority_acc': ms.get('val_majority_acc', 0),
+                'test_accuracy': ms_test_acc,
+            })
+
+            if verbose >= 1:
+                test_color = Colors.BRIGHT_GREEN if ms_test_acc > 0.7 else (
+                    Colors.YELLOW if ms_test_acc > 0.5 else Colors.RED
+                )
+                print(f"  Epoch {ms['epoch']:3d}: "
+                      f"val_combined={ms['combined_score']:.4f}  "
+                      f"test_acc={colored(f'{ms_test_acc:.4f}', test_color)}")
+
+        # Restore best model after milestone evaluation
+        if (subject_save_dir / 'best.pt').exists():
+            best_ckpt = torch.load(subject_save_dir / 'best.pt', map_location=device, weights_only=True)
+            model.load_state_dict(best_ckpt['model_state_dict'])
+        elif trainer.best_state is not None:
+            model.load_state_dict(trainer.best_state)
+
+    history['milestone_test_results'] = milestone_test_results
+
     # ========== TIMING SUMMARY ==========
     total_time = time.perf_counter() - total_start
     if verbose >= 2:
@@ -667,8 +718,8 @@ def train_single_subject(
         'model_type': model_type,
         'protocol': 'three_phase',
         # Training info
-        'n_trials_train': len(train_trials),
-        'n_trials_val': len(val_trials),
+        'n_trials_train': len(set(train_dataset.trial_infos[i].trial_idx for i in train_indices)),
+        'n_trials_val': len(set(train_dataset.trial_infos[i].trial_idx for i in val_indices)),
         'n_trials_test': n_test_trials,
         # Accuracies
         'val_accuracy': val_acc,
@@ -686,6 +737,7 @@ def train_single_subject(
         'history': history,
         'val_evaluation': val_results,
         'test_evaluation': test_results,
+        'milestone_test_results': milestone_test_results,
     }
 
     with open(subject_save_dir / 'results.json', 'w') as f:
@@ -704,6 +756,21 @@ def train_single_subject(
     # Save history
     with open(subject_save_dir / 'history.json', 'w') as f:
         json.dump(history, f, indent=2)
+
+    # ========== MILESTONE COMPARISON FIGURE ==========
+    if milestone_test_results and len(milestone_test_results) > 1:
+        from src.visualization.milestone import generate_milestone_plot
+
+        milestone_plot_path = subject_save_dir / 'milestone_comparison.png'
+        generate_milestone_plot(
+            history=history,
+            milestone_test_results=milestone_test_results,
+            output_path=str(milestone_plot_path),
+            subject_id=subject_id,
+            model_type=model_type,
+        )
+        if verbose >= 1:
+            print(colored(f"  Milestone plot: {milestone_plot_path}", Colors.DIM))
 
     # ========== WANDB FINALIZATION ==========
     if wandb_callback is not None:

@@ -1,0 +1,109 @@
+{
+  "metadata": {
+    "paradigm": "imagery",
+    "task": "binary",
+    "run_tag": "20260210_0315",
+    "timestamp": "2026-02-10T03:50:40.696751",
+    "n_subjects": null,
+    "is_complete": false,
+    "classifier_type": "attention_pool"
+  },
+  "wandb_groups": {
+    "cbramod": "cbramod_imagery_binary_20260210_0315"
+  },
+  "last_updated": "2026-02-10T03:50:40.696751",
+  "results": {
+    "cbramod": {
+      "S01": {
+        "subject_id": "S01",
+        "task_type": "binary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.5438972162740899,
+        "test_acc": 0.60625,
+        "test_acc_majority": 0.60625,
+        "epochs_trained": 36,
+        "training_time": 220.37866329999815
+      },
+      "S02": {
+        "subject_id": "S02",
+        "task_type": "binary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.6120042872454448,
+        "test_acc": 0.63125,
+        "test_acc_majority": 0.63125,
+        "epochs_trained": 34,
+        "training_time": 234.17343389999587
+      },
+      "S03": {
+        "subject_id": "S03",
+        "task_type": "binary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.6143931256713212,
+        "test_acc": 0.75625,
+        "test_acc_majority": 0.75625,
+        "epochs_trained": 50,
+        "training_time": 313.83773759999895
+      },
+      "S04": {
+        "subject_id": "S04",
+        "task_type": "binary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.6190965092402464,
+        "test_acc": 0.8875,
+        "test_acc_majority": 0.8875,
+        "epochs_trained": 46,
+        "training_time": 301.08889009999984
+      },
+      "S05": {
+        "subject_id": "S05",
+        "task_type": "binary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.5145228215767634,
+        "test_acc": 0.9,
+        "test_acc_majority": 0.9,
+        "epochs_trained": 26,
+        "training_time": 199.55392169999686
+      },
+      "S06": {
+        "subject_id": "S06",
+        "task_type": "binary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.55052790346908,
+        "test_acc": 0.5625,
+        "test_acc_majority": 0.5625,
+        "epochs_trained": 34,
+        "training_time": 164.27356799999689
+      },
+      "S07": {
+        "subject_id": "S07",
+        "task_type": "binary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.5643776824034334,
+        "test_acc": 0.5375,
+        "test_acc_majority": 0.5375,
+        "epochs_trained": 29,
+        "training_time": 208.84125940000376
+      },
+      "S08": {
+        "subject_id": "S08",
+        "task_type": "binary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.5967741935483871,
+        "test_acc": 0.675,
+        "test_acc_majority": 0.675,
+        "epochs_trained": 42,
+        "training_time": 271.9015672000023
+      },
+      "S09": {
+        "subject_id": "S09",
+        "task_type": "binary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.729903536977492,
+        "test_acc": 0.96875,
+        "test_acc_majority": 0.96875,
+        "epochs_trained": 22,
+        "training_time": 174.56702989999758
+      }
+    }
+  }
+}

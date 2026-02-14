@@ -78,8 +78,8 @@ SCHEDULER_PRESETS: Dict[str, Dict[str, Any]] = {
     },
     'cosine_annealing_warmup_decay': {
         # 多阶段余弦，每阶段带 LR ramp-up + cosine decay
-        'epochs': 100,
-        'patience': 15,
+        'epochs': 50,
+        'patience': 10,
         # CAWD-specific parameters
         'phase_epochs': 6,              # Epochs per cosine decay phase
         'phase_decay': 0.7,             # Peak LR decay between phases (100% → 70% → 49%...)
@@ -261,15 +261,15 @@ def get_cross_subject_config(model_type: str, task: str) -> dict:
     config = get_default_config(model_type, task)
 
     if model_type == 'cbramod':
-        config['model']['dropout_rate'] = 0.35          # 0.15→0.35, classifier head 25600 维
+        config['model']['dropout_rate'] = 0.35          # 跨被试过拟合风险高，需要较高 dropout
         config['training'].update({
             'epochs': 100,                               # 与 within-subject 相同，靠 early stopping
             'patience': 15,                              # 与 within-subject 相同，靠 early stopping
             'batch_size': 256,                           # 2x within-subject
             'learning_rate': 5e-5,                       # 1e-4→5e-5
             'backbone_lr': 5e-5,                         # 1e-4→5e-5, 预训练权重温和调整
-            'classifier_lr': 1.5e-4,                     # 3e-4→1.5e-4, 保持 3x 比例
-            'weight_decay': 0.12,                        # 0.06→0.12, 4M 参数需更强正则
+            'classifier_lr': 1.5e-4,                     # 3x backbone
+            'weight_decay': 0.12,                        # 0.06→0.12, 跨被试正则更强
             'label_smoothing': 0.15,                     # 0.05→0.15, 跨被试标签噪声更大
             'gradient_clip': 0.5,                        # 1.0→0.5, 跨被试梯度方差更大
         })

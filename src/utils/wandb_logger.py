@@ -217,6 +217,11 @@ class WandbLogger:
             ),
         )
 
+        # 声明 epoch 为所有指标的 x 轴，避免使用显式 step= 参数
+        # 解决同一进程内多个 run 之间 step 不单调递增的问题
+        wandb.define_metric("epoch")
+        wandb.define_metric("*", step_metric="epoch")
+
         logger.info(f"wandb initialized: {self._run.url}")
 
     @property
@@ -293,7 +298,7 @@ class WandbLogger:
             metrics["train/learning_rate"] = learning_rate
 
         metrics.update(extra_metrics)
-        self.log(metrics, step=epoch)
+        self.log(metrics)
 
     def log_confusion_matrix(
         self,
@@ -408,7 +413,7 @@ class WandbLogger:
 
     def finish(self, exit_code: int = 0, quiet: bool = False) -> None:
         """Finish wandb run, waiting for pending uploads."""
-        if not self._enabled:
+        if not self._enabled or self._run is None:
             return
 
         # Wait for pending uploads before finishing
@@ -416,6 +421,7 @@ class WandbLogger:
 
         import wandb
         wandb.finish(exit_code=exit_code, quiet=quiet)
+        self._run = None
         logger.info("wandb run finished")
 
     def __enter__(self):

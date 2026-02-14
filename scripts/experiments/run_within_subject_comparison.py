@@ -226,6 +226,10 @@ Examples:
         '--config', type=str, default=None, metavar='YAML_PATH',
         help='YAML 配置文件路径 (覆盖模型默认配置，被 CLI 参数覆盖)'
     )
+    parser.add_argument(
+        '--no-pretrained', action='store_true',
+        help='Train CBraMod from scratch without loading pretrained weights (default: use pretrained)'
+    )
 
     args = parser.parse_args()
 
@@ -275,6 +279,8 @@ Examples:
     config_overrides = load_yaml_config(args.config) if args.config else {}
     if args.scheduler:
         config_overrides.setdefault('training', {})['scheduler'] = args.scheduler
+    if args.no_pretrained:
+        config_overrides.setdefault('model', {})['no_pretrained'] = True
     config_overrides = config_overrides or None
 
     # Show LR schedule visualization for CBraMod (non-blocking, once at start)
@@ -384,6 +390,14 @@ Examples:
     # Preserve existing timestamp if available
     existing_timestamp = cache_metadata.get('metadata', {}).get('timestamp')
 
+    # Resolve effective classifier_type for cache metadata
+    cbramod_config = get_default_config('cbramod', args.task)
+    if config_overrides and 'model' in config_overrides:
+        cbramod_config['model'].update(config_overrides['model'])
+    cache_extra = {
+        'classifier_type': cbramod_config['model'].get('classifier_type'),
+    }
+
     output_path = save_cache(
         output_dir=args.output_dir,
         paradigm=args.paradigm,
@@ -399,6 +413,7 @@ Examples:
         )),
         is_complete=True,
         existing_timestamp=existing_timestamp,
+        extra_metadata=cache_extra,
     )
 
     # Generate plots by default (unless --no-plot is specified)

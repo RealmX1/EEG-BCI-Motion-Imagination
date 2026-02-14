@@ -37,6 +37,7 @@ import logging
 import sys
 import time
 import traceback
+import torch
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -322,6 +323,13 @@ def run_transfer_model(
         except Exception as e:
             log_train.error(f"{progress} {subject_id}: FAILED - {e}")
             traceback.print_exc()
+            # Clean up any active wandb run left by failed training
+            try:
+                import wandb
+                if wandb.run is not None:
+                    wandb.finish(exit_code=1, quiet=True)
+            except Exception:
+                pass
             continue
 
     stats = compute_model_statistics(results)
@@ -559,6 +567,16 @@ Examples:
         )
         sys.exit(1)
 
+    # Resolve classifier_type from pretrained checkpoints
+    classifier_types = {}
+    for model_type, path in pretrained_paths.items():
+        try:
+            ckpt = torch.load(path, map_location='cpu', weights_only=False)
+            ct = ckpt.get('model_config', {}).get('classifier_type', 'two_layer')
+            classifier_types[model_type] = ct
+        except Exception:
+            classifier_types[model_type] = 'unknown'
+
     # Build transfer config metadata
     transfer_config = {
         'freeze_strategy': args.freeze_strategy,
@@ -566,6 +584,7 @@ Examples:
         'finetune_lr': args.finetune_lr,
         'finetune_batch_size': args.finetune_batch_size,
         'pretrained_paths': {k: str(v) for k, v in pretrained_paths.items()},
+        'classifier_types': classifier_types,
     }
 
     # ======================================================================
