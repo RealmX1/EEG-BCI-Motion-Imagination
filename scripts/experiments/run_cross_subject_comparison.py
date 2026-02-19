@@ -42,7 +42,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.config.constants import PARADIGM_CONFIG
+from src.config.constants import FULL_N_CHANNELS, PARADIGM_CONFIG
 from src.utils.device import set_seed, check_cuda_available, get_device
 from src.utils.logging import SectionLogger, setup_logging
 
@@ -175,6 +175,17 @@ Examples:
         help='Path to cache index file (default: .cache_index.json)'
     )
 
+    parser.add_argument(
+        '--channels', type=int, default=FULL_N_CHANNELS,
+        choices=[8, FULL_N_CHANNELS],
+        help=f'Number of EEG channels to use: 8 (motor cortex subset) or {FULL_N_CHANNELS} (all) (default: {FULL_N_CHANNELS})'
+    )
+    parser.add_argument(
+        '--classifier-type', type=str, default=None,
+        choices=['two_layer', 'three_layer', 'one_layer', 'attention_pool'],
+        help='Override CBraMod classifier head type (default: use model config)'
+    )
+
     add_wandb_args(parser)
 
     # Verbosity arguments
@@ -189,6 +200,10 @@ Examples:
     )
 
     args = parser.parse_args()
+
+    # Auto-redirect results to results/{n}_channel/ when using reduced channel mode
+    if args.channels != FULL_N_CHANNELS and args.results_dir == 'results':
+        args.results_dir = f'results/{args.channels}_channel'
 
     # Start timer
     start_time = time.time()
@@ -230,10 +245,15 @@ Examples:
 
     log_main.info(f"Subjects: {subjects} | Models: {args.models} | Task: {args.task}")
 
-    # Build config_overrides if scheduler specified
-    config_overrides = None
+    # Build config_overrides
+    config_overrides = {}
     if args.scheduler:
-        config_overrides = {'training': {'scheduler': args.scheduler}}
+        config_overrides.setdefault('training', {})['scheduler'] = args.scheduler
+    if args.channels == 8:
+        config_overrides.setdefault('data', {})['channels'] = 8
+    if args.classifier_type:
+        config_overrides.setdefault('model', {})['classifier_type'] = args.classifier_type
+    config_overrides = config_overrides or None
 
     # Train each model
     results = {}

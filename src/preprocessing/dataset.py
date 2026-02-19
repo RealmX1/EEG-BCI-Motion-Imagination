@@ -31,6 +31,7 @@ from .channel_selection import (
     create_biosemi128_to_1020_mapping,
     get_channel_indices,
     STANDARD_1020_CHANNELS,
+    MOTOR_8_CHANNEL_INDICES,
 )
 from .cache_manager import PreprocessingCache, get_cache
 from ..utils.logging import SectionLogger
@@ -137,6 +138,8 @@ class FingerEEGDataset(Dataset):
             mapping = create_biosemi128_to_1020_mapping(elc_path)
             idx_map = get_channel_indices(mapping)
             self.channel_indices = [idx_map[ch] for ch in STANDARD_1020_CHANNELS]
+        elif config.channel_strategy == 'D':
+            self.channel_indices = MOTOR_8_CHANNEL_INDICES
         elif config.channel_strategy == 'C':
             self.channel_indices = None  # Use all 128 channels
 

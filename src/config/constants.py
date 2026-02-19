@@ -65,3 +65,10 @@ FINGER_LABELS: Dict[int, str] = {
     3: 'Middle',
     4: 'Pinky',
 }
+
+# ============================================================================
+# Channel Configuration
+# ============================================================================
+
+# Total number of channels in the original BioSemi data collection
+FULL_N_CHANNELS = 128

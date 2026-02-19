@@ -118,7 +118,7 @@ class PreprocessConfig:
     filter_order: int = 4  # 4th order Butterworth
 
     # Channel selection
-    channel_strategy: str = 'C'  # 'A': 10-20, 'B': motor cortex, 'C': all 128 (paper uses all)
+    channel_strategy: str = 'C'  # 'A': 10-20 (19ch), 'B': motor cortex, 'C': all 128, 'D': motor-8 (8ch)
 
     # Trial extraction
     trial_duration: float = 5.0  # seconds for offline (paper: 5s offline, 3s online)

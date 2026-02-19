@@ -54,6 +54,7 @@ from src.preprocessing.data_loader import (
     PreprocessConfig,
     get_session_folders_for_split,
 )
+from src.config.training import EIGHT_CHANNEL_FINETUNE_OVERRIDES
 from src.training.train_within_subject import (
     WithinSubjectTrainer,
     majority_vote_accuracy,
@@ -268,6 +269,8 @@ def finetune_subject(
     task: str = 'binary',
     device: Optional[torch.device] = None,
     seed: int = 42,
+    # Channel selection
+    channels: Optional[int] = None,
     # Cache-only mode
     cache_only: bool = False,
     cache_index_path: str = ".cache_index.json",
@@ -296,6 +299,7 @@ def finetune_subject(
         task: 'binary', 'ternary', or 'quaternary'
         device: Device to use (None = auto-detect)
         seed: Random seed
+        channels: Number of channels (8 or 128). None = use default (128)
 
     Returns:
         Dict with:
@@ -348,14 +352,20 @@ def finetune_subject(
     target_classes = task_config['classes']
 
     # Set finetuning-specific defaults
+    is_8ch_cbramod = (channels == 8 and model_type == 'cbramod')
+
     if epochs is None:
-        if freeze_strategy == 'backbone':
+        if is_8ch_cbramod:
+            epochs = EIGHT_CHANNEL_FINETUNE_OVERRIDES['epochs']
+        elif freeze_strategy == 'backbone':
             epochs = 20 if model_type == 'eegnet' else 10
         else:
             epochs = 30 if model_type == 'eegnet' else 15
 
     if learning_rate is None:
-        if freeze_strategy == 'backbone':
+        if is_8ch_cbramod:
+            learning_rate = EIGHT_CHANNEL_FINETUNE_OVERRIDES['learning_rate']
+        elif freeze_strategy == 'backbone':
             learning_rate = 5e-4  # Higher LR when only training classifier
         elif freeze_strategy == 'partial':
             learning_rate = 1e-4
@@ -366,7 +376,10 @@ def finetune_subject(
         batch_size = 64 if model_type == 'eegnet' else 128
 
     if patience is None:
-        patience = 5 if model_type == 'cbramod' else 5
+        if is_8ch_cbramod:
+            patience = EIGHT_CHANNEL_FINETUNE_OVERRIDES['patience']
+        else:
+            patience = 5 if model_type == 'cbramod' else 5
 
     # ========== DATA LOADING ==========
     print_section_header(f"Data Loading ({subject_id})")
@@ -379,6 +392,10 @@ def finetune_subject(
         preprocess_config = PreprocessConfig.for_cbramod(full_channels=True)
     else:
         preprocess_config = PreprocessConfig.paper_aligned(n_class=n_classes)
+
+    # Apply 8-channel override if specified
+    if channels == 8:
+        preprocess_config.channel_strategy = 'D'
 
     # Get session folders
     train_folders = get_session_folders_for_split(paradigm, task, 'train')

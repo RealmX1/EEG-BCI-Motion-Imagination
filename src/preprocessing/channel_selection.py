@@ -19,6 +19,14 @@ STANDARD_1020_CHANNELS = [
     'O1', 'O2'
 ]
 
+# Motor cortex 8-channel subset (verified against biosemi_8channels.elc)
+# Used for testing reduced channel configurations (strategy 'D')
+MOTOR_8_CHANNELS = {
+    'Cz': 'A1', 'Pz': 'A3', 'PO7': 'A6', 'Oz': 'A21',
+    'PO8': 'B3', 'C4': 'B21', 'Fz': 'C23', 'C3': 'D18',
+}
+MOTOR_8_CHANNEL_INDICES = [0, 2, 5, 20, 34, 52, 86, 113]
+
 # Note: T3/T4/T5/T6 are also known as T7/T8/P7/P8 in some systems
 
 # BioSemi 128 electrode labels

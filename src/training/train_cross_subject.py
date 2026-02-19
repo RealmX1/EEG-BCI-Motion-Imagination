@@ -298,7 +298,8 @@ def train_cross_subject(
         print(colored("=" * 70, Colors.BRIGHT_BLUE, bold=True))
 
     # ========== CONFIG SETUP ==========
-    config = get_cross_subject_config(model_type, task)
+    n_ch = 8 if config_overrides and config_overrides.get('data', {}).get('channels') == 8 else None
+    config = get_cross_subject_config(model_type, task, n_channels=n_ch)
 
     # Apply config_overrides dict first (e.g. scheduler presets)
     config = apply_config_overrides(config, config_overrides, log_prefix="[Cross-Subject] ")
@@ -352,6 +353,10 @@ def train_cross_subject(
         preprocess_config = PreprocessConfig.for_cbramod(full_channels=True)
     else:
         preprocess_config = PreprocessConfig.paper_aligned(n_class=n_classes)
+
+    # Apply 8-channel override if specified via config_overrides
+    if config.get('data', {}).get('channels') == 8:
+        preprocess_config.channel_strategy = 'D'
 
     # Update WandB config with resolved values
     if wandb_logger.enabled:
@@ -609,6 +614,7 @@ def train_cross_subject(
         'best_epoch': trainer.best_epoch,
         'training_time': total_time,
         'history': history,
+        'n_channels': n_channels,
     }
 
 

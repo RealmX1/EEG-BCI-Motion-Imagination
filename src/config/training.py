@@ -96,7 +96,7 @@ SCHEDULER_PRESETS: Dict[str, Dict[str, Any]] = {
 # Default Model Configurations
 # ============================================================================
 
-def get_default_config(model_type: str, task: str) -> dict:
+def get_default_config(model_type: str, task: str, n_channels: int = None) -> dict:
     """
     Get default configuration for a model type and task.
 
@@ -111,6 +111,8 @@ def get_default_config(model_type: str, task: str) -> dict:
     Args:
         model_type: 'eegnet' or 'cbramod'
         task: 'binary', 'ternary', or 'quaternary'
+        n_channels: Number of EEG channels (8 or 128). If 8, applies
+            8-channel-specific presets for CBraMod. Default None = no override.
 
     Returns:
         Configuration dict compatible with train_single_subject()
@@ -170,7 +172,54 @@ def get_default_config(model_type: str, task: str) -> dict:
             'task': task,
         }
 
+    # Apply 8-channel presets for CBraMod (before user overrides)
+    if model_type == 'cbramod' and n_channels == 8:
+        for section, overrides in EIGHT_CHANNEL_WITHIN_SUBJECT_OVERRIDES.items():
+            if section in config and isinstance(overrides, dict):
+                config[section].update(overrides)
+
     return config
+
+
+# ============================================================================
+# 8-Channel Presets (applied only when n_channels=8)
+# ============================================================================
+
+CBRAMOD_CLASSIFIER_TYPES = ('two_layer', 'three_layer', 'one_layer', 'attention_pool')
+
+EIGHT_CHANNEL_WITHIN_SUBJECT_OVERRIDES = {
+    'model': {
+        'dropout_rate': 0.30,
+    },
+    'training': {
+        'batch_size': 64,
+        'backbone_lr': 5e-5,
+        'classifier_lr': 2.5e-4,
+        'weight_decay': 0.10,
+        'label_smoothing': 0.10,
+        'gradient_clip': 0.5,
+    },
+}
+
+EIGHT_CHANNEL_CROSS_SUBJECT_OVERRIDES = {
+    'model': {
+        'dropout_rate': 0.45,
+    },
+    'training': {
+        'batch_size': 128,
+        'backbone_lr': 3e-5,
+        'classifier_lr': 1.5e-4,
+        'weight_decay': 0.18,
+        'label_smoothing': 0.20,
+        'gradient_clip': 0.3,
+    },
+}
+
+EIGHT_CHANNEL_FINETUNE_OVERRIDES = {
+    'epochs': 20,
+    'patience': 8,
+    'learning_rate': 5e-5,
+}
 
 
 # ============================================================================
@@ -233,7 +282,7 @@ CROSS_SUBJECT_SCHEDULER_OVERRIDES: Dict[str, Dict[str, Any]] = {
 # Cross-Subject Model Configurations
 # ============================================================================
 
-def get_cross_subject_config(model_type: str, task: str) -> dict:
+def get_cross_subject_config(model_type: str, task: str, n_channels: int = None) -> dict:
     """
     Get configuration for cross-subject pretraining.
 
@@ -249,6 +298,8 @@ def get_cross_subject_config(model_type: str, task: str) -> dict:
     Args:
         model_type: 'eegnet' or 'cbramod'
         task: 'binary', 'ternary', or 'quaternary'
+        n_channels: Number of EEG channels (8 or 128). If 8, applies
+            8-channel-specific presets for CBraMod. Default None = no override.
 
     Returns:
         Configuration dict compatible with train_cross_subject()
@@ -281,5 +332,11 @@ def get_cross_subject_config(model_type: str, task: str) -> dict:
             'learning_rate': 5e-4,                       # 1e-3→5e-4
             'weight_decay': 1e-4,                        # 0→1e-4, 轻微正则
         })
+
+    # Apply 8-channel cross-subject presets for CBraMod (override 128ch cross defaults)
+    if model_type == 'cbramod' and n_channels == 8:
+        for section, overrides in EIGHT_CHANNEL_CROSS_SUBJECT_OVERRIDES.items():
+            if section in config and isinstance(overrides, dict):
+                config[section].update(overrides)
 
     return config

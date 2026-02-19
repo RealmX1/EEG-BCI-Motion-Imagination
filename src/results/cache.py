@@ -22,7 +22,7 @@ class SelectionStrategy(Enum):
     NEWEST = "newest"           # 最新时间戳（用于训练恢复）
     BEST_ACCURACY = "best_acc"  # 最高准确率（用于图表生成）
 
-from ..config.constants import CACHE_FILENAME, CACHE_FILENAME_WITH_TAG, CacheType, PARADIGM_CONFIG
+from ..config.constants import CACHE_FILENAME, CACHE_FILENAME_WITH_TAG, CacheType, FULL_N_CHANNELS, PARADIGM_CONFIG
 from ..utils.logging import SectionLogger
 from .dataclasses import ComparisonResult, TrainingResult, PlotDataSource
 from .serialization import (
@@ -1420,6 +1420,7 @@ def find_compatible_cross_subject_results(
     model_type: str = 'cbramod',
     exclude_run_tag: Optional[str] = None,
     selection_strategy: SelectionStrategy = SelectionStrategy.BEST_ACCURACY,
+    n_channels: Optional[int] = None,
 ) -> Optional[Dict]:
     """
     搜索兼容的 cross-subject 历史结果.
@@ -1428,6 +1429,7 @@ def find_compatible_cross_subject_results(
     - 文件模式: *cross-subject_*_{paradigm}_{task}.json
     - 被试集合匹配
     - 排除当前运行 (exclude_run_tag)
+    - n_channels 匹配 (如果指定)
 
     Args:
         output_dir: 结果目录路径
@@ -1437,6 +1439,7 @@ def find_compatible_cross_subject_results(
         model_type: 要搜索的模型类型 (默认 'cbramod')
         exclude_run_tag: 要排除的运行 tag (当前运行)
         selection_strategy: 选择策略 (BEST_ACCURACY 或 NEWEST)
+        n_channels: 通道数过滤 (例如 8)。None 表示不过滤 (兼容旧结果)
 
     Returns:
         包含单个模型结果的字典:
@@ -1492,6 +1495,15 @@ def find_compatible_cross_subject_results(
 
             if not timestamp:
                 continue
+
+            # 过滤 n_channels (如果指定)
+            if n_channels is not None:
+                file_n_channels = metadata.get('n_channels')
+                if file_n_channels is not None and file_n_channels != n_channels:
+                    continue
+                # 对于没有 n_channels 字段的旧结果，当请求 8ch 时跳过
+                if file_n_channels is None and n_channels != FULL_N_CHANNELS:
+                    continue
 
             # 提取 per_subject_test_acc
             # 支持两种格式: 直接在 results 中或在嵌套结构中
@@ -1599,6 +1611,7 @@ def save_cross_subject_result(
             'task': task,
             'subjects': result.get('subjects', list(result.get('per_subject_test_acc', {}).keys())),
             'n_subjects': len(result.get('per_subject_test_acc', {})),
+            'n_channels': result.get('n_channels'),
             'run_tag': run_tag,
             'timestamp': datetime.now().isoformat(),
         },

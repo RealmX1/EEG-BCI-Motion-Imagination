@@ -46,7 +46,7 @@ from typing import Dict, List, Optional, Tuple
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.config.constants import PARADIGM_CONFIG
+from src.config.constants import FULL_N_CHANNELS, PARADIGM_CONFIG
 from src.utils.device import set_seed, check_cuda_available, get_device
 from src.utils.logging import SectionLogger, setup_logging
 
@@ -98,12 +98,16 @@ def find_best_checkpoint_path(
     task: str,
     subjects: List[str],
     results_dir: str = 'results',
+    n_channels: Optional[int] = None,
 ) -> Optional[str]:
     """
     Auto-discover the best cross-subject pretrained checkpoint for a model.
 
     Searches results/ for compatible cross-subject result JSONs, then extracts
     the checkpoint path from training_info.model_path.
+
+    Args:
+        n_channels: If specified, only match results with this channel count.
     """
     cross_result = find_compatible_cross_subject_results(
         output_dir=results_dir,
@@ -111,6 +115,7 @@ def find_best_checkpoint_path(
         task=task,
         subjects=subjects,
         model_type=model_type,
+        n_channels=n_channels,
     )
     if not cross_result:
         return None
@@ -135,6 +140,15 @@ def find_best_checkpoint_path(
             if subdir.is_dir() and model_type in subdir.name and paradigm in subdir.name and task in subdir.name:
                 best_pt = subdir / 'best.pt'
                 if best_pt.exists():
+                    # Verify n_channels if specified
+                    if n_channels is not None:
+                        try:
+                            ckpt = torch.load(best_pt, map_location='cpu', weights_only=False)
+                            ckpt_channels = ckpt.get('model_config', {}).get('n_channels')
+                            if ckpt_channels is not None and ckpt_channels != n_channels:
+                                continue
+                        except Exception:
+                            continue
                     log_io.info(f"Found {model_type} checkpoint (fallback): {best_pt}")
                     return str(best_pt)
 
@@ -159,6 +173,7 @@ def finetune_and_get_result(
     batch_size: Optional[int] = None,
     patience: Optional[int] = None,
     seed: int = 42,
+    channels: Optional[int] = None,
     # Cache-only mode
     cache_only: bool = False,
     cache_index_path: str = ".cache_index.json",
@@ -187,6 +202,7 @@ def finetune_and_get_result(
         task=task,
         seed=seed,
         data_root=data_root,
+        channels=channels,
         cache_only=cache_only,
         cache_index_path=cache_index_path,
         no_wandb=no_wandb,
@@ -224,6 +240,7 @@ def run_transfer_model(
     batch_size: Optional[int] = None,
     patience: Optional[int] = None,
     seed: int = 42,
+    channels: Optional[int] = None,
     transfer_config: Optional[Dict] = None,
     # Cache-only mode
     cache_only: bool = False,
@@ -299,6 +316,7 @@ def run_transfer_model(
                 batch_size=batch_size,
                 patience=patience,
                 seed=seed,
+                channels=channels,
                 cache_only=cache_only,
                 cache_index_path=cache_index_path,
                 no_wandb=no_wandb,
@@ -457,6 +475,13 @@ Examples:
 
     add_wandb_args(parser)
 
+    # Channel selection
+    parser.add_argument(
+        '--channels', type=int, default=FULL_N_CHANNELS,
+        choices=[8, FULL_N_CHANNELS],
+        help=f'Number of EEG channels to use: 8 (motor cortex subset) or {FULL_N_CHANNELS} (all) (default: {FULL_N_CHANNELS})'
+    )
+
     # Cache index arguments
     parser.add_argument(
         '--cache-only', action='store_true',
@@ -468,6 +493,10 @@ Examples:
     )
 
     args = parser.parse_args()
+
+    # Auto-redirect results to results/{n}_channel/ when using reduced channel mode
+    if args.channels != FULL_N_CHANNELS and args.results_dir == 'results':
+        args.results_dir = f'results/{args.channels}_channel'
 
     # Start timer
     start_time = time.time()
@@ -542,12 +571,14 @@ Examples:
             log_main.info(f"{model_type.upper()} pretrained (manual): {path}")
         else:
             # Auto-discover best checkpoint
+            n_channels_filter = args.channels if args.channels != FULL_N_CHANNELS else None
             path = find_best_checkpoint_path(
                 model_type=model_type,
                 paradigm=args.paradigm,
                 task=args.task,
                 subjects=subjects,
                 results_dir=args.results_dir,
+                n_channels=n_channels_filter,
             )
             if path:
                 pretrained_paths[model_type] = path
@@ -599,6 +630,7 @@ Examples:
 
         log_main.info(f"{'='*50} {model_type.upper()} TRANSFER {'='*50}")
 
+        channels_arg = args.channels if args.channels != FULL_N_CHANNELS else None
         model_results, model_stats = run_transfer_model(
             model_type=model_type,
             pretrained_path=pretrained_paths[model_type],
@@ -615,6 +647,7 @@ Examples:
             batch_size=args.finetune_batch_size,
             patience=args.finetune_patience,
             seed=args.seed,
+            channels=channels_arg,
             transfer_config=transfer_config,
             cache_only=args.cache_only,
             cache_index_path=args.cache_index_path,
