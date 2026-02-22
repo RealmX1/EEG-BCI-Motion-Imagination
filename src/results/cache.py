@@ -1586,6 +1586,7 @@ def save_cross_subject_result(
     task: str,
     output_dir: str,
     run_tag: Optional[str] = None,
+    channel_config: Optional[str] = None,
 ) -> Path:
     """
     保存单模型跨被试训练结果到 JSON 文件.
@@ -1597,6 +1598,7 @@ def save_cross_subject_result(
         task: 任务类型 ('binary', 'ternary', 'quaternary')
         output_dir: 输出目录
         run_tag: 运行标签
+        channel_config: 通道配置名称（如 'fdr', 'motor_cortex'）
 
     Returns:
         保存的文件路径
@@ -1612,6 +1614,7 @@ def save_cross_subject_result(
             'subjects': result.get('subjects', list(result.get('per_subject_test_acc', {}).keys())),
             'n_subjects': len(result.get('per_subject_test_acc', {})),
             'n_channels': result.get('n_channels'),
+            'channel_config': channel_config,
             'run_tag': run_tag,
             'timestamp': datetime.now().isoformat(),
         },

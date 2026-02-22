@@ -72,3 +72,6 @@ FINGER_LABELS: Dict[int, str] = {
 
 # Total number of channels in the original BioSemi data collection
 FULL_N_CHANNELS = 128
+
+# Supported reduced channel counts for experiments
+SUPPORTED_CHANNEL_COUNTS = [8, 32, FULL_N_CHANNELS]

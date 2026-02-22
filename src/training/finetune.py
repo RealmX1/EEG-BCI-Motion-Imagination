@@ -54,7 +54,7 @@ from src.preprocessing.data_loader import (
     PreprocessConfig,
     get_session_folders_for_split,
 )
-from src.config.training import EIGHT_CHANNEL_FINETUNE_OVERRIDES
+from src.config.training import EIGHT_CHANNEL_FINETUNE_OVERRIDES, THIRTYTWO_CHANNEL_FINETUNE_OVERRIDES
 from src.training.train_within_subject import (
     WithinSubjectTrainer,
     majority_vote_accuracy,
@@ -271,6 +271,7 @@ def finetune_subject(
     seed: int = 42,
     # Channel selection
     channels: Optional[int] = None,
+    channel_config: Optional[str] = None,
     # Cache-only mode
     cache_only: bool = False,
     cache_index_path: str = ".cache_index.json",
@@ -353,10 +354,13 @@ def finetune_subject(
 
     # Set finetuning-specific defaults
     is_8ch_cbramod = (channels == 8 and model_type == 'cbramod')
+    is_32ch_cbramod = (channels == 32 and model_type == 'cbramod')
 
     if epochs is None:
         if is_8ch_cbramod:
             epochs = EIGHT_CHANNEL_FINETUNE_OVERRIDES['epochs']
+        elif is_32ch_cbramod:
+            epochs = THIRTYTWO_CHANNEL_FINETUNE_OVERRIDES['epochs']
         elif freeze_strategy == 'backbone':
             epochs = 20 if model_type == 'eegnet' else 10
         else:
@@ -365,6 +369,8 @@ def finetune_subject(
     if learning_rate is None:
         if is_8ch_cbramod:
             learning_rate = EIGHT_CHANNEL_FINETUNE_OVERRIDES['learning_rate']
+        elif is_32ch_cbramod:
+            learning_rate = THIRTYTWO_CHANNEL_FINETUNE_OVERRIDES['learning_rate']
         elif freeze_strategy == 'backbone':
             learning_rate = 5e-4  # Higher LR when only training classifier
         elif freeze_strategy == 'partial':
@@ -378,6 +384,8 @@ def finetune_subject(
     if patience is None:
         if is_8ch_cbramod:
             patience = EIGHT_CHANNEL_FINETUNE_OVERRIDES['patience']
+        elif is_32ch_cbramod:
+            patience = THIRTYTWO_CHANNEL_FINETUNE_OVERRIDES['patience']
         else:
             patience = 5 if model_type == 'cbramod' else 5
 
@@ -393,10 +401,8 @@ def finetune_subject(
     else:
         preprocess_config = PreprocessConfig.paper_aligned(n_class=n_classes)
 
-    # Apply 8-channel override if specified
-    if channels == 8:
-        preprocess_config.channel_strategy = 'D'
-
+    # Apply reduced-channel override if specified
+    preprocess_config.apply_channel_overrides(channels=channels, channel_config=channel_config)
     # Get session folders
     train_folders = get_session_folders_for_split(paradigm, task, 'train')
     test_folders = get_session_folders_for_split(paradigm, task, 'test')

@@ -46,7 +46,7 @@ from typing import Dict, List, Optional, Tuple
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.config.constants import FULL_N_CHANNELS, PARADIGM_CONFIG
+from src.config.constants import FULL_N_CHANNELS, SUPPORTED_CHANNEL_COUNTS, PARADIGM_CONFIG
 from src.utils.device import set_seed, check_cuda_available, get_device
 from src.utils.logging import SectionLogger, setup_logging
 
@@ -174,6 +174,7 @@ def finetune_and_get_result(
     patience: Optional[int] = None,
     seed: int = 42,
     channels: Optional[int] = None,
+    channel_config: Optional[str] = None,
     # Cache-only mode
     cache_only: bool = False,
     cache_index_path: str = ".cache_index.json",
@@ -203,6 +204,7 @@ def finetune_and_get_result(
         seed=seed,
         data_root=data_root,
         channels=channels,
+        channel_config=channel_config,
         cache_only=cache_only,
         cache_index_path=cache_index_path,
         no_wandb=no_wandb,
@@ -241,6 +243,7 @@ def run_transfer_model(
     patience: Optional[int] = None,
     seed: int = 42,
     channels: Optional[int] = None,
+    channel_config: Optional[str] = None,
     transfer_config: Optional[Dict] = None,
     # Cache-only mode
     cache_only: bool = False,
@@ -317,6 +320,7 @@ def run_transfer_model(
                 patience=patience,
                 seed=seed,
                 channels=channels,
+                channel_config=channel_config,
                 cache_only=cache_only,
                 cache_index_path=cache_index_path,
                 no_wandb=no_wandb,
@@ -478,8 +482,13 @@ Examples:
     # Channel selection
     parser.add_argument(
         '--channels', type=int, default=FULL_N_CHANNELS,
-        choices=[8, FULL_N_CHANNELS],
-        help=f'Number of EEG channels to use: 8 (motor cortex subset) or {FULL_N_CHANNELS} (all) (default: {FULL_N_CHANNELS})'
+        choices=SUPPORTED_CHANNEL_COUNTS,
+        help=f'Number of EEG channels to use: 8/32/{FULL_N_CHANNELS} (default: {FULL_N_CHANNELS})'
+    )
+    parser.add_argument(
+        '--channel-config', type=str, default='motor_cortex',
+        help='32ch channel configuration name (default: motor_cortex). '
+             'Options: motor_cortex, commercial, fdr, csp, attention, band_power'
     )
 
     # Cache index arguments
@@ -631,6 +640,7 @@ Examples:
         log_main.info(f"{'='*50} {model_type.upper()} TRANSFER {'='*50}")
 
         channels_arg = args.channels if args.channels != FULL_N_CHANNELS else None
+        channel_config_arg = args.channel_config if channels_arg == 32 else None
         model_results, model_stats = run_transfer_model(
             model_type=model_type,
             pretrained_path=pretrained_paths[model_type],
@@ -648,6 +658,7 @@ Examples:
             patience=args.finetune_patience,
             seed=args.seed,
             channels=channels_arg,
+            channel_config=channel_config_arg,
             transfer_config=transfer_config,
             cache_only=args.cache_only,
             cache_index_path=args.cache_index_path,

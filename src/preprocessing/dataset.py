@@ -30,6 +30,7 @@ from .pipeline import (
 from .channel_selection import (
     create_biosemi128_to_1020_mapping,
     get_channel_indices,
+    get_nch_indices,
     STANDARD_1020_CHANNELS,
     MOTOR_8_CHANNEL_INDICES,
 )
@@ -140,6 +141,9 @@ class FingerEEGDataset(Dataset):
             self.channel_indices = [idx_map[ch] for ch in STANDARD_1020_CHANNELS]
         elif config.channel_strategy == 'D':
             self.channel_indices = MOTOR_8_CHANNEL_INDICES
+        elif config.channel_strategy == 'E':
+            n_target = config.channel_n_target or 32
+            self.channel_indices = get_nch_indices(n_target, config.channel_config)
         elif config.channel_strategy == 'C':
             self.channel_indices = None  # Use all 128 channels
 

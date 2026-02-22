@@ -298,7 +298,9 @@ def train_cross_subject(
         print(colored("=" * 70, Colors.BRIGHT_BLUE, bold=True))
 
     # ========== CONFIG SETUP ==========
-    n_ch = 8 if config_overrides and config_overrides.get('data', {}).get('channels') == 8 else None
+    n_ch = config_overrides.get('data', {}).get('channels') if config_overrides else None
+    if n_ch not in (8, 32):
+        n_ch = None
     config = get_cross_subject_config(model_type, task, n_channels=n_ch)
 
     # Apply config_overrides dict first (e.g. scheduler presets)
@@ -354,10 +356,10 @@ def train_cross_subject(
     else:
         preprocess_config = PreprocessConfig.paper_aligned(n_class=n_classes)
 
-    # Apply 8-channel override if specified via config_overrides
-    if config.get('data', {}).get('channels') == 8:
-        preprocess_config.channel_strategy = 'D'
-
+    # Apply reduced-channel override if specified via config_overrides
+    data_channels = config.get('data', {}).get('channels')
+    data_channel_config = config.get('data', {}).get('channel_config')
+    preprocess_config.apply_channel_overrides(channels=data_channels, channel_config=data_channel_config)
     # Update WandB config with resolved values
     if wandb_logger.enabled:
         wandb_logger.update_config({

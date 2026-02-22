@@ -42,7 +42,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.config.constants import FULL_N_CHANNELS, PARADIGM_CONFIG
+from src.config.constants import FULL_N_CHANNELS, SUPPORTED_CHANNEL_COUNTS, PARADIGM_CONFIG
 from src.utils.device import set_seed, check_cuda_available, get_device
 from src.utils.logging import SectionLogger, setup_logging
 
@@ -177,8 +177,13 @@ Examples:
 
     parser.add_argument(
         '--channels', type=int, default=FULL_N_CHANNELS,
-        choices=[8, FULL_N_CHANNELS],
-        help=f'Number of EEG channels to use: 8 (motor cortex subset) or {FULL_N_CHANNELS} (all) (default: {FULL_N_CHANNELS})'
+        choices=SUPPORTED_CHANNEL_COUNTS,
+        help=f'Number of EEG channels to use: 8/32/{FULL_N_CHANNELS} (default: {FULL_N_CHANNELS})'
+    )
+    parser.add_argument(
+        '--channel-config', type=str, default='motor_cortex',
+        help='32ch channel configuration name (default: motor_cortex). '
+             'Options: motor_cortex, commercial, fdr, csp, attention, band_power'
     )
     parser.add_argument(
         '--classifier-type', type=str, default=None,
@@ -249,8 +254,10 @@ Examples:
     config_overrides = {}
     if args.scheduler:
         config_overrides.setdefault('training', {})['scheduler'] = args.scheduler
-    if args.channels == 8:
-        config_overrides.setdefault('data', {})['channels'] = 8
+    if args.channels != FULL_N_CHANNELS:
+        config_overrides.setdefault('data', {})['channels'] = args.channels
+        if args.channels == 32:
+            config_overrides.setdefault('data', {})['channel_config'] = args.channel_config
     if args.classifier_type:
         config_overrides.setdefault('model', {})['classifier_type'] = args.classifier_type
     config_overrides = config_overrides or None
@@ -283,6 +290,7 @@ Examples:
         results[model_type] = model_results
 
         # Save individual model results
+        channel_config_to_save = args.channel_config if args.channels != FULL_N_CHANNELS else None
         results_path = save_cross_subject_result(
             result=model_results,
             model_type=model_type,
@@ -290,6 +298,7 @@ Examples:
             task=args.task,
             output_dir=args.results_dir,
             run_tag=run_tag,
+            channel_config=channel_config_to_save,
         )
         log_io.info(f"{model_type.upper()} results saved: {results_path}")
 
