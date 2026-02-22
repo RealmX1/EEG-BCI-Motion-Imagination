@@ -380,8 +380,9 @@ def train_single_subject(
         log_data.info("Preprocess: EEGNet (128ch, 100Hz, 4-40Hz)")
 
     data_config = config['data']
-    if data_config.get('channels') == 8:
-        preprocess_config.channel_strategy = 'D'
+    channels = data_config.get('channels')
+    channel_config = data_config.get('channel_config')
+    preprocess_config.apply_channel_overrides(channels=channels, channel_config=channel_config)
     if 'window_length' in data_config:
         preprocess_config.trial_duration = data_config['window_length']
 
@@ -879,7 +880,9 @@ def train_subject_simple(
     elc_path = data_root_path / 'biosemi128.ELC'
     save_path = Path(save_dir) / f'{run_tag}_{model_type}_within_subject' / task
 
-    n_ch = 8 if config_overrides and config_overrides.get('data', {}).get('channels') == 8 else None
+    n_ch = config_overrides.get('data', {}).get('channels') if config_overrides else None
+    if n_ch not in (8, 32):
+        n_ch = None
     config = get_default_config(model_type, task, n_channels=n_ch)
 
     # Apply config overrides with scheduler preset support

@@ -1,0 +1,38 @@
+{
+  "metadata": {
+    "created_at": "2026-02-21T12:18:15.096452",
+    "paradigm": "imagery",
+    "task": "binary",
+    "n_channels_selected": 8,
+    "n_subjects": 21,
+    "n_trials_total": 15663,
+    "methods": [
+      "fdr"
+    ]
+  },
+  "configs": {
+    "fdr": {
+      "indices": [
+        60,
+        68,
+        69,
+        70,
+        101,
+        102,
+        103,
+        104
+      ],
+      "scores": {
+        "60": 0.021890627220273018,
+        "68": 0.021852612495422363,
+        "69": 0.02629612199962139,
+        "70": 0.028630835935473442,
+        "101": 0.022344427183270454,
+        "102": 0.02502274326980114,
+        "103": 0.03081880882382393,
+        "104": 0.022998953238129616
+      },
+      "description": "Fisher Discriminant Ratio — top 8 channels by inter-class separability"
+    }
+  }
+}

@@ -15,7 +15,7 @@ Usage:
 
 from .comparison import generate_combined_plot, generate_comparison_plot
 from .single_model import generate_single_model_plot
-from .cross_subject import generate_cross_subject_single_plot
+from .cross_subject import generate_cross_subject_single_plot, generate_config_comparison_plot
 from .milestone import generate_milestone_plot
 from .plots import MODEL_COLORS, CHANCE_LEVELS
 
@@ -25,6 +25,7 @@ __all__ = [
     'generate_single_model_plot',
     # Cross-subject
     'generate_cross_subject_single_plot',
+    'generate_config_comparison_plot',
     # Milestone
     'generate_milestone_plot',
     # Utilities

@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 本项目是一个基于脑电图（EEG）的脑机接口（BCI）研究项目，对比验证 EEG 基座模型（CBraMod）与传统 CNN（EEGNet）在单指级别运动解码任务中的性能。
 
-**当前状态**: Phase 4 - 代码重构 + 迁移学习。跨被试预训练→个体微调管线已完成，WandB 参数标准化，结果缓存双类型 (`WITHIN_SUBJECT` / `TRANSFER`)。**所有 21 个被试数据 (S01-S21) 已合并完成**。详见 `docs/dev_log/changelog.md`。
+**当前状态**: Phase 4 - 代码重构 + 迁移学习 + 多通道实验。跨被试预训练→个体微调管线已完成，WandB 参数标准化，结果缓存双类型 (`WITHIN_SUBJECT` / `TRANSFER`)。**支持 8/32/128 通道实验**，32ch 支持 6 种配置对比。**所有 21 个被试数据 (S01-S21) 已合并完成**。详见 `docs/dev_log/changelog.md`。
 
 **缓存状态**: 3640 条预处理缓存（31.4 GB），覆盖所有 21 个被试。合并报告: `caches/MERGE_COMPLETE_REPORT.txt`
 
@@ -66,6 +66,13 @@ uv run python scripts/run_finetune.py \
 uv run python scripts/run_finetune.py \
     --pretrained checkpoints/cross_subject/cbramod_imagery_binary/best.pt \
     --all-subjects --freeze-strategy backbone
+
+# 32 通道实验
+uv run python scripts/analysis/compute_32ch_selections.py                      # 数据驱动通道选择
+uv run python scripts/experiments/run_32ch_config_comparison.py                # 6 配置对比
+uv run python scripts/experiments/run_32ch_config_comparison.py --dry-run      # 仅显示命令
+uv run python scripts/experiments/run_32ch_experiment.py                       # 全量实验 (默认 motor_cortex)
+uv run python scripts/experiments/run_32ch_experiment.py --channel-config commercial  # 指定配置
 ```
 
 ## 数据划分协议
@@ -111,6 +118,9 @@ scripts/
 │   ├── run_within_subject_comparison.py  # 被试内模型对比
 │   ├── run_cross_subject_comparison.py   # 跨被试模型对比
 │   ├── run_transfer_comparison.py       # 迁移学习对比 (跨被试→微调→对比)
+│   ├── run_32ch_config_comparison.py   # 32ch 6 配置对比
+│   ├── run_32ch_experiment.py          # 32ch 全量实验
+│   ├── run_8ch_experiment.py           # 8ch 全量实验
 │   ├── run_single_model.py     # 单模型训练 (被试内)
 │   ├── run_cross_subject.py    # 单模型跨被试预训练
 │   └── run_finetune.py         # 个体微调
@@ -122,6 +132,7 @@ scripts/
 │   ├── verify_installation.py  # 安装验证
 │   └── compare_schedulers.py   # 调度器对比
 ├── analysis/                   # 分析脚本
+│   ├── compute_32ch_selections.py  # 数据驱动 32ch 通道选择
 │   └── research/               # 研究分析
 └── internal/                   # 内部工具
 ```
@@ -166,6 +177,7 @@ caches/preprocessed/                  # 预处理缓存
 | `docs/preprocessing_architecture.md` | 预处理管线详细架构 |
 | `docs/dev_log/changelog.md` | 开发历史和变更记录 |
 | `docs/dev_log/refactoring/` | 代码重构详细记录 (Phase 1-4) |
+| `docs/dev_log/implemented_plans/32ch_experiment.md` | 32 通道实验实现文档 |
 
 ## 参考资料
 

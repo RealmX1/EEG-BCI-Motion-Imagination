@@ -111,8 +111,8 @@ def get_default_config(model_type: str, task: str, n_channels: int = None) -> di
     Args:
         model_type: 'eegnet' or 'cbramod'
         task: 'binary', 'ternary', or 'quaternary'
-        n_channels: Number of EEG channels (8 or 128). If 8, applies
-            8-channel-specific presets for CBraMod. Default None = no override.
+        n_channels: Number of EEG channels (8, 32, or 128). If 8 or 32, applies
+            reduced-channel-specific presets for CBraMod. Default None = no override.
 
     Returns:
         Configuration dict compatible with train_single_subject()
@@ -172,9 +172,13 @@ def get_default_config(model_type: str, task: str, n_channels: int = None) -> di
             'task': task,
         }
 
-    # Apply 8-channel presets for CBraMod (before user overrides)
+    # Apply reduced-channel presets for CBraMod (before user overrides)
     if model_type == 'cbramod' and n_channels == 8:
         for section, overrides in EIGHT_CHANNEL_WITHIN_SUBJECT_OVERRIDES.items():
+            if section in config and isinstance(overrides, dict):
+                config[section].update(overrides)
+    elif model_type == 'cbramod' and n_channels == 32:
+        for section, overrides in THIRTYTWO_CHANNEL_WITHIN_SUBJECT_OVERRIDES.items():
             if section in config and isinstance(overrides, dict):
                 config[section].update(overrides)
 
@@ -219,6 +223,36 @@ EIGHT_CHANNEL_FINETUNE_OVERRIDES = {
     'epochs': 20,
     'patience': 8,
     'learning_rate': 5e-5,
+}
+
+
+# ============================================================================
+# 32-Channel Presets (applied only when n_channels=32)
+# Values interpolated between 8ch and 128ch defaults
+# ============================================================================
+
+THIRTYTWO_CHANNEL_WITHIN_SUBJECT_OVERRIDES = {
+    'model': {
+        'dropout_rate': 0.20,
+    },
+    'training': {
+        'weight_decay': 0.08,
+    },
+}
+
+THIRTYTWO_CHANNEL_CROSS_SUBJECT_OVERRIDES = {
+    'model': {
+        'dropout_rate': 0.40,
+    },
+    'training': {
+        'weight_decay': 0.15,
+    },
+}
+
+THIRTYTWO_CHANNEL_FINETUNE_OVERRIDES = {
+    'epochs': 25,
+    'patience': 10,
+    'learning_rate': 8e-5,
 }
 
 
@@ -298,8 +332,8 @@ def get_cross_subject_config(model_type: str, task: str, n_channels: int = None)
     Args:
         model_type: 'eegnet' or 'cbramod'
         task: 'binary', 'ternary', or 'quaternary'
-        n_channels: Number of EEG channels (8 or 128). If 8, applies
-            8-channel-specific presets for CBraMod. Default None = no override.
+        n_channels: Number of EEG channels (8, 32, or 128). If 8 or 32, applies
+            reduced-channel-specific presets for CBraMod. Default None = no override.
 
     Returns:
         Configuration dict compatible with train_cross_subject()
@@ -333,9 +367,13 @@ def get_cross_subject_config(model_type: str, task: str, n_channels: int = None)
             'weight_decay': 1e-4,                        # 0→1e-4, 轻微正则
         })
 
-    # Apply 8-channel cross-subject presets for CBraMod (override 128ch cross defaults)
+    # Apply reduced-channel cross-subject presets for CBraMod
     if model_type == 'cbramod' and n_channels == 8:
         for section, overrides in EIGHT_CHANNEL_CROSS_SUBJECT_OVERRIDES.items():
+            if section in config and isinstance(overrides, dict):
+                config[section].update(overrides)
+    elif model_type == 'cbramod' and n_channels == 32:
+        for section, overrides in THIRTYTWO_CHANNEL_CROSS_SUBJECT_OVERRIDES.items():
             if section in config and isinstance(overrides, dict):
                 config[section].update(overrides)
 

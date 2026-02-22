@@ -118,7 +118,11 @@ class PreprocessConfig:
     filter_order: int = 4  # 4th order Butterworth
 
     # Channel selection
-    channel_strategy: str = 'C'  # 'A': 10-20 (19ch), 'B': motor cortex, 'C': all 128, 'D': motor-8 (8ch)
+    # 'A': 10-20 (19ch), 'B': motor cortex, 'C': all 128, 'D': motor-8 (8ch),
+    # 'E': named N-channel config (data-driven or hand-picked)
+    channel_strategy: str = 'C'
+    channel_config: Optional[str] = None   # Config name for strategy 'E' (e.g., 'motor_cortex', 'fdr')
+    channel_n_target: Optional[int] = None  # Target channel count for strategy 'E' (e.g. 8, 32)
 
     # Trial extraction
     trial_duration: float = 5.0  # seconds for offline (paper: 5s offline, 3s online)
@@ -164,6 +168,26 @@ class PreprocessConfig:
         if self.experiment_id:
             return f"data_preproc_ml_eng/{self.experiment_id}"
         return None
+
+    def apply_channel_overrides(self, channels: Optional[int], channel_config: Optional[str] = None) -> None:
+        """
+        Apply reduced-channel overrides to the preprocessing configuration.
+        
+        Args:
+            channels: Target number of channels (e.g., 8, 32).
+            channel_config: Name of the channel configuration (e.g., 'motor_cortex', 'fdr').
+        """
+        if channel_config:
+            # Explicit named config → strategy E for any channel count
+            self.channel_strategy = 'E'
+            self.channel_config = channel_config
+            self.channel_n_target = channels
+        elif channels == 8:
+            self.channel_strategy = 'D'
+        elif channels == 32:
+            self.channel_strategy = 'E'
+            self.channel_config = 'motor_cortex'
+            self.channel_n_target = 32
 
     @classmethod
     def paper_aligned(cls, n_class: int = 2) -> 'PreprocessConfig':

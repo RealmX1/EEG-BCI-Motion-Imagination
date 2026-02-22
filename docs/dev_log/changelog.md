@@ -1,5 +1,36 @@
 # 开发变更记录
 
+## 2026-02-20
+
+### 32 通道实验支持
+
+**功能**: 新增 32 通道实验基础设施和实验脚本，支持 6 种通道选择配置对比。
+
+**新增文件**:
+- `scripts/analysis/compute_32ch_selections.py`: 数据驱动通道选择（FDR, CSP, Attention/Gradient, Band Power）
+- `scripts/experiments/run_32ch_config_comparison.py`: 6 配置对比实验
+- `scripts/experiments/run_32ch_experiment.py`: 最优配置全量实验（within + cross + transfer）
+- `docs/dev_log/implemented_plans/32ch_experiment.md`: 实现文档
+
+**修改文件** (11 个):
+- `src/preprocessing/channel_selection.py`: `CHANNEL_32_CONFIGS` 注册表 + `get_32ch_indices()` + `load_32ch_selections()`
+- `src/preprocessing/data_loader.py`: `PreprocessConfig.channel_32_config` 字段
+- `src/preprocessing/dataset.py`: Strategy 'E' 分支
+- `src/config/constants.py`: `SUPPORTED_CHANNEL_COUNTS = [8, 32, 128]`
+- `src/config/training.py`: 32ch 超参数覆盖（within/cross/finetune）+ config 函数扩展
+- `src/training/train_within_subject.py`: 8/32ch 通道检测泛化
+- `src/training/train_cross_subject.py`: 同上
+- `src/training/finetune.py`: `channel_config` 参数 + `is_32ch_cbramod` override 逻辑
+- `scripts/experiments/run_{within,cross}_subject_comparison.py`: `--channels 32 --channel-config` CLI
+- `scripts/experiments/run_transfer_comparison.py`: 同上 + `channel_config` 透传至 finetune
+
+**设计要点**:
+- 所有新参数默认 `None`，不影响现有 128ch/8ch 实验默认行为
+- HDF5 缓存始终存储 128ch，32ch 选择在加载时应用
+- Hand-picked 配置（motor_cortex, commercial）硬编码；data-driven 配置从 JSON 加载
+
+---
+
 ## 2026-02-05
 
 ### WandB 集成默认启用

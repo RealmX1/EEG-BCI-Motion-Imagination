@@ -27,6 +27,136 @@ MOTOR_8_CHANNELS = {
 }
 MOTOR_8_CHANNEL_INDICES = [0, 2, 5, 20, 34, 52, 86, 113]
 
+# ============================================================================
+# 32-channel configurations for reduced-channel experiments
+# ============================================================================
+
+# Hard-coded 32ch configs (hand-picked)
+# - motor_cortex: motor cortex focused selection (superset of 8ch)
+# - commercial: standard commercial 32ch cap (10-20 layout)
+# Data-driven configs (fdr, csp, attention, band_power) are loaded from JSON
+CHANNEL_32_CONFIGS = {
+    # Motor cortex focused: dense coverage around C3/Cz/C4 + SMA/premotor
+    # Includes C23 (idx 86, near FCz/SMA) instead of D3 (idx 98, near F3):
+    #   C23 is the closest electrode to SMA (dist 0.37 to FCz) — critical for MI/ME decoding
+    #   D3 would be redundant with 5 existing electrodes already covering left premotor/F3 area
+    'motor_cortex': [0, 2, 3, 5, 20, 32, 33, 34, 49, 50, 52, 53, 55,
+                     62, 63, 64, 65, 66, 77, 85, 86, 90, 97, 107, 108,
+                     110, 111, 112, 113, 114, 116, 123],
+    # Standard commercial 32ch cap: 10-20 layout coverage
+    'commercial': [0, 3, 5, 16, 17, 22, 29, 30, 33, 34, 44, 49, 52, 55,
+                   62, 65, 66, 68, 76, 77, 85, 89, 90, 97, 98, 100, 107,
+                   111, 113, 116, 123, 124],
+    # Data-driven configs: loaded from JSON at runtime
+    'fdr': None,
+    'csp': None,
+    'attention': None,
+    'band_power': None,
+}
+CHANNEL_32_CONFIG_NAMES = list(CHANNEL_32_CONFIGS.keys())
+
+# Default JSON path for data-driven channel selections
+CHANNEL_32_SELECTIONS_JSON = 'results/32_channel/channel_selections.json'
+
+# Data-driven config names (valid for any channel count)
+DATA_DRIVEN_CONFIG_NAMES = ['fdr', 'csp', 'attention', 'band_power']
+
+
+def get_nch_indices(n_channels: int, config_name: str, json_path: Optional[str] = None) -> List[int]:
+    """
+    Get N-channel indices for a named configuration.
+
+    For 32ch: hard-coded configs (motor_cortex, commercial) are returned directly.
+    For any N: data-driven configs (fdr, csp, attention, band_power) are loaded
+    from results/{N}_channel/channel_selections.json.
+
+    Args:
+        n_channels: Target number of channels (e.g. 8, 32)
+        config_name: Configuration name (e.g. 'fdr', 'motor_cortex')
+        json_path: Override path to channel_selections.json.
+                  Defaults to results/{n_channels}_channel/channel_selections.json.
+
+    Returns:
+        Sorted list of channel indices (0-127)
+
+    Raises:
+        ValueError: If config not found or not available
+    """
+    # 32ch hard-coded configs
+    if n_channels == 32 and config_name in CHANNEL_32_CONFIGS:
+        indices = CHANNEL_32_CONFIGS[config_name]
+        if indices is not None:
+            return sorted(indices)
+
+    # Data-driven configs: load from JSON
+    if json_path is None:
+        json_path = f'results/{n_channels}_channel/channel_selections.json'
+
+    selections = load_channel_selections(json_path)
+    if config_name not in selections:
+        raise ValueError(
+            f"Config '{config_name}' not found in {json_path}. "
+            f"Run: uv run python scripts/analysis/compute_32ch_selections.py "
+            f"--n-channels {n_channels} --methods {config_name}"
+        )
+
+    indices = selections[config_name]['indices']
+    if len(indices) != n_channels:
+        raise ValueError(
+            f"Config '{config_name}' in {json_path} has {len(indices)} channels, "
+            f"expected {n_channels}"
+        )
+
+    return sorted(indices)
+
+
+def get_32ch_indices(config_name: str, json_path: Optional[str] = None) -> List[int]:
+    """Backward-compatible wrapper for get_nch_indices(32, ...)."""
+    return get_nch_indices(32, config_name, json_path)
+
+
+def load_channel_selections(json_path: str) -> dict:
+    """
+    Load channel selections from JSON, merging hard-coded and data-driven.
+
+    Args:
+        json_path: Path to channel_selections.json
+
+    Returns:
+        Dict mapping config_name to {'indices': [...], 'description': '...', ...}
+    """
+    import json
+
+    result = {}
+
+    # Include hard-coded 32ch configs if the path is for 32 channels
+    if '32_channel' in str(json_path):
+        for name, indices in CHANNEL_32_CONFIGS.items():
+            if indices is not None:
+                result[name] = {
+                    'indices': sorted(indices),
+                    'description': f'Hard-coded {name} configuration',
+                }
+
+    # Load data-driven configs from JSON if available
+    json_file = Path(json_path)
+    if json_file.exists():
+        with open(json_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        configs = data.get('configs', {})
+        for name, config in configs.items():
+            if 'indices' in config:
+                result[name] = config
+
+    return result
+
+
+def load_32ch_selections(json_path: str) -> dict:
+    """Backward-compatible wrapper for load_channel_selections."""
+    return load_channel_selections(json_path)
+
+
 # Note: T3/T4/T5/T6 are also known as T7/T8/P7/P8 in some systems
 
 # BioSemi 128 electrode labels
