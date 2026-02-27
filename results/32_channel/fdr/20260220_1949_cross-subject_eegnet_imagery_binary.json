@@ -30,7 +30,8 @@
     "n_subjects": 21,
     "n_channels": 32,
     "run_tag": "20260220_1949",
-    "timestamp": "2026-02-20T20:08:27.512606"
+    "timestamp": "2026-02-20T20:08:27.512606",
+    "channel_config": "fdr"
   },
   "results": {
     "per_subject_test_acc": {

@@ -30,7 +30,8 @@
     "n_subjects": 21,
     "n_channels": 32,
     "run_tag": "20260220_2301",
-    "timestamp": "2026-02-20T23:17:53.382815"
+    "timestamp": "2026-02-20T23:17:53.382815",
+    "channel_config": "band_power"
   },
   "results": {
     "per_subject_test_acc": {

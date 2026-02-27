@@ -30,7 +30,8 @@
     "n_subjects": 21,
     "n_channels": 32,
     "run_tag": "20260220_1731",
-    "timestamp": "2026-02-20T17:55:02.206605"
+    "timestamp": "2026-02-20T17:55:02.206605",
+    "channel_config": "motor_cortex"
   },
   "results": {
     "per_subject_test_acc": {

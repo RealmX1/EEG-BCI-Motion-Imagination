@@ -30,7 +30,8 @@
     "n_subjects": 21,
     "n_channels": 32,
     "run_tag": "20260220_1850",
-    "timestamp": "2026-02-20T19:49:31.249054"
+    "timestamp": "2026-02-20T19:49:31.249054",
+    "channel_config": "commercial"
   },
   "results": {
     "per_subject_test_acc": {
