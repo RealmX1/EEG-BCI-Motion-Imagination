@@ -54,7 +54,11 @@ from src.preprocessing.data_loader import (
     PreprocessConfig,
     get_session_folders_for_split,
 )
-from src.config.training import EIGHT_CHANNEL_FINETUNE_OVERRIDES, THIRTYTWO_CHANNEL_FINETUNE_OVERRIDES
+from src.config.training import (
+    EIGHT_CHANNEL_FINETUNE_OVERRIDES,
+    THIRTYTWO_CHANNEL_FINETUNE_OVERRIDES,
+    SIXTYONE_CHANNEL_FINETUNE_OVERRIDES,
+)
 from src.training.train_within_subject import (
     WithinSubjectTrainer,
     majority_vote_accuracy,
@@ -355,12 +359,15 @@ def finetune_subject(
     # Set finetuning-specific defaults
     is_8ch_cbramod = (channels == 8 and model_type == 'cbramod')
     is_32ch_cbramod = (channels == 32 and model_type == 'cbramod')
+    is_61ch_cbramod = (channels == 61 and model_type == 'cbramod')
 
     if epochs is None:
         if is_8ch_cbramod:
             epochs = EIGHT_CHANNEL_FINETUNE_OVERRIDES['epochs']
         elif is_32ch_cbramod:
             epochs = THIRTYTWO_CHANNEL_FINETUNE_OVERRIDES['epochs']
+        elif is_61ch_cbramod:
+            epochs = SIXTYONE_CHANNEL_FINETUNE_OVERRIDES['epochs']
         elif freeze_strategy == 'backbone':
             epochs = 20 if model_type == 'eegnet' else 10
         else:
@@ -371,6 +378,8 @@ def finetune_subject(
             learning_rate = EIGHT_CHANNEL_FINETUNE_OVERRIDES['learning_rate']
         elif is_32ch_cbramod:
             learning_rate = THIRTYTWO_CHANNEL_FINETUNE_OVERRIDES['learning_rate']
+        elif is_61ch_cbramod:
+            learning_rate = SIXTYONE_CHANNEL_FINETUNE_OVERRIDES['learning_rate']
         elif freeze_strategy == 'backbone':
             learning_rate = 5e-4  # Higher LR when only training classifier
         elif freeze_strategy == 'partial':
@@ -386,6 +395,8 @@ def finetune_subject(
             patience = EIGHT_CHANNEL_FINETUNE_OVERRIDES['patience']
         elif is_32ch_cbramod:
             patience = THIRTYTWO_CHANNEL_FINETUNE_OVERRIDES['patience']
+        elif is_61ch_cbramod:
+            patience = SIXTYONE_CHANNEL_FINETUNE_OVERRIDES['patience']
         else:
             patience = 5 if model_type == 'cbramod' else 5
 

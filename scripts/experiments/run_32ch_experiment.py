@@ -27,13 +27,45 @@ Usage:
 """
 
 import argparse
+import json
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 
 TASKS = ['binary', 'ternary']
 ALL_STEPS = ['cross', 'transfer']  # Default: skip within-subject
+
+
+def has_cross_subject_results(
+    channels: int, channel_config: str, paradigm: str, task: str, models: list,
+) -> bool:
+    """Check if cross-subject results already exist for all requested models.
+
+    Verifies both the result JSON and the referenced checkpoint file.
+    """
+    results_dir = Path(f'results/{channels}_channel/{channel_config}')
+    if not results_dir.exists():
+        return False
+
+    for model in models:
+        pattern = f'*_cross-subject_{model}_{paradigm}_{task}.json'
+        matches = sorted(results_dir.glob(pattern), reverse=True)
+        if not matches:
+            return False
+
+        # Verify the most recent result has a valid checkpoint
+        try:
+            with open(matches[0], 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            model_path = data.get('training_info', {}).get('model_path', '')
+            if not model_path or not Path(model_path).exists():
+                return False
+        except (json.JSONDecodeError, OSError):
+            return False
+
+    return True
 
 
 def get_step_scripts(channels: int, channel_config: str, steps: list):
@@ -169,6 +201,10 @@ Examples:
         help='Disable WandB logging',
     )
     parser.add_argument(
+        '--force-cross', action='store_true',
+        help='Force re-run cross-subject even if results already exist',
+    )
+    parser.add_argument(
         '--dry-run', action='store_true',
         help='Print commands without executing',
     )
@@ -198,6 +234,17 @@ Examples:
         for script_info in scripts:
             step += 1
             print(f"\n  [{step}/{total_steps}] {script_info['name']} ({task})")
+
+            # Skip cross-subject if results (with valid checkpoints) already exist
+            is_cross = 'cross-subject' in script_info['name'].lower()
+            if is_cross and not args.force_cross and not args.dry_run:
+                if has_cross_subject_results(
+                    args.channels, args.channel_config, args.paradigm, task, args.models,
+                ):
+                    print(f"  [SKIP] Cross-subject results already exist for "
+                          f"{args.channel_config}/{args.paradigm}/{task}. "
+                          f"Use --force-cross to re-run.")
+                    continue
 
             cmd = [
                 sys.executable,

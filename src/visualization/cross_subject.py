@@ -27,6 +27,7 @@ CONFIG_DISPLAY_NAMES: Dict[str, str] = {
     'csp': 'CSP',
     'attention': 'Attention',
     'band_power': 'Band Power',
+    'standard_1010': 'Standard 10-10 (61ch)',
 }
 
 
@@ -241,6 +242,7 @@ def generate_config_comparison_plot(
     paradigm: str = 'imagery',
     n_channels: int = 32,
     baseline_accs: Optional[Dict[str, float]] = None,
+    baseline_61ch_accs: Optional[Dict[str, float]] = None,
 ) -> None:
     """
     生成多通道配置综合对比图（N 个配置 × 2 模型）.
@@ -260,7 +262,8 @@ def generate_config_comparison_plot(
         task_type: 任务类型 ('binary', 'ternary', 'quaternary')
         paradigm: 范式 ('imagery', 'movement')
         n_channels: 通道数（用于标题）
-        baseline_accs: 全通道基线均值 {model_type: mean_acc}（绘制参考横线）
+        baseline_accs: 全通道基线均值 {model_type: mean_acc}（绘制 128ch 参考横线）
+        baseline_61ch_accs: 61ch 基线均值 {model_type: mean_acc}（绘制 61ch 参考横线）
     """
     try:
         import matplotlib.pyplot as plt
@@ -350,13 +353,28 @@ def generate_config_comparison_plot(
             ax_bar.axhline(
                 y=baseline_accs['eegnet'], color=colors['eegnet'],
                 linestyle='--', linewidth=1.5, alpha=0.7,
-                label=f'EEGNet 128ch baseline ({baseline_accs["eegnet"]*100:.1f}%)',
+                label=f'EEGNet 128ch ({baseline_accs["eegnet"]*100:.1f}%)',
             )
         if 'cbramod' in baseline_accs:
             ax_bar.axhline(
                 y=baseline_accs['cbramod'], color=colors['cbramod'],
                 linestyle='--', linewidth=1.5, alpha=0.7,
-                label=f'CBraMod 128ch baseline ({baseline_accs["cbramod"]*100:.1f}%)',
+                label=f'CBraMod 128ch ({baseline_accs["cbramod"]*100:.1f}%)',
+            )
+
+    # 基线参考线（61ch 标准 10-10）
+    if baseline_61ch_accs:
+        if 'eegnet' in baseline_61ch_accs:
+            ax_bar.axhline(
+                y=baseline_61ch_accs['eegnet'], color=colors['eegnet'],
+                linestyle='-.', linewidth=1.5, alpha=0.6,
+                label=f'EEGNet 61ch ({baseline_61ch_accs["eegnet"]*100:.1f}%)',
+            )
+        if 'cbramod' in baseline_61ch_accs:
+            ax_bar.axhline(
+                y=baseline_61ch_accs['cbramod'], color=colors['cbramod'],
+                linestyle='-.', linewidth=1.5, alpha=0.6,
+                label=f'CBraMod 61ch ({baseline_61ch_accs["cbramod"]*100:.1f}%)',
             )
 
     ax_bar.axhline(y=chance_level, color='gray', linestyle=':', alpha=0.6,
@@ -414,13 +432,26 @@ def generate_config_comparison_plot(
                     ha='left', va='center', fontsize=6.5, color=median_color)
 
         ax.axhline(y=chance_level, color='gray', linestyle=':', alpha=0.6)
+
+        baseline_legend = []
         if baseline_accs and model_type in baseline_accs:
             ax.axhline(
                 y=baseline_accs[model_type], color=model_color,
                 linestyle='--', linewidth=1.2, alpha=0.6,
-                label=f'128ch: {baseline_accs[model_type]*100:.1f}%',
             )
-            ax.legend(fontsize=7, loc='upper right')
+            baseline_legend.append(
+                Line2D([0], [0], color=model_color, linewidth=1.2,
+                       linestyle='--', label=f'128ch: {baseline_accs[model_type]*100:.1f}%')
+            )
+        if baseline_61ch_accs and model_type in baseline_61ch_accs:
+            ax.axhline(
+                y=baseline_61ch_accs[model_type], color=model_color,
+                linestyle='-.', linewidth=1.2, alpha=0.5,
+            )
+            baseline_legend.append(
+                Line2D([0], [0], color=model_color, linewidth=1.2,
+                       linestyle='-.', label=f'61ch: {baseline_61ch_accs[model_type]*100:.1f}%')
+            )
 
         ax.set_ylabel('Test Accuracy', fontsize=10)
         ax.set_title(f'{model_label} — Distribution by Config', fontsize=10)
@@ -430,7 +461,7 @@ def generate_config_comparison_plot(
         legend_elements = [
             Line2D([0], [0], color=median_color, linewidth=2, linestyle='-', label='Median'),
             Line2D([0], [0], color=mean_color, linewidth=2, linestyle=(0, (3, 2)), label='Mean'),
-        ]
+        ] + baseline_legend
         ax.legend(handles=legend_elements, loc='upper right', fontsize=7)
 
     plt.savefig(output_path, dpi=150, bbox_inches='tight')

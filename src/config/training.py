@@ -181,6 +181,10 @@ def get_default_config(model_type: str, task: str, n_channels: int = None) -> di
         for section, overrides in THIRTYTWO_CHANNEL_WITHIN_SUBJECT_OVERRIDES.items():
             if section in config and isinstance(overrides, dict):
                 config[section].update(overrides)
+    elif model_type == 'cbramod' and n_channels == 61:
+        for section, overrides in SIXTYONE_CHANNEL_WITHIN_SUBJECT_OVERRIDES.items():
+            if section in config and isinstance(overrides, dict):
+                config[section].update(overrides)
 
     return config
 
@@ -253,6 +257,36 @@ THIRTYTWO_CHANNEL_FINETUNE_OVERRIDES = {
     'epochs': 25,
     'patience': 10,
     'learning_rate': 8e-5,
+}
+
+
+# ============================================================================
+# 61-Channel Presets (applied only when n_channels=61)
+# Values closer to 128ch defaults since 61ch provides good spatial coverage
+# ============================================================================
+
+SIXTYONE_CHANNEL_WITHIN_SUBJECT_OVERRIDES = {
+    'model': {
+        'dropout_rate': 0.18,    # Between 32ch (0.20) and 128ch (0.15)
+    },
+    'training': {
+        'weight_decay': 0.07,    # Between 32ch (0.08) and 128ch (0.06)
+    },
+}
+
+SIXTYONE_CHANNEL_CROSS_SUBJECT_OVERRIDES = {
+    'model': {
+        'dropout_rate': 0.38,    # Between 32ch (0.40) and 128ch (0.35)
+    },
+    'training': {
+        'weight_decay': 0.13,    # Between 32ch (0.15) and 128ch (0.12)
+    },
+}
+
+SIXTYONE_CHANNEL_FINETUNE_OVERRIDES = {
+    'epochs': 23,                # Between 32ch (25) and 128ch default
+    'patience': 8,               # Between 32ch (10) and 128ch default
+    'learning_rate': 9e-5,       # Between 32ch (8e-5) and 128ch default (1e-4)
 }
 
 
@@ -374,6 +408,10 @@ def get_cross_subject_config(model_type: str, task: str, n_channels: int = None)
                 config[section].update(overrides)
     elif model_type == 'cbramod' and n_channels == 32:
         for section, overrides in THIRTYTWO_CHANNEL_CROSS_SUBJECT_OVERRIDES.items():
+            if section in config and isinstance(overrides, dict):
+                config[section].update(overrides)
+    elif model_type == 'cbramod' and n_channels == 61:
+        for section, overrides in SIXTYONE_CHANNEL_CROSS_SUBJECT_OVERRIDES.items():
             if section in config and isinstance(overrides, dict):
                 config[section].update(overrides)
 

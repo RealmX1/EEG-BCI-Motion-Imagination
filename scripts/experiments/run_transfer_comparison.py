@@ -483,12 +483,13 @@ Examples:
     parser.add_argument(
         '--channels', type=int, default=FULL_N_CHANNELS,
         choices=SUPPORTED_CHANNEL_COUNTS,
-        help=f'Number of EEG channels to use: 8/32/{FULL_N_CHANNELS} (default: {FULL_N_CHANNELS})'
+        help=f'Number of EEG channels to use: {"/".join(str(c) for c in SUPPORTED_CHANNEL_COUNTS)} (default: {FULL_N_CHANNELS})'
     )
     parser.add_argument(
         '--channel-config', type=str, default='motor_cortex',
-        help='32ch channel configuration name (default: motor_cortex). '
-             'Options: motor_cortex, commercial, fdr, csp, attention, band_power'
+        help='Channel configuration name (default: motor_cortex). '
+             '32ch: motor_cortex, commercial, fdr, csp, attention, band_power; '
+             '61ch: standard_1010'
     )
 
     # Cache index arguments
@@ -503,9 +504,9 @@ Examples:
 
     args = parser.parse_args()
 
-    # Auto-redirect results to results/{n}_channel/ when using reduced channel mode
+    # Auto-redirect results to results/{n}_channel/{config}/ when using reduced channel mode
     if args.channels != FULL_N_CHANNELS and args.results_dir == 'results':
-        args.results_dir = f'results/{args.channels}_channel'
+        args.results_dir = f'results/{args.channels}_channel/{args.channel_config}'
 
     # Start timer
     start_time = time.time()
@@ -640,7 +641,7 @@ Examples:
         log_main.info(f"{'='*50} {model_type.upper()} TRANSFER {'='*50}")
 
         channels_arg = args.channels if args.channels != FULL_N_CHANNELS else None
-        channel_config_arg = args.channel_config if channels_arg == 32 else None
+        channel_config_arg = args.channel_config if channels_arg is not None else None
         model_results, model_stats = run_transfer_model(
             model_type=model_type,
             pretrained_path=pretrained_paths[model_type],

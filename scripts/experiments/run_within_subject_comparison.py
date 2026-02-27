@@ -233,12 +233,13 @@ Examples:
     parser.add_argument(
         '--channels', type=int, default=FULL_N_CHANNELS,
         choices=SUPPORTED_CHANNEL_COUNTS,
-        help=f'Number of EEG channels to use: 8/32/{FULL_N_CHANNELS} (default: {FULL_N_CHANNELS})'
+        help=f'Number of EEG channels to use: {"/".join(str(c) for c in SUPPORTED_CHANNEL_COUNTS)} (default: {FULL_N_CHANNELS})'
     )
     parser.add_argument(
         '--channel-config', type=str, default='motor_cortex',
-        help='32ch channel configuration name (default: motor_cortex). '
-             'Options: motor_cortex, commercial, fdr, csp, attention, band_power'
+        help='Channel configuration name (default: motor_cortex). '
+             '32ch: motor_cortex, commercial, fdr, csp, attention, band_power; '
+             '61ch: standard_1010'
     )
     parser.add_argument(
         '--classifier-type', type=str, default=None,
@@ -248,9 +249,9 @@ Examples:
 
     args = parser.parse_args()
 
-    # Auto-redirect output to results/{n}_channel/ when using reduced channel mode
+    # Auto-redirect output to results/{n}_channel/{config}/ when using reduced channel mode
     if args.channels != FULL_N_CHANNELS and args.output_dir == 'results':
-        args.output_dir = f'results/{args.channels}_channel'
+        args.output_dir = f'results/{args.channels}_channel/{args.channel_config}'
 
     # Start timer
     start_time = time.time()
@@ -302,8 +303,7 @@ Examples:
         config_overrides.setdefault('model', {})['no_pretrained'] = True
     if args.channels != FULL_N_CHANNELS:
         config_overrides.setdefault('data', {})['channels'] = args.channels
-        if args.channels == 32:
-            config_overrides.setdefault('data', {})['channel_config'] = args.channel_config
+        config_overrides.setdefault('data', {})['channel_config'] = args.channel_config
     if args.classifier_type:
         config_overrides.setdefault('model', {})['classifier_type'] = args.classifier_type
     config_overrides = config_overrides or None

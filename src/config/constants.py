@@ -74,4 +74,4 @@ FINGER_LABELS: Dict[int, str] = {
 FULL_N_CHANNELS = 128
 
 # Supported reduced channel counts for experiments
-SUPPORTED_CHANNEL_COUNTS = [8, 32, FULL_N_CHANNELS]
+SUPPORTED_CHANNEL_COUNTS = [8, 32, 61, FULL_N_CHANNELS]

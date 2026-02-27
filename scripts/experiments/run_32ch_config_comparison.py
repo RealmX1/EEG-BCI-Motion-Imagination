@@ -66,8 +66,13 @@ def run_command(cmd: list, dry_run: bool = False) -> bool:
 def check_data_driven_configs(configs: list, n_channels: int = 32) -> list:
     """Check which data-driven configs are available in channel_selections.json."""
     json_path = Path(f'results/{n_channels}_channel/channel_selections.json')
-    # Hand-picked configs only available for 32ch
-    available = set(HAND_PICKED_CONFIGS) if n_channels == 32 else set()
+    # Hand-picked configs based on channel count
+    if n_channels == 32:
+        available = set(HAND_PICKED_CONFIGS)
+    elif n_channels == 61:
+        available = {'standard_1010'}
+    else:
+        available = set()
 
     if json_path.exists():
         try:
@@ -153,8 +158,10 @@ Examples:
     if args.configs is None:
         if args.channels == 32:
             args.configs = ALL_CONFIGS
+        elif args.channels == 61:
+            args.configs = ['standard_1010']
         else:
-            # For non-32ch, only data-driven configs are valid
+            # For other channel counts, only data-driven configs are valid
             args.configs = DATA_DRIVEN_CONFIGS
 
     # Check data-driven config availability
@@ -233,7 +240,9 @@ Examples:
         print(f"  RANKING SUMMARY")
         print(f"{'='*70}")
         results_dir = f'results/{args.channels}_channel'
-        print(f"  Check results in: {results_dir}/")
+        print(f"  Results base: {results_dir}/")
+        for cfg in successes:
+            print(f"    - {results_dir}/{cfg}/")
         print(f"  Completed configs: {successes}")
         if failures:
             print(f"  Failed configs: {failures}")

@@ -44,6 +44,12 @@ CHANNEL_32_CONFIGS = {
                      62, 63, 64, 65, 66, 77, 85, 86, 90, 97, 107, 108,
                      110, 111, 112, 113, 114, 116, 123],
     # Standard commercial 32ch cap: 10-20 layout coverage
+    # NOTE: This config simulates standard 10-20 layout by selecting the nearest
+    # BioSemi 128 electrodes to each standard position. Results obtained with this
+    # config do NOT directly generalize to real commercial 32ch EEG devices, which
+    # differ in sensor technology (wet vs dry, active vs passive), impedance
+    # characteristics, noise floor, analog front-end, on-device signal processing,
+    # and physical electrode placement accuracy.
     'commercial': [0, 3, 5, 16, 17, 22, 29, 30, 33, 34, 44, 49, 52, 55,
                    62, 65, 66, 68, 76, 77, 85, 89, 90, 97, 98, 100, 107,
                    111, 113, 116, 123, 124],
@@ -57,6 +63,41 @@ CHANNEL_32_CONFIG_NAMES = list(CHANNEL_32_CONFIGS.keys())
 
 # Default JSON path for data-driven channel selections
 CHANNEL_32_SELECTIONS_JSON = 'results/32_channel/channel_selections.json'
+
+# ============================================================================
+# 61-channel configuration: standard 10-10 system
+# ============================================================================
+
+# Standard 10-10 system channel names (61 channels)
+# This is the electrode set used by most commercial 64ch EEG systems
+# (e.g., BrainVision actiCHamp Plus, ANT Neuro eego).
+# Reference: commonly tested in channel-density studies as the "medium density" config.
+STANDARD_1010_CHANNELS = [
+    'Fp1', 'Fpz', 'Fp2',
+    'AF7', 'AF3', 'AFz', 'AF4', 'AF8',
+    'F7', 'F5', 'F3', 'F1', 'Fz', 'F2', 'F4', 'F6', 'F8',
+    'FT7', 'FC5', 'FC3', 'FC1', 'FCz', 'FC2', 'FC4', 'FC6', 'FT8',
+    'T7', 'C5', 'C3', 'C1', 'Cz', 'C2', 'C4', 'C6', 'T8',
+    'TP7', 'CP5', 'CP3', 'CP1', 'CPz', 'CP2', 'CP4', 'CP6', 'TP8',
+    'P7', 'P5', 'P3', 'P1', 'Pz', 'P2', 'P4', 'P6', 'P8',
+    'PO7', 'PO3', 'POz', 'PO4', 'PO8',
+    'O1', 'Oz', 'O2',
+]
+
+# Hard-coded 61ch config: nearest BioSemi 128 indices for standard 10-10 positions.
+# Computed via greedy nearest-neighbor matching using MNE standard_1005 and biosemi128
+# montages. All 61 positions map to unique BioSemi electrodes.
+# Max mapping distance: PO8 -> A28 (28.0mm).
+CHANNEL_61_CONFIGS = {
+    'standard_1010': [
+        0, 2, 4, 5, 7, 8, 9, 15, 16, 17, 18, 20, 21, 27, 28, 29,
+        31, 33, 34, 35, 37, 38, 42, 44, 45, 51, 53, 55, 58, 60, 62,
+        63, 67, 69, 70, 71, 75, 78, 79, 80, 82, 84, 86, 88, 91, 92,
+        93, 97, 99, 101, 102, 103, 105, 107, 109, 111, 114, 119, 121,
+        124, 126,
+    ],
+}
+CHANNEL_61_CONFIG_NAMES = list(CHANNEL_61_CONFIGS.keys())
 
 # Data-driven config names (valid for any channel count)
 DATA_DRIVEN_CONFIG_NAMES = ['fdr', 'csp', 'attention', 'band_power']
@@ -85,6 +126,12 @@ def get_nch_indices(n_channels: int, config_name: str, json_path: Optional[str] 
     # 32ch hard-coded configs
     if n_channels == 32 and config_name in CHANNEL_32_CONFIGS:
         indices = CHANNEL_32_CONFIGS[config_name]
+        if indices is not None:
+            return sorted(indices)
+
+    # 61ch hard-coded configs
+    if n_channels == 61 and config_name in CHANNEL_61_CONFIGS:
+        indices = CHANNEL_61_CONFIGS[config_name]
         if indices is not None:
             return sorted(indices)
 
@@ -129,9 +176,16 @@ def load_channel_selections(json_path: str) -> dict:
 
     result = {}
 
-    # Include hard-coded 32ch configs if the path is for 32 channels
+    # Include hard-coded configs based on channel count in path
     if '32_channel' in str(json_path):
         for name, indices in CHANNEL_32_CONFIGS.items():
+            if indices is not None:
+                result[name] = {
+                    'indices': sorted(indices),
+                    'description': f'Hard-coded {name} configuration',
+                }
+    elif '61_channel' in str(json_path):
+        for name, indices in CHANNEL_61_CONFIGS.items():
             if indices is not None:
                 result[name] = {
                     'indices': sorted(indices),

@@ -14,9 +14,16 @@ Manual mapping for legacy JSONs (no channel_config field):
             fdr:20260220_1949 csp:20260220_2052 \\
             attention:20260220_2159 band_power:20260220_2301
 
-With 128ch baseline reference lines:
+With 128ch and/or 61ch baseline reference lines:
     uv run python scripts/analysis/plot_config_comparison.py --channels 32 \\
         --baseline-eegnet 0.8988 --baseline-cbramod 0.9027
+
+    # Auto-discover 61ch results from results/61_channel/:
+    uv run python scripts/analysis/plot_config_comparison.py --channels 32 --auto-61ch-baseline
+
+    # Or specify manually:
+    uv run python scripts/analysis/plot_config_comparison.py --channels 32 \\
+        --baseline-61ch-eegnet 0.88 --baseline-61ch-cbramod 0.90
 """
 
 import argparse
@@ -47,10 +54,20 @@ def find_results_by_channel_config(
     """
     Auto-detect: scan JSONs with channel_config in metadata.
     Returns {config_name: {model_type: {subject_id: acc}}}.
+
+    Searches both:
+    - New structure: results_dir/{config_name}/*.json (subdirectories per config)
+    - Legacy structure: results_dir/*.json (flat, all configs in one directory)
     """
     config_results: dict[str, dict[str, dict[str, float]]] = {}
+    glob_pattern = f'*_cross-subject_*_{paradigm}_{task}.json'
 
-    for json_path in sorted(results_dir.glob(f'*_cross-subject_*_{paradigm}_{task}.json')):
+    # Scan subdirectories (new structure: results/{N}_channel/{config}/)
+    json_files = sorted(results_dir.glob(f'*/{glob_pattern}'))
+    # Also scan flat directory (legacy structure: results/{N}_channel/)
+    json_files.extend(sorted(results_dir.glob(glob_pattern)))
+
+    for json_path in json_files:
         try:
             data = load_json(json_path)
         except (json.JSONDecodeError, OSError):
@@ -64,6 +81,10 @@ def find_results_by_channel_config(
 
         per_subject = data.get('results', {}).get('per_subject_test_acc', {})
         if not per_subject:
+            continue
+
+        # If a config already has results from a subdirectory, don't overwrite with flat
+        if channel_config in config_results and model_type in config_results[channel_config]:
             continue
 
         config_results.setdefault(channel_config, {})[model_type] = per_subject
@@ -104,6 +125,51 @@ def find_results_by_timestamps(
     return config_results
 
 
+def discover_61ch_baselines(
+    paradigm: str,
+    task: str,
+    results_base: Path = PROJECT_ROOT / 'results',
+) -> dict[str, float]:
+    """
+    Auto-discover 61ch cross-subject results from results/61_channel/.
+
+    Scans for the most recent cross-subject JSONs with channel_config='standard_1010'
+    and computes mean accuracy per model.
+
+    Returns:
+        {model_type: mean_accuracy} or empty dict if not found.
+    """
+    dir_61ch = results_base / '61_channel'
+    if not dir_61ch.exists():
+        return {}
+
+    baselines: dict[str, float] = {}
+    glob_pattern = f'*_cross-subject_*_{paradigm}_{task}.json'
+
+    # Search both subdirectories (new structure) and flat directory (legacy)
+    json_files = sorted(dir_61ch.glob(f'*/{glob_pattern}'), reverse=True)
+    json_files.extend(sorted(dir_61ch.glob(glob_pattern), reverse=True))
+
+    for json_path in json_files:
+        try:
+            data = load_json(json_path)
+        except (json.JSONDecodeError, OSError):
+            continue
+
+        meta = data.get('metadata', {})
+        model_type = meta.get('model_type')
+        if not model_type or model_type in baselines:
+            continue
+
+        per_subject = data.get('results', {}).get('per_subject_test_acc', {})
+        if per_subject:
+            baselines[model_type] = sum(per_subject.values()) / len(per_subject)
+            print(f"  61ch baseline: {model_type} = {baselines[model_type]*100:.2f}% "
+                  f"(from {json_path.name})")
+
+    return baselines
+
+
 def sort_configs(config_results: dict, preferred_order: list[str]) -> dict:
     """Sort configs by preferred order, appending any extras at the end."""
     ordered = [c for c in preferred_order if c in config_results]
@@ -121,18 +187,19 @@ Examples:
   # Auto-detect (new JSONs with channel_config in metadata)
   uv run python scripts/analysis/plot_config_comparison.py --channels 32
 
+  # With auto-discovered 61ch baseline
+  uv run python scripts/analysis/plot_config_comparison.py --channels 32 --auto-61ch-baseline
+
+  # With manual 128ch and 61ch baselines
+  uv run python scripts/analysis/plot_config_comparison.py --channels 32 \\
+      --baseline-eegnet 0.8988 --baseline-cbramod 0.9027 \\
+      --baseline-61ch-eegnet 0.88 --baseline-61ch-cbramod 0.90
+
   # Legacy: specify run_tag per config
   uv run python scripts/analysis/plot_config_comparison.py --channels 32 \\
       --config-timestamps motor_cortex:20260220_1731 commercial:20260220_1850 \\
           fdr:20260220_1949 csp:20260220_2052 \\
           attention:20260220_2159 band_power:20260220_2301
-
-  # With 128ch baseline reference
-  uv run python scripts/analysis/plot_config_comparison.py --channels 32 \\
-      --config-timestamps motor_cortex:20260220_1731 commercial:20260220_1850 \\
-          fdr:20260220_1949 csp:20260220_2052 \\
-          attention:20260220_2159 band_power:20260220_2301 \\
-      --baseline-eegnet 0.8988 --baseline-cbramod 0.9027
 ''',
     )
     parser.add_argument('--channels', type=int, default=32,
@@ -153,10 +220,18 @@ Examples:
         help='Manual mapping of config names to run_tag timestamps, '
              'e.g. fdr:20260220_1949 csp:20260220_2052',
     )
+    # 128ch baselines
     parser.add_argument('--baseline-eegnet', type=float, default=None,
                         help='EEGNet 128ch baseline mean accuracy (0-1)')
     parser.add_argument('--baseline-cbramod', type=float, default=None,
                         help='CBraMod 128ch baseline mean accuracy (0-1)')
+    # 61ch baselines
+    parser.add_argument('--auto-61ch-baseline', action='store_true',
+                        help='Auto-discover 61ch baselines from results/61_channel/')
+    parser.add_argument('--baseline-61ch-eegnet', type=float, default=None,
+                        help='EEGNet 61ch baseline mean accuracy (0-1)')
+    parser.add_argument('--baseline-61ch-cbramod', type=float, default=None,
+                        help='CBraMod 61ch baseline mean accuracy (0-1)')
     args = parser.parse_args()
 
     # Resolve directories
@@ -196,12 +271,25 @@ Examples:
             mean_acc = sum(subjects.values()) / len(subjects) if subjects else 0
             print(f"  {cfg:15s} | {mt:7s} | n={len(subjects):2d} | mean={mean_acc*100:.2f}%")
 
-    # Baseline
+    # 128ch baseline
     baseline_accs = {}
     if args.baseline_eegnet is not None:
         baseline_accs['eegnet'] = args.baseline_eegnet
     if args.baseline_cbramod is not None:
         baseline_accs['cbramod'] = args.baseline_cbramod
+
+    # 61ch baseline (manual values take priority over auto-discovery)
+    baseline_61ch_accs = {}
+    if args.baseline_61ch_eegnet is not None:
+        baseline_61ch_accs['eegnet'] = args.baseline_61ch_eegnet
+    if args.baseline_61ch_cbramod is not None:
+        baseline_61ch_accs['cbramod'] = args.baseline_61ch_cbramod
+
+    if args.auto_61ch_baseline and not baseline_61ch_accs:
+        print("\nAuto-discovering 61ch baselines ...")
+        baseline_61ch_accs = discover_61ch_baselines(args.paradigm, args.task)
+        if not baseline_61ch_accs:
+            print("  No 61ch results found in results/61_channel/")
 
     # Output path
     if args.output is None:
@@ -219,6 +307,7 @@ Examples:
         paradigm=args.paradigm,
         n_channels=args.channels,
         baseline_accs=baseline_accs or None,
+        baseline_61ch_accs=baseline_61ch_accs or None,
     )
     print(f"[OK] Saved: {output_path}")
 
