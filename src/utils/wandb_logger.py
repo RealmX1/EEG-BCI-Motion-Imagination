@@ -241,6 +241,13 @@ class WandbLogger:
             return self._run.url
         return None
 
+    @property
+    def run_id(self) -> Optional[str]:
+        """Get WandB run ID (for linking with ExperimentDB)."""
+        if self._run:
+            return self._run.id
+        return None
+
     def update_config(self, config: Dict[str, Any]) -> None:
         """Update run config after initialization.
 

@@ -1,7 +1,9 @@
 # 跨被试训练结果管理与对比系统实施记录
 
+> **⚠️ 部分废弃 (2026-02-28)**: 本文档中的 JSON 结果查询函数 (`find_compatible_within_subject_results()`, `find_compatible_cross_subject_results()`, `build_cross_subject_data_sources()` 等) 已被 `ExperimentDB` (SQLite) 替代。训练脚本仍保存 JSON 结果文件，但绘图数据源查询已迁移到 `src/results/experiment_db.py`。详见 `docs/dev_log/implemented_plans/experiment_db.md`。
+
 **日期**: 2026-02-05
-**状态**: 完成
+**状态**: 完成 (查询函数已标记 deprecated，由 ExperimentDB 替代)
 
 ## 背景
 

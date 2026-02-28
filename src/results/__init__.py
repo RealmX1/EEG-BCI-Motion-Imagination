@@ -45,6 +45,7 @@ from .cache import (
     save_cross_subject_result,
     find_best_within_subject_for_model,
 )
+from .experiment_db import ExperimentDB
 from .statistics import (
     compute_model_statistics,
     print_model_summary,
@@ -87,6 +88,8 @@ __all__ = [
     'find_compatible_cross_subject_results',
     'save_cross_subject_result',
     'find_best_within_subject_for_model',
+    # Experiment DB
+    'ExperimentDB',
     # Statistics
     'compute_model_statistics',
     'print_model_summary',

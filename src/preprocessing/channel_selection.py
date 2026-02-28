@@ -71,7 +71,10 @@ CHANNEL_32_SELECTIONS_JSON = 'results/32_channel/channel_selections.json'
 # Standard 10-10 system channel names (61 channels)
 # This is the electrode set used by most commercial 64ch EEG systems
 # (e.g., BrainVision actiCHamp Plus, ANT Neuro eego).
-# Reference: commonly tested in channel-density studies as the "medium density" config.
+# Reference: Yazıcı, Ulutaş, & Okuyan (2025). "Effect of EEG Electrode Numbers
+# on Source Estimation in Motor Imagery." Brain Sciences, 15(7), 685.
+# DOI: 10.3390/brainsci15070685
+# That study found 61ch optimal (84.73%) over 118ch (83.95%), 30ch, and 19ch.
 STANDARD_1010_CHANNELS = [
     'Fp1', 'Fpz', 'Fp2',
     'AF7', 'AF3', 'AFz', 'AF4', 'AF8',

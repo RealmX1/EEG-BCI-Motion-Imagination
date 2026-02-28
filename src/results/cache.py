@@ -579,6 +579,9 @@ def find_compatible_historical_results(
     """
     搜索与当前运行兼容的历史完整对比结果.
 
+    .. deprecated::
+        使用 ``ExperimentDB.find_historical_comparison()`` 替代。
+
     兼容性条件:
     1. 必须是完整对比文件（包含两个模型的结果）
     2. 另一个模型（非当前运行的模型）的被试集合必须覆盖当前被试集合
@@ -655,6 +658,9 @@ def build_data_sources_from_historical(
     """
     从历史数据和当前结果构建绘图数据源列表.
 
+    .. deprecated::
+        脚本已直接使用 ExperimentDB 查询 + PlotDataSource 构造替代此函数。
+
     Args:
         historical: find_compatible_historical_results() 返回的历史数据字典
         current_results: 当前运行结果 {'eegnet': [...], 'cbramod': [...]}
@@ -710,6 +716,9 @@ def find_best_within_subject_for_model(
 ) -> Optional[List[TrainingResult]]:
     """
     为单个模型独立搜索最佳 within-subject 历史运行.
+
+    .. deprecated::
+        使用 ``ExperimentDB.find_best_within_subject_results()`` 替代。
 
     在所有 comparison_cache 文件中查找该模型的数据，条件:
     - is_complete: true
@@ -797,6 +806,9 @@ def build_cross_subject_data_sources(
     within_subject_historical: Optional[Dict] = None,
 ) -> List[PlotDataSource]:
     """
+    .. deprecated::
+        脚本已直接使用 ExperimentDB 查询 + PlotDataSource 构造替代此函数。
+
     为 cross-subject 比较构建 PlotDataSource 列表.
 
     对每个模型独立搜索最佳 within-subject 历史运行（可来自不同文件）。
@@ -896,6 +908,9 @@ def build_transfer_data_sources(
     """
     为 transfer learning 比较构建 PlotDataSource 列表.
 
+    .. deprecated::
+        脚本已直接使用 ExperimentDB 查询 + PlotDataSource 构造替代此函数。
+
     顺序:
     1. Within-Subject EEGNet (baseline, alpha=0.4, hatch='///')
     2. Within-Subject CBraMod (baseline, alpha=0.4, hatch='///')
@@ -977,6 +992,9 @@ def prepare_combined_plot_data(
 ) -> Tuple[Optional[List[PlotDataSource]], Optional[str]]:
     """
     准备组合图所需的数据源（自动检索历史数据）.
+
+    .. deprecated::
+        脚本已直接使用 ExperimentDB.find_historical_comparison() + PlotDataSource 替代。
 
     Args:
         output_dir: 结果目录路径
@@ -1290,6 +1308,9 @@ def find_compatible_within_subject_results(
     """
     搜索兼容的 within-subject 历史结果（用于 cross-subject 对比图）.
 
+    .. deprecated::
+        使用 ``ExperimentDB.find_historical_comparison()`` 替代。
+
     条件:
     - 文件模式: *comparison_cache_{paradigm}_{task}.json（排除 cross-subject 文件）
     - is_complete: true
@@ -1424,6 +1445,10 @@ def find_compatible_cross_subject_results(
 ) -> Optional[Dict]:
     """
     搜索兼容的 cross-subject 历史结果.
+
+    .. deprecated::
+        绘图功能已使用 ``ExperimentDB.find_best_cross_subject_results()`` 替代。
+        checkpoint 发现仍使用此函数（DB 不存储 model_path）。
 
     条件:
     - 文件模式: *cross-subject_*_{paradigm}_{task}.json

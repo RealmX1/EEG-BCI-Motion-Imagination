@@ -1,9 +1,11 @@
 # 缓存文件重构：合并比较结果到缓存文件
 
+> **⚠️ 部分废弃 (2026-02-28)**: 本文档描述的 JSON 缓存查询函数 (`find_compatible_historical_results()`, `build_data_sources_from_historical()`, `find_best_within_subject_for_model()` 等) 已被 `ExperimentDB` (SQLite) 替代。训练脚本仍然双写 JSON cache + SQLite，但所有结构化查询和可视化数据源已迁移到 `src/results/experiment_db.py`。详见 `docs/dev_log/implemented_plans/experiment_db.md`。
+
 **日期：** 2026-02-05
 **类型：** 重构 (Refactoring)
 **影响范围：** 结果管理模块
-**状态：** ✅ 完成
+**状态：** ✅ 完成 (查询函数已标记 deprecated，由 ExperimentDB 替代)
 
 ---
 

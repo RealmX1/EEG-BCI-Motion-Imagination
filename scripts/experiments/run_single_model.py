@@ -48,6 +48,7 @@ from src.utils.logging import SectionLogger, setup_logging
 # Import from src modules
 from src.results import (
     TrainingResult,
+    ExperimentDB,
     load_cache,
     save_cache,
     find_cache_by_tag,
@@ -107,6 +108,8 @@ def run_single_model(
     cache_index_path: str = ".cache_index.json",
     config_overrides: Optional[Dict] = None,
     verbose_first_only: bool = True,
+    db: Optional[ExperimentDB] = None,
+    db_run_id: Optional[str] = None,
 ) -> Tuple[List[TrainingResult], Dict]:
     """
     Train a single model on all specified subjects.
@@ -130,6 +133,9 @@ def run_single_model(
         verbose_first_only: If True, only show full verbose output for the first trained subject.
             Subsequent subjects show minimal output (subject header + training table + final eval).
             Default: True.
+        db: Optional ExperimentDB instance for SQLite logging (dual-write with JSON cache).
+        db_run_id: Optional run ID in the ExperimentDB. If db is provided but db_run_id is None,
+            results are not saved to DB.
 
     Returns:
         Tuple of (results_list, statistics_dict)
@@ -252,6 +258,13 @@ def run_single_model(
             save_cache(output_dir, paradigm, task, cache, run_tag,
                        wandb_groups=cache_wandb_groups,
                        extra_metadata=cache_extra_metadata)
+
+            # Dual-write: save to SQLite DB if available
+            if db and db_run_id:
+                try:
+                    db.save_subject_result(db_run_id, result)
+                except Exception as db_err:
+                    log_train.warning(f"DB write failed for {subject_id}: {db_err}")
 
             print_subject_result(subject_id, model_type, result)
 

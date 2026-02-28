@@ -47,11 +47,12 @@ from src.utils.device import set_seed, check_cuda_available, get_device
 from src.utils.logging import SectionLogger, setup_logging
 
 from src.results import (
+    ExperimentDB,
+    PlotDataSource,
     compare_models,
+    compute_model_statistics,
     print_comparison_report,
     save_cross_subject_result,
-    find_compatible_cross_subject_results,
-    build_cross_subject_data_sources,
     generate_result_filename,
     TrainingResult,
     cross_subject_result_to_training_results,
@@ -233,6 +234,32 @@ Examples:
     paradigm_desc = PARADIGM_CONFIG[args.paradigm]['description']
     log_main.info(f"Paradigm: {paradigm_desc}")
 
+    # Initialize ExperimentDB (dual-write)
+    import sqlite3
+    db = ExperimentDB()
+    db_run_id = None
+    try:
+        db_run_id = db.create_run(
+            run_tag=run_tag,
+            experiment_type='cross_subject',
+            paradigm=args.paradigm,
+            task=args.task,
+            n_channels=args.channels,
+            channel_config=args.channel_config if args.channels != FULL_N_CHANNELS else None,
+        )
+        log_main.info(f"DB run created: {db_run_id}")
+    except sqlite3.IntegrityError:
+        existing = db.find_run_by_tag(
+            run_tag, args.paradigm, args.task, experiment_type='cross_subject',
+        )
+        if existing:
+            db_run_id = existing['run_id']
+            log_main.info(f"DB run resumed: {db_run_id}")
+        else:
+            log_main.warning(f"DB run creation failed: duplicate run_id but tag not found")
+    except Exception as e:
+        log_main.warning(f"DB run creation failed: {e}")
+
     # Discover subjects
     if args.subjects:
         subjects = args.subjects
@@ -302,6 +329,18 @@ Examples:
         )
         log_io.info(f"{model_type.upper()} results saved: {results_path}")
 
+        # Dual-write to DB
+        if db_run_id:
+            try:
+                training_results = cross_subject_result_to_training_results(
+                    model_results, model_type, args.task
+                )
+                db.save_subject_results_batch(db_run_id, training_results)
+                db_stats = compute_model_statistics(training_results)
+                db.save_summary(db_run_id, model_type, db_stats)
+            except Exception as e:
+                log_io.warning(f"DB write failed for {model_type}: {e}")
+
     # Convert to TrainingResult lists for comparison
     results_as_training = {}
     for model_type, model_results in results.items():
@@ -321,35 +360,79 @@ Examples:
             except ValueError as e:
                 log_stats.warning(f"Cannot compare: {e}")
 
+    # Save comparison to DB and mark complete
+    if db_run_id:
+        try:
+            if comparison:
+                db.save_comparison(db_run_id, comparison)
+            db.update_n_subjects(db_run_id, len(subjects))
+            db.mark_complete(db_run_id)
+        except Exception as e:
+            log_stats.warning(f"DB finalize failed: {e}")
+
     # Print comparison report
     print_comparison_report(results_as_training, comparison, args.task, args.paradigm, run_tag)
 
     # Generate visualization
     if not args.no_plot:
-        # Search for cross-subject historical data
-        cross_subject_historical = None
+        data_sources = []
+        subjects_set = set(subjects)
+        channel_config_filter = args.channel_config if args.channels != FULL_N_CHANNELS else None
 
-        if not args.no_cross_subject_historical:
-            search_model = 'cbramod' if 'cbramod' in args.models else args.models[0]
-            cross_subject_historical = find_compatible_cross_subject_results(
-                output_dir=args.results_dir,
+        # 1 & 2: Historical within-subject baselines (per-model, best accuracy)
+        for model_type in ['eegnet', 'cbramod']:
+            hist_results = db.find_best_within_subject_results(
                 paradigm=args.paradigm,
                 task=args.task,
-                subjects=subjects,
-                model_type=search_model,
-                exclude_run_tag=run_tag,
+                model_type=model_type,
+                n_channels=args.channels,
+                channel_config=channel_config_filter,
+                subjects=subjects_set,
             )
-            if cross_subject_historical:
-                log_io.info(f"Found cross-subject historical: {cross_subject_historical.get('source_file', 'unknown')}")
+            if hist_results:
+                data_sources.append(PlotDataSource(
+                    model_type=model_type,
+                    results=hist_results,
+                    is_current_run=False,
+                    label=f'{model_type.upper()} (Within)',
+                    hatch='///',
+                ))
 
-        # Build data sources (within-subject historical searched per-model internally)
-        data_sources = build_cross_subject_data_sources(
-            current_results=results,
-            output_dir=args.results_dir,
-            paradigm=args.paradigm,
-            task=args.task,
-            cross_subject_historical=cross_subject_historical,
-        )
+        # 3 & 4: Current cross-subject results
+        for model_type in ['eegnet', 'cbramod']:
+            if model_type not in results:
+                continue
+            training_results = cross_subject_result_to_training_results(
+                results[model_type], model_type, args.task
+            )
+            if training_results:
+                data_sources.append(PlotDataSource(
+                    model_type=model_type,
+                    results=training_results,
+                    is_current_run=True,
+                    label=f'{model_type.upper()} (Cross)',
+                ))
+
+        # 5: (Optional) Historical cross-subject data
+        if not args.no_cross_subject_historical:
+            search_model = 'cbramod' if 'cbramod' in args.models else args.models[0]
+            hist_cross = db.find_best_cross_subject_results(
+                paradigm=args.paradigm,
+                task=args.task,
+                model_type=search_model,
+                n_channels=args.channels,
+                channel_config=channel_config_filter,
+                subjects=subjects_set,
+                exclude_run_id=db_run_id,
+            )
+            if hist_cross:
+                data_sources.append(PlotDataSource(
+                    model_type=search_model,
+                    results=hist_cross,
+                    is_current_run=False,
+                    label=f'{search_model.upper()} (Cross-Hist)',
+                    hatch='...',
+                ))
 
         if data_sources:
             plot_filename = generate_result_filename(
@@ -366,6 +449,8 @@ Examples:
             log_io.info(f"Comparison plot saved: {plot_path}")
         else:
             log_io.warning("No data sources available for plotting")
+
+    db.close()
 
     # Log total time
     total_time = time.time() - start_time

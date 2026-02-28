@@ -1,5 +1,49 @@
 # 开发变更记录
 
+## 2026-02-28
+
+### SQLite 实验注册表 (ExperimentDB)
+
+**功能**: 用 SQLite 本地注册表替代基于 JSON 文件名编码的实验结果管理系统，实现结构化查询、消除冗余，同时保留离线能力。
+
+**架构**: SQLite (本地元数据 + 最终指标) + WandB (云端训练曲线) 互补。训练脚本采用双写模式 (JSON cache + SQLite)，确保渐进式迁移。
+
+**新增文件**:
+- `src/results/experiment_db.py`: SQLite 注册表核心模块 (`ExperimentDB` 类)
+  - 5 张表: `runs`, `subject_results`, `model_summaries`, `comparisons`, `transfer_configs`
+  - Schema 版本化 (v2) + 自动迁移
+  - WAL 模式并发读、upsert 支持断点续训
+  - 高级查询: `find_best_within_subject_results()`, `find_historical_comparison()`, `find_best_cross_subject_results()`, `get_subject_history()` 等
+- `scripts/tools/migrate_results_to_db.py`: JSON → SQLite 一次性迁移脚本
+  - 解析 3 种文件格式 (comparison_cache, transfer_cache, cross-subject)
+  - `git log --diff-filter=A` 追溯每个文件的首次提交作为 `git_commit`
+  - 目录路径推断 `n_channels` / `channel_config`
+  - `--execute` / `--force` / `--results-dir` CLI
+- `tests/test_experiment_db.py`: 41 个单元测试
+
+**修改文件** (8 个):
+- `scripts/experiments/run_within_subject_comparison.py`: DB 双写 + 可视化数据源从 DB 查询
+- `scripts/experiments/run_cross_subject_comparison.py`: 同上
+- `scripts/experiments/run_transfer_comparison.py`: 同上 + `transfer_configs` 保存
+- `scripts/experiments/run_single_model.py`: 接受 `db` / `db_run_id` 参数，逐被试写入
+- `src/results/__init__.py`: 导出 `ExperimentDB`
+- `src/results/cache.py`: 8 个旧查询函数标记 `@deprecated`
+- `src/utils/wandb_logger.py`: 新增 `run_id` 属性 (供 DB 关联)
+- `.gitignore`: 忽略 `results/experiments.db*`
+
+**查询能力提升**:
+
+| 场景 | 旧方案 | 新方案 |
+|------|--------|--------|
+| 最新 binary imagery 运行 | `find_latest_cache()` — glob + sort | `db.find_latest_run('imagery', 'binary', 'within_subject')` |
+| 32ch FDR 所有 transfer 运行 | 手动拼路径 + glob | `db.find_runs(n_channels=32, channel_config='fdr', experiment_type='transfer')` |
+| 某被试跨所有实验的表现 | 不支持 | `db.get_subject_history('S01')` |
+| 历史最高准确率 | `find_best_within_subject_for_model()` (60+ 行) | `db.get_best_run(...)` |
+
+**迁移结果**: 71 runs / 1351 subject_results 从 JSON 导入，覆盖 within_subject、cross_subject、transfer 三种实验类型。
+
+---
+
 ## 2026-02-20
 
 ### 32 通道实验支持

@@ -59,12 +59,14 @@ from src.utils.logging import SectionLogger, setup_logging
 # Import from src modules
 from src.results import (
     ComparisonResult,
+    ExperimentDB,
+    PlotDataSource,
     compare_models,
+    compute_model_statistics,
     print_comparison_report,
     load_cache,
     save_cache,
     find_cache_by_tag,
-    prepare_combined_plot_data,
     generate_result_filename,
     load_comparison_results,
 )
@@ -294,6 +296,33 @@ Examples:
     paradigm_desc = PARADIGM_CONFIG[args.paradigm]['description']
     log_main.info(f"Paradigm: {paradigm_desc}")
 
+    # Initialize ExperimentDB (dual-write alongside JSON cache)
+    import sqlite3
+    db = ExperimentDB()
+    db_run_id = None
+    try:
+        db_run_id = db.create_run(
+            run_tag=run_tag,
+            experiment_type='within_subject',
+            paradigm=args.paradigm,
+            task=args.task,
+            n_channels=args.channels,
+            channel_config=args.channel_config if args.channels != FULL_N_CHANNELS else None,
+        )
+        log_main.info(f"DB run created: {db_run_id}")
+    except sqlite3.IntegrityError:
+        # DB run already exists (resume case) — try to find it
+        existing = db.find_run_by_tag(
+            run_tag, args.paradigm, args.task, experiment_type='within_subject',
+        )
+        if existing:
+            db_run_id = existing['run_id']
+            log_main.info(f"DB run resumed: {db_run_id}")
+        else:
+            log_main.warning(f"DB run creation failed: duplicate run_id but tag not found")
+    except Exception as e:
+        log_main.warning(f"DB run creation failed: {e}")
+
     # Build merged config_overrides: YAML → CLI scheduler override
     from src.config.training import load_yaml_config
     config_overrides = load_yaml_config(args.config) if args.config else {}
@@ -385,8 +414,18 @@ Examples:
                 cache_only=args.cache_only,
                 cache_index_path=args.cache_index_path,
                 config_overrides=config_overrides,
+                db=db,
+                db_run_id=db_run_id,
             )
             results[model_type] = model_results
+
+            # Save model summary to DB
+            if db_run_id and model_results:
+                try:
+                    db_stats = compute_model_statistics(model_results)
+                    db.save_summary(db_run_id, model_type, db_stats)
+                except Exception as e:
+                    log_stats.warning(f"DB summary save failed: {e}")
 
     # Compare models
     comparison = None
@@ -396,6 +435,13 @@ Examples:
                 comparison = compare_models(results['eegnet'], results['cbramod'])
             except ValueError as e:
                 log_stats.warning(f"Cannot compare: {e}")
+
+    # Save comparison to DB
+    if db_run_id and comparison:
+        try:
+            db.save_comparison(db_run_id, comparison)
+        except Exception as e:
+            log_stats.warning(f"DB comparison save failed: {e}")
 
     print_comparison_report(results, comparison, args.task, args.paradigm, run_tag)
 
@@ -443,17 +489,48 @@ Examples:
 
     # Generate plots by default (unless --no-plot is specified)
     if not args.no_plot:
-        # Try to generate combined plot with historical comparison
-        current_model = args.models[0] if len(args.models) == 1 else None
-        data_sources, hist_timestamp = prepare_combined_plot_data(
-            output_dir=args.output_dir,
-            paradigm=args.paradigm,
-            task=args.task,
-            current_results=results,
-            current_model=current_model,
+        # Query DB for historical comparison data
+        subjects_set = set(
+            r.subject_id for model_results in results.values() for r in model_results
         )
 
-        if data_sources:
+        channel_config_filter = args.channel_config if args.channels != FULL_N_CHANNELS else None
+        historical = db.find_historical_comparison(
+            paradigm=args.paradigm,
+            task=args.task,
+            n_channels=args.channels,
+            channel_config=channel_config_filter,
+            subjects=subjects_set if subjects_set else None,
+            exclude_run_id=db_run_id,
+        )
+
+        data_sources = []
+        if historical:
+            # Add historical data sources (hatched bars)
+            for model_type in ['eegnet', 'cbramod']:
+                hist_results = historical.get(model_type, [])
+                if hist_results:
+                    data_sources.append(PlotDataSource(
+                        model_type=model_type,
+                        results=hist_results,
+                        is_current_run=False,
+                        label=f'{model_type.upper()} (hist)',
+                    ))
+
+        # Add current run data sources
+        for model_type in ['eegnet', 'cbramod']:
+            current = results.get(model_type, [])
+            if current:
+                filtered = [r for r in current if r.subject_id in subjects_set]
+                if filtered:
+                    data_sources.append(PlotDataSource(
+                        model_type=model_type,
+                        results=filtered,
+                        is_current_run=True,
+                        label=model_type.upper(),
+                    ))
+
+        if len(data_sources) >= 2:
             log_io.info("Generating combined plot with historical comparison")
             plot_filename = generate_result_filename('combined', args.paradigm, args.task, 'png', run_tag)
             plot_path = Path(args.output_dir) / plot_filename
@@ -462,7 +539,6 @@ Examples:
                 output_path=str(plot_path),
                 task_type=args.task,
                 paradigm=args.paradigm,
-                historical_timestamp=hist_timestamp,
             )
         elif comparison:
             # No historical data but have complete two-model comparison
@@ -471,6 +547,20 @@ Examples:
             generate_comparison_plot(results, comparison, str(plot_path), task_type=args.task)
         else:
             log_io.info("No historical data found and insufficient models for comparison plot")
+
+    # Mark DB run complete
+    if db_run_id:
+        try:
+            n_subjects = len(set(
+                r.subject_id for model_results in results.values()
+                for r in model_results
+            ))
+            db.update_n_subjects(db_run_id, n_subjects)
+            db.mark_complete(db_run_id)
+        except Exception as e:
+            log_main.warning(f"DB mark_complete failed: {e}")
+
+    db.close()
 
     # Log total time
     total_time = time.time() - start_time

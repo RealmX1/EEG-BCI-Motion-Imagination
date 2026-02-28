@@ -58,7 +58,31 @@ $$\text{FDR}_{ch} = \frac{(\mu_1 - \mu_2)^2}{\sigma_1^2 + \sigma_2^2}$$
 | 配置 | Binary Cross | Binary Transfer | Ternary Cross | Ternary Transfer |
 |------|-------------|----------------|--------------|-----------------|
 | 128ch (baseline) | 90.27% | — | 75.42% | — |
+| 61ch standard¹ | 88.72% | — | — | — |
 | 32ch FDR | 88.10% | 88.90% (+0.80%) | 70.79% | 72.68% (+1.89%) |
+| 32ch commercial | 86.40% | — | — | — |
 | 8ch FDR | 68.33% | 72.92% (+4.59%) | 52.00% | 57.26% (+5.26%) |
+
+---
+
+## FDR vs Commercial vs 61ch 对比 (2026-02-28)
+
+> **61ch 配置来源**: Yazıcı et al. (2025). "Effect of EEG Electrode Numbers on Source Estimation in Motor Imagery." *Brain Sciences*, 15(7), 685. [DOI: 10.3390/brainsci15070685](https://doi.org/10.3390/brainsci15070685) — 对比 19/30/61/118 通道，发现 61ch 准确率最高 (84.73%)，优于 118ch (83.95%)。
+
+### CBraMod Binary Cross-Subject
+
+| 配置 | 通道数 | Mean Acc | vs 128ch | vs 32ch FDR |
+|------|--------|----------|----------|-------------|
+| 128ch baseline | 128 | 90.27% | — | +2.17pp |
+| 61ch standard¹ | 61 | 88.72% | -1.55pp | +0.62pp |
+| 32ch FDR | 32 | 88.10% | -2.17pp | — |
+| 32ch commercial | 32 | 86.40% | -3.87pp | -1.70pp |
+
+### 关键结论
+
+1. **FDR > Commercial +1.70pp** (14/21 被试 FDR 胜出) — 数据驱动选择显著优于标准布局
+2. **61ch ≈ 32ch FDR** (仅差 0.62pp) — FDR 用一半通道接近 61ch 性能，额外通道边际贡献极小
+3. **Commercial 更稳定但更低** (std 7.95% vs 8.80%) — 全脑均匀布局跨被试稳定性好，但均值低
+4. **通道退化非线性**: 128→61ch -1.55pp, 61→32ch FDR -0.62pp, 128→32ch commercial -3.87pp
 
 **完整实验记录**: `docs/dev_log/implemented_plans/32ch_experiment.md`

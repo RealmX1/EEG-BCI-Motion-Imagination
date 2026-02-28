@@ -52,18 +52,18 @@ from src.utils.logging import SectionLogger, setup_logging
 
 from src.results import (
     CacheType,
+    ExperimentDB,
+    PlotDataSource,
     TrainingResult,
     compare_models,
     print_comparison_report,
     find_compatible_cross_subject_results,
-    find_best_within_subject_for_model,
     generate_result_filename,
     result_to_dict,
     dict_to_result,
     compute_model_statistics,
     print_model_summary,
     cross_subject_result_to_training_results,
-    build_transfer_data_sources,
     get_cache_path,
     find_cache_by_tag,
     load_cache,
@@ -285,74 +285,140 @@ def run_transfer_model(
         else:
             log_train.info(f"All {already} subjects cached (no training needed)")
 
+    # ===== Create a single shared WandB run for all subjects =====
+    _wandb_run = None
+    if not no_wandb:
+        try:
+            from src.utils.wandb_logger import is_wandb_available
+            if is_wandb_available():
+                import wandb
+                paradigm_short = "MI" if paradigm == "imagery" else "ME"
+                _wandb_run = wandb.init(
+                    project=wandb_project,
+                    entity=wandb_entity,
+                    name=f"transfer_{model_type}_{freeze_strategy}_{task}_{paradigm_short}",
+                    config={
+                        "model_type": model_type,
+                        "task": task,
+                        "paradigm": paradigm,
+                        "training_type": "transfer",
+                        "freeze_strategy": freeze_strategy,
+                        "pretrained_path": pretrained_path,
+                        "n_subjects": len(subject_ids),
+                        "subjects": subject_ids,
+                        **(transfer_config or {}),
+                    },
+                    tags=[
+                        f"model:{model_type}",
+                        f"task:{task}",
+                        f"paradigm:{paradigm}",
+                        "transfer",
+                        f"freeze:{freeze_strategy}",
+                    ],
+                    group=wandb_group,
+                    job_type="transfer",
+                    settings=wandb.Settings(console="off"),
+                )
+                log_train.info(f"WandB run: {_wandb_run.url}")
+        except Exception as e:
+            log_train.warning(f"WandB init failed: {e}")
+            _wandb_run = None
+
     results: List[TrainingResult] = []
     total_subjects = len(subject_ids)
 
-    for idx, subject_id in enumerate(subject_ids, 1):
-        progress = f"[{idx}/{total_subjects}]"
+    try:
+        for idx, subject_id in enumerate(subject_ids, 1):
+            progress = f"[{idx}/{total_subjects}]"
 
-        # Check cache
-        if subject_id in cache[model_type] and not force_retrain:
-            log_train.info(f"{progress} {subject_id}: cached")
-            cached_result = dict_to_result(cache[model_type][subject_id])
-            results.append(cached_result)
-            print_subject_result(subject_id, model_type, cached_result)
-            continue
+            # Check cache
+            if subject_id in cache[model_type] and not force_retrain:
+                log_train.info(f"{progress} {subject_id}: cached")
+                cached_result = dict_to_result(cache[model_type][subject_id])
+                results.append(cached_result)
+                print_subject_result(subject_id, model_type, cached_result)
 
-        # Fine-tune
-        log_train.info(f"{progress} {subject_id}: fine-tuning {model_type}...")
+                # Log cached result to shared WandB run
+                if _wandb_run is not None:
+                    import wandb
+                    wandb.log({
+                        "subject_index": idx,
+                        f"test_acc/{subject_id}": cached_result.test_acc,
+                    })
+                continue
 
-        try:
-            set_seed(seed)
+            # Fine-tune
+            log_train.info(f"{progress} {subject_id}: fine-tuning {model_type}...")
 
-            result = finetune_and_get_result(
-                subject_id=subject_id,
-                model_type=model_type,
-                pretrained_path=pretrained_path,
-                freeze_strategy=freeze_strategy,
-                task=task,
-                paradigm=paradigm,
-                data_root=data_root,
-                run_tag=run_tag,
-                epochs=epochs,
-                learning_rate=learning_rate,
-                batch_size=batch_size,
-                patience=patience,
-                seed=seed,
-                channels=channels,
-                channel_config=channel_config,
-                cache_only=cache_only,
-                cache_index_path=cache_index_path,
-                no_wandb=no_wandb,
-                upload_model=upload_model,
-                wandb_project=wandb_project,
-                wandb_entity=wandb_entity,
-                wandb_group=wandb_group,
-            )
-
-            results.append(result)
-
-            # Save to cache immediately
-            cache[model_type][subject_id] = result_to_dict(result)
-            save_cache(
-                output_dir, paradigm, task, cache, run_tag,
-                cache_type=CacheType.TRANSFER,
-                extra_metadata={'type': 'transfer-comparison', 'transfer_config': transfer_config or {}},
-            )
-
-            print_subject_result(subject_id, model_type, result)
-
-        except Exception as e:
-            log_train.error(f"{progress} {subject_id}: FAILED - {e}")
-            traceback.print_exc()
-            # Clean up any active wandb run left by failed training
             try:
-                import wandb
-                if wandb.run is not None:
-                    wandb.finish(exit_code=1, quiet=True)
-            except Exception:
-                pass
-            continue
+                set_seed(seed)
+
+                result = finetune_and_get_result(
+                    subject_id=subject_id,
+                    model_type=model_type,
+                    pretrained_path=pretrained_path,
+                    freeze_strategy=freeze_strategy,
+                    task=task,
+                    paradigm=paradigm,
+                    data_root=data_root,
+                    run_tag=run_tag,
+                    epochs=epochs,
+                    learning_rate=learning_rate,
+                    batch_size=batch_size,
+                    patience=patience,
+                    seed=seed,
+                    channels=channels,
+                    channel_config=channel_config,
+                    cache_only=cache_only,
+                    cache_index_path=cache_index_path,
+                    no_wandb=True,  # Per-subject WandB disabled; use shared run
+                    upload_model=upload_model,
+                    wandb_project=wandb_project,
+                    wandb_entity=wandb_entity,
+                    wandb_group=wandb_group,
+                )
+
+                results.append(result)
+
+                # Save to cache immediately
+                cache[model_type][subject_id] = result_to_dict(result)
+                save_cache(
+                    output_dir, paradigm, task, cache, run_tag,
+                    cache_type=CacheType.TRANSFER,
+                    extra_metadata={'type': 'transfer-comparison', 'transfer_config': transfer_config or {}},
+                )
+
+                print_subject_result(subject_id, model_type, result)
+
+                # Log result to shared WandB run
+                if _wandb_run is not None:
+                    import wandb
+                    wandb.log({
+                        "subject_index": idx,
+                        f"test_acc/{subject_id}": result.test_acc,
+                    })
+
+            except Exception as e:
+                log_train.error(f"{progress} {subject_id}: FAILED - {e}")
+                traceback.print_exc()
+                continue
+
+    finally:
+        # Finalize shared WandB run
+        if _wandb_run is not None:
+            import wandb
+            stats = compute_model_statistics(results)
+            # Log per-subject summary
+            for r in results:
+                _wandb_run.summary[f"test_acc/{r.subject_id}"] = r.test_acc
+            # Log aggregate summary
+            if stats['n_subjects'] > 0:
+                _wandb_run.summary["mean_test_acc"] = stats['mean']
+                _wandb_run.summary["std_test_acc"] = stats['std']
+                _wandb_run.summary["max_test_acc"] = stats['max']
+                _wandb_run.summary["min_test_acc"] = stats['min']
+                _wandb_run.summary["n_subjects"] = stats['n_subjects']
+            wandb.finish()
 
     stats = compute_model_statistics(results)
 
@@ -545,6 +611,30 @@ Examples:
     paradigm_desc = PARADIGM_CONFIG[args.paradigm]['description']
     log_main.info(f"Paradigm: {paradigm_desc} | Task: {args.task} | Freeze: {args.freeze_strategy}")
 
+    # Initialize ExperimentDB (dual-write)
+    import sqlite3
+    db = ExperimentDB()
+    db_run_id = None
+    try:
+        db_run_id = db.create_run(
+            run_tag=run_tag,
+            experiment_type='transfer',
+            paradigm=args.paradigm,
+            task=args.task,
+            n_channels=args.channels,
+            channel_config=args.channel_config if args.channels != FULL_N_CHANNELS else None,
+        )
+        log_main.info(f"DB run created: {db_run_id}")
+    except sqlite3.IntegrityError:
+        existing = db.find_run_by_tag(run_tag, args.paradigm, args.task, experiment_type='transfer')
+        if existing:
+            db_run_id = existing['run_id']
+            log_main.info(f"DB run resumed: {db_run_id}")
+        else:
+            log_main.warning(f"DB run creation failed: duplicate run_id but tag not found")
+    except Exception as e:
+        log_main.warning(f"DB run creation failed: {e}")
+
     # Discover subjects
     if args.subjects:
         subjects = args.subjects
@@ -673,6 +763,14 @@ Examples:
         results[model_type] = model_results
         all_stats[model_type] = model_stats
 
+        # Dual-write to DB
+        if db_run_id and model_results:
+            try:
+                db.save_subject_results_batch(db_run_id, model_results)
+                db.save_summary(db_run_id, model_type, model_stats)
+            except Exception as e:
+                log_main.warning(f"DB write failed for {model_type}: {e}")
+
     # ======================================================================
     # Statistical comparison
     # ======================================================================
@@ -723,57 +821,88 @@ Examples:
         extra_metadata={'type': 'transfer-comparison', 'transfer_config': transfer_config or {}},
     )
 
+    # Finalize DB run
+    if db_run_id:
+        try:
+            if comparison:
+                db.save_comparison(db_run_id, comparison)
+            db.save_transfer_config(
+                db_run_id,
+                freeze_strategy=args.freeze_strategy,
+                finetune_epochs=args.finetune_epochs,
+                finetune_lr=args.finetune_lr,
+                finetune_batch_size=args.finetune_batch_size,
+                pretrained_eegnet=str(pretrained_paths.get('eegnet', '')),
+                pretrained_cbramod=str(pretrained_paths.get('cbramod', '')),
+                classifier_type=next(iter(classifier_types.values()), None),
+            )
+            db.update_n_subjects(db_run_id, n_subjects)
+            db.mark_complete(db_run_id)
+        except Exception as e:
+            log_main.warning(f"DB finalize failed: {e}")
+
     # ======================================================================
     # Generate visualization
     # ======================================================================
     if not args.no_plot and results:
         subjects_set = set(subjects)
+        channel_config_filter = args.channel_config if args.channels != FULL_N_CHANNELS else None
+        data_sources = []
 
-        # Retrieve within-subject baseline results for plotting
-        within_subject_results = {}
+        # 1 & 2: Within-subject baselines (per-model, best accuracy from DB)
         for model_type in ['eegnet', 'cbramod']:
-            ws_results = find_best_within_subject_for_model(
-                output_dir=args.results_dir,
+            ws_results = db.find_best_within_subject_results(
                 paradigm=args.paradigm,
                 task=args.task,
                 model_type=model_type,
-                subjects_set=subjects_set,
+                n_channels=args.channels,
+                channel_config=channel_config_filter,
+                subjects=subjects_set,
             )
             if ws_results:
-                within_subject_results[model_type] = ws_results
                 mean_acc = sum(r.test_acc_majority for r in ws_results) / len(ws_results)
-                log_io.info(
-                    f"Within-subject baseline for {model_type}: "
-                    f"mean={mean_acc:.1%}"
-                )
+                log_io.info(f"Within-subject baseline for {model_type}: mean={mean_acc:.1%}")
+                data_sources.append(PlotDataSource(
+                    model_type=model_type,
+                    results=ws_results,
+                    is_current_run=False,
+                    label=f'{model_type.upper()} (Within)',
+                    hatch='///',
+                ))
 
-        # Retrieve cross-subject baseline results for plotting
-        cross_subject_results = {}
-
+        # 3 & 4: Cross-subject baselines (per-model, from DB)
         if not args.no_cross_subject_baseline:
             for model_type in ['eegnet', 'cbramod']:
-                cross_result = find_compatible_cross_subject_results(
-                    output_dir=args.results_dir,
+                cross_results = db.find_best_cross_subject_results(
                     paradigm=args.paradigm,
                     task=args.task,
-                    subjects=subjects,
                     model_type=model_type,
+                    n_channels=args.channels,
+                    channel_config=channel_config_filter,
+                    subjects=subjects_set,
                 )
-                if cross_result:
-                    cross_subject_results[model_type] = cross_result
-                    log_io.info(
-                        f"Cross-subject baseline for {model_type}: "
-                        f"mean={cross_result['mean_test_acc']:.1%}"
-                    )
+                if cross_results:
+                    mean_acc = sum(r.test_acc_majority for r in cross_results) / len(cross_results)
+                    log_io.info(f"Cross-subject baseline for {model_type}: mean={mean_acc:.1%}")
+                    data_sources.append(PlotDataSource(
+                        model_type=model_type,
+                        results=cross_results,
+                        is_current_run=False,
+                        label=f'{model_type.upper()} (Cross)',
+                        hatch='...',
+                    ))
 
-        # Build data sources
-        data_sources = build_transfer_data_sources(
-            transfer_results=results,
-            cross_subject_results=cross_subject_results,
-            subjects=subjects,
-            task=args.task,
-            within_subject_results=within_subject_results,
-        )
+        # 5 & 6: Transfer learning results (current)
+        for model_type in ['eegnet', 'cbramod']:
+            model_results = results.get(model_type, [])
+            filtered = [r for r in model_results if r.subject_id in subjects_set]
+            if filtered:
+                data_sources.append(PlotDataSource(
+                    model_type=model_type,
+                    results=filtered,
+                    is_current_run=True,
+                    label=f'{model_type.upper()} (Transfer)',
+                ))
 
         if data_sources:
             plot_filename = generate_result_filename(
@@ -790,6 +919,8 @@ Examples:
             log_io.info(f"Transfer comparison plot saved: {plot_path}")
         else:
             log_io.warning("No data sources available for plotting")
+
+    db.close()
 
     # ======================================================================
     # Total time

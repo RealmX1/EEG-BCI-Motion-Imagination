@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 本项目是一个基于脑电图（EEG）的脑机接口（BCI）研究项目，对比验证 EEG 基座模型（CBraMod）与传统 CNN（EEGNet）在单指级别运动解码任务中的性能。
 
-**当前状态**: Phase 4 - 代码重构 + 迁移学习 + 多通道实验。跨被试预训练→个体微调管线已完成，WandB 参数标准化，结果缓存双类型 (`WITHIN_SUBJECT` / `TRANSFER`)。**支持 8/32/128 通道实验**，32ch 支持 6 种配置对比。**所有 21 个被试数据 (S01-S21) 已合并完成**。详见 `docs/dev_log/changelog.md`。
+**当前状态**: Phase 4 - 代码重构 + 迁移学习 + 多通道实验 + SQLite 实验注册表。跨被试预训练→个体微调管线已完成，WandB 参数标准化。**实验结果使用 SQLite 注册表 (`ExperimentDB`) 管理**，训练脚本双写 (JSON cache + SQLite)。**支持 8/32/128 通道实验**，32ch 支持 6 种配置对比。**所有 21 个被试数据 (S01-S21) 已合并完成**。详见 `docs/dev_log/changelog.md`。
 
 **缓存状态**: 3640 条预处理缓存（31.4 GB），覆盖所有 21 个被试。合并报告: `caches/MERGE_COMPLETE_REPORT.txt`
 
@@ -67,6 +67,11 @@ uv run python scripts/run_finetune.py \
     --pretrained checkpoints/cross_subject/cbramod_imagery_binary/best.pt \
     --all-subjects --freeze-strategy backbone
 
+# 实验结果数据库
+uv run python scripts/tools/migrate_results_to_db.py              # 预览迁移
+uv run python scripts/tools/migrate_results_to_db.py --execute    # 执行迁移
+uv run python scripts/tools/migrate_results_to_db.py --execute --force  # 重建数据库
+
 # 32 通道实验
 uv run python scripts/analysis/compute_32ch_selections.py                      # 数据驱动通道选择
 uv run python scripts/experiments/run_32ch_config_comparison.py                # 6 配置对比
@@ -105,7 +110,9 @@ uv run python scripts/experiments/run_32ch_experiment.py --channel-config commer
 | `src/training/train_within_subject.py` | 被试内训练模块 (API) |
 | `src/training/train_cross_subject.py` | 跨被试预训练模块 |
 | `src/training/finetune.py` | 个体微调模块 (支持冻结策略) |
-| `src/results/` | 结果管理 (缓存、序列化、统计) |
+| `src/results/experiment_db.py` | SQLite 实验注册表 (ExperimentDB) — 元数据 + 最终指标 + 结构化查询 |
+| `src/results/cache.py` | JSON 结果缓存 (旧系统，查询函数已标记 deprecated，由 ExperimentDB 替代) |
+| `src/results/` | 结果管理 (dataclasses、序列化、统计) |
 | `src/visualization/` | 可视化模块 (对比图、单模型图) |
 | `src/config/` | 配置模块 (常量、预设、实验配置) |
 | `src/evaluation/metrics.py` | 评估指标库 (TODO: 待集成到训练流程) |
@@ -130,7 +137,8 @@ scripts/
 │   └── merge_cache_index.py    # 缓存索引合并
 ├── tools/                      # 工具脚本
 │   ├── verify_installation.py  # 安装验证
-│   └── compare_schedulers.py   # 调度器对比
+│   ├── compare_schedulers.py   # 调度器对比
+│   └── migrate_results_to_db.py # JSON → SQLite 一次性迁移
 ├── analysis/                   # 分析脚本
 │   ├── compute_32ch_selections.py  # 数据驱动 32ch 通道选择
 │   └── research/               # 研究分析
@@ -160,6 +168,9 @@ data/
 
 checkpoints/                          # 模型检查点
 results/                              # 实验结果
+├── experiments.db                   # SQLite 实验注册表 (ExperimentDB)
+├── *.json                           # JSON 结果缓存 (旧格式，双写保留)
+└── *.png                            # 可视化图表
 caches/preprocessed/                  # 预处理缓存
 ```
 
@@ -178,6 +189,7 @@ caches/preprocessed/                  # 预处理缓存
 | `docs/dev_log/changelog.md` | 开发历史和变更记录 |
 | `docs/dev_log/refactoring/` | 代码重构详细记录 (Phase 1-4) |
 | `docs/dev_log/implemented_plans/32ch_experiment.md` | 32 通道实验实现文档 |
+| `docs/dev_log/implemented_plans/experiment_db.md` | SQLite 实验注册表实现文档 |
 
 ## 参考资料
 
