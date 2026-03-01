@@ -9,6 +9,7 @@ Features:
 - Saves JSON results to results/ directory
 - Generates visualization plots (with optional historical comparison)
 - Supports within-subject historical data as baseline
+- Resume support: continue training from checkpoint after crash
 
 Usage:
     # Train on all available subjects (default)
@@ -16,6 +17,9 @@ Usage:
 
     # Train on specific subjects
     uv run python scripts/run_cross_subject.py --model cbramod --subjects S01 S02 S03 S04 S05
+
+    # Resume training from checkpoint (after crash/interrupt)
+    uv run python scripts/run_cross_subject.py --model eegnet --resume
 
     # Motor Execution paradigm
     uv run python scripts/run_cross_subject.py --model eegnet --paradigm movement
@@ -183,6 +187,12 @@ Examples:
         help='Upload model artifacts to WandB'
     )
 
+    # Resume arguments
+    parser.add_argument(
+        '--resume', action='store_true',
+        help='Resume training from the latest resume checkpoint in the save directory'
+    )
+
     # Verbosity arguments
     parser.add_argument(
         '--verbose', '-v', type=int, default=2,
@@ -259,6 +269,7 @@ Examples:
         wandb_entity=args.wandb_entity,
         wandb_group=args.wandb_group,
         verbose=verbose,
+        resume_checkpoint=args.resume,
     )
 
     # Save JSON results to results/ directory

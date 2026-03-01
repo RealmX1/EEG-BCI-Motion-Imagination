@@ -40,6 +40,7 @@ class CacheType:
     """缓存文件类型标识."""
     WITHIN_SUBJECT = 'comparison_cache'
     TRANSFER = 'transfer_comparison_cache'
+    CROSS_SUBJECT = 'cross_subject_cache'
 
 # ============================================================================
 # Cache Filename Patterns
@@ -74,4 +75,4 @@ FINGER_LABELS: Dict[int, str] = {
 FULL_N_CHANNELS = 128
 
 # Supported reduced channel counts for experiments
-SUPPORTED_CHANNEL_COUNTS = [8, 32, 61, FULL_N_CHANNELS]
+SUPPORTED_CHANNEL_COUNTS = [4, 8, 32, 61, FULL_N_CHANNELS]

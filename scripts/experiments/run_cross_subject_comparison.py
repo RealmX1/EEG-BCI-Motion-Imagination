@@ -10,6 +10,7 @@ Features:
 - Performs statistical comparison between models
 - Generates comparison visualizations with historical data
 - Supports within-subject results as baseline comparison
+- Resume support: skip completed models, resume training from checkpoint
 
 Usage:
     # Run on Motor Imagery (default paradigm)
@@ -24,6 +25,15 @@ Usage:
     # Run only EEGNet
     uv run python scripts/run_cross_subject_comparison.py --models eegnet
 
+    # Resume most recent run (skip completed models)
+    uv run python scripts/run_cross_subject_comparison.py --resume
+
+    # Resume specific run by tag
+    uv run python scripts/run_cross_subject_comparison.py --resume 20260301
+
+    # Force retrain all models
+    uv run python scripts/run_cross_subject_comparison.py --force-retrain
+
     # Suppress plot generation
     uv run python scripts/run_cross_subject_comparison.py --no-plot
 
@@ -32,6 +42,7 @@ Usage:
 """
 
 import argparse
+import json
 import logging
 import sys
 import time
@@ -46,6 +57,7 @@ from src.config.constants import FULL_N_CHANNELS, SUPPORTED_CHANNEL_COUNTS, PARA
 from src.utils.device import set_seed, check_cuda_available, get_device
 from src.utils.logging import SectionLogger, setup_logging
 
+from src.config.constants import CacheType
 from src.results import (
     ExperimentDB,
     PlotDataSource,
@@ -57,6 +69,7 @@ from src.results import (
     TrainingResult,
     cross_subject_result_to_training_results,
 )
+from src.results.cache import find_cache_by_tag, load_cache, save_cache
 from src.visualization import generate_combined_plot
 from src.training.train_cross_subject import train_cross_subject
 from src.config.training import SCHEDULER_PRESETS
@@ -193,6 +206,18 @@ Examples:
         help='Override CBraMod classifier head type (default: use model config)'
     )
 
+    # Resume arguments
+    parser.add_argument(
+        '--resume', nargs='?', const='', default=None,
+        metavar='TAG',
+        help='Resume a previous run. Without TAG: resume most recent. '
+             'With TAG: resume run matching the datetime substring (e.g., "20260228")'
+    )
+    parser.add_argument(
+        '--force-retrain', action='store_true',
+        help='Force retraining all models, ignore cached results'
+    )
+
     add_wandb_args(parser)
 
     # Verbosity arguments
@@ -227,9 +252,35 @@ Examples:
     set_seed(args.seed)
     log_main.info(f"Seed: {args.seed}")
 
-    # Generate run tag
-    run_tag = datetime.now().strftime("%Y%m%d_%H%M")
-    log_main.info(f"Starting new cross-subject comparison run: {run_tag}")
+    # Generate or resume run tag
+    if args.resume is not None:
+        tag_hint = args.resume if args.resume != '' else None
+        found = find_cache_by_tag(
+            args.results_dir, args.paradigm, args.task,
+            tag_substring=tag_hint,
+            cache_type=CacheType.CROSS_SUBJECT,
+        )
+        if found:
+            cache_path, run_tag = found
+            log_main.info(f"Resuming cross-subject comparison run: {run_tag}")
+            # Warn if current CLI parameters differ from cached run
+            try:
+                with open(cache_path, 'r', encoding='utf-8') as f:
+                    cached_meta = json.load(f).get('metadata', {})
+                for key, cli_val in [('paradigm', args.paradigm), ('task', args.task)]:
+                    cached_val = cached_meta.get(key)
+                    if cached_val and cached_val != cli_val:
+                        log_main.warning(
+                            f"Parameter mismatch: cached {key}={cached_val}, "
+                            f"current --{key}={cli_val}")
+            except Exception:
+                pass  # Non-critical: best-effort check
+        else:
+            log_main.error("No previous cross-subject run found to resume")
+            sys.exit(1)
+    else:
+        run_tag = datetime.now().strftime("%Y%m%d_%H%M")
+        log_main.info(f"Starting new cross-subject comparison run: {run_tag}")
 
     paradigm_desc = PARADIGM_CONFIG[args.paradigm]['description']
     log_main.info(f"Paradigm: {paradigm_desc}")
@@ -289,10 +340,44 @@ Examples:
         config_overrides.setdefault('model', {})['classifier_type'] = args.classifier_type
     config_overrides = config_overrides or None
 
-    # Train each model
+    # Load existing cache for resume
+    cache = {}
+    if not args.force_retrain:
+        cache, _ = load_cache(
+            args.results_dir, args.paradigm, args.task,
+            run_tag=run_tag,
+            cache_type=CacheType.CROSS_SUBJECT,
+        )
+
+    # Train each model (skip cached models on resume)
     results = {}
+    channel_config_to_save = args.channel_config if args.channels != FULL_N_CHANNELS else None
     for model_type in args.models:
+        # Check if model already has cached results
+        if model_type in cache and not args.force_retrain:
+            log_main.info(f"{'='*50} {model_type.upper()} (CACHED) {'='*50}")
+            cached = cache[model_type]
+            results[model_type] = {
+                'per_subject_test_acc': cached.get('per_subject_test_acc', {}),
+                'mean_test_acc': cached.get('mean_test_acc', 0),
+                'std_test_acc': cached.get('std_test_acc', 0),
+                'val_acc': cached.get('val_acc', 0),
+                'val_majority_acc': cached.get('val_majority_acc', 0),
+                'best_epoch': cached.get('best_epoch', 0),
+                'training_time': cached.get('training_time', 0),
+                'model_path': cached.get('model_path', ''),
+                'n_channels': cached.get('n_channels'),
+                'history': None,
+                'run_tag': run_tag,
+            }
+            log_main.info(f"Skipping {model_type} — cached mean_test_acc: "
+                          f"{cached.get('mean_test_acc', 'N/A'):.4f}")
+            continue
+
         log_main.info(f"{'='*50} {model_type.upper()} {'='*50}")
+
+        # Determine if we should attempt epoch-level resume
+        should_resume_epoch = (args.resume is not None and not args.force_retrain)
 
         model_results = train_cross_subject(
             subjects=subjects,
@@ -305,6 +390,7 @@ Examples:
             data_root=args.data_root,
             device=device,
             seed=args.seed,
+            run_tag=run_tag,
             config_overrides=config_overrides,
             cache_only=args.cache_only,
             wandb_enabled=not args.no_wandb,
@@ -312,12 +398,35 @@ Examples:
             wandb_project=args.wandb_project,
             wandb_entity=args.wandb_entity,
             verbose=verbose,
+            resume_checkpoint=should_resume_epoch,
         )
 
         results[model_type] = model_results
 
-        # Save individual model results
-        channel_config_to_save = args.channel_config if args.channels != FULL_N_CHANNELS else None
+        # Progressive cache: save immediately after each model completes
+        cache[model_type] = {
+            'per_subject_test_acc': model_results.get('per_subject_test_acc', {}),
+            'mean_test_acc': model_results.get('mean_test_acc', 0),
+            'std_test_acc': model_results.get('std_test_acc', 0),
+            'val_acc': model_results.get('val_acc', 0),
+            'val_majority_acc': model_results.get('val_majority_acc', 0),
+            'best_epoch': model_results.get('best_epoch', 0),
+            'training_time': model_results.get('training_time', 0),
+            'model_path': model_results.get('model_path', ''),
+            'n_channels': model_results.get('n_channels'),
+        }
+        save_cache(
+            output_dir=args.results_dir,
+            paradigm=args.paradigm,
+            task=args.task,
+            results=cache,
+            run_tag=run_tag,
+            cache_type=CacheType.CROSS_SUBJECT,
+            extra_metadata={'type': 'cross-subject-comparison'},
+        )
+        log_io.info(f"{model_type.upper()} cached to cross_subject_cache")
+
+        # Also save individual model result file (backward compatible)
         results_path = save_cross_subject_result(
             result=model_results,
             model_type=model_type,
@@ -369,6 +478,19 @@ Examples:
             db.mark_complete(db_run_id)
         except Exception as e:
             log_stats.warning(f"DB finalize failed: {e}")
+
+    # Final cache save (mark as complete)
+    save_cache(
+        output_dir=args.results_dir,
+        paradigm=args.paradigm,
+        task=args.task,
+        results=cache,
+        run_tag=run_tag,
+        cache_type=CacheType.CROSS_SUBJECT,
+        is_complete=True,
+        n_subjects=len(subjects),
+        extra_metadata={'type': 'cross-subject-comparison'},
+    )
 
     # Print comparison report
     print_comparison_report(results_as_training, comparison, args.task, args.paradigm, run_tag)

@@ -238,6 +238,8 @@ def train_cross_subject(
     wandb_group: Optional[str] = None,
     # Logging verbosity
     verbose: int = 2,
+    # Resume support
+    resume_checkpoint: bool = False,
 ) -> Dict:
     """
     Cross-subject pretraining.
@@ -266,6 +268,8 @@ def train_cross_subject(
         wandb_entity: WandB entity (team/username)
         wandb_group: WandB run group
         verbose: Logging verbosity (0=silent, 1=minimal, 2=full)
+        resume_checkpoint: If True, attempt to resume from resume_checkpoint.pt
+                          in the save directory
 
     Returns:
         Dict with:
@@ -490,6 +494,15 @@ def train_cross_subject(
         gradient_clip=gradient_clip,
     )
 
+    # ========== RESUME CHECKPOINT LOADING ==========
+    resume_from_epoch = None
+    if resume_checkpoint:
+        resume_from_epoch = trainer.load_resume_checkpoint(save_path)
+        if resume_from_epoch is not None:
+            log_train.info(f"Resuming cross-subject training from epoch {resume_from_epoch}")
+        else:
+            log_train.info("No valid resume checkpoint found, starting from scratch")
+
     # ========== TRAINING ==========
     with Timer("training"):
         history = trainer.train(
@@ -501,6 +514,7 @@ def train_cross_subject(
             patience=config['training'].get('patience', 10),
             save_path=save_path,
             wandb_callback=wandb_callback,
+            resume_from_epoch=resume_from_epoch,
         )
 
     # ========== PER-SUBJECT TEST EVALUATION ==========

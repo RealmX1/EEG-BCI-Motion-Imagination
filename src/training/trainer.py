@@ -6,6 +6,7 @@ EEGNet and CBraMod models on single-subject EEG data.
 """
 
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
@@ -301,6 +302,104 @@ class WithinSubjectTrainer:
 
         return total_loss / total, correct / total
 
+    def save_resume_checkpoint(self, save_path: Path, epoch: int):
+        """保存用于恢复训练的完整检查点.
+
+        与 best.pt（仅保存最佳模型权重）不同，resume_checkpoint.pt
+        包含所有训练状态：优化器、调度器、AMP scaler、历史记录等。
+
+        使用原子写入防止写入中崩溃损坏文件。
+
+        Args:
+            save_path: 检查点保存目录
+            epoch: 已完成的 epoch 数（1-indexed）
+        """
+        # best_state 不保存到 resume checkpoint（best.pt 已在磁盘上），
+        # 避免 CBraMod ~4M 参数的权重存储两份
+        checkpoint = {
+            'resume_version': 1,
+            'epoch': epoch,
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'scheduler_state_dict': self.scheduler.state_dict() if self.scheduler else None,
+            'scaler_state_dict': self.scaler.state_dict() if self.scaler else None,
+            'best_val_loss': self.best_val_loss,
+            'best_val_acc': self.best_val_acc,
+            'best_majority_acc': self.best_majority_acc,
+            'best_combined_score': self.best_combined_score,
+            'best_epoch': self.best_epoch,
+            'history': self.history,
+            'scheduler_type': self.scheduler_type,
+            'model_type': self.model_type,
+        }
+
+        temp_path = save_path / 'resume_checkpoint.pt.tmp'
+        final_path = save_path / 'resume_checkpoint.pt'
+        torch.save(checkpoint, temp_path)
+        os.replace(str(temp_path), str(final_path))
+        log_train.debug(f"Resume checkpoint saved: epoch {epoch}")
+
+    def load_resume_checkpoint(self, save_path: Path) -> Optional[int]:
+        """从恢复检查点加载训练状态.
+
+        Args:
+            save_path: 检查点所在目录
+
+        Returns:
+            已完成的 epoch 数（下一个 epoch 从这里开始），
+            如果没有找到恢复检查点则返回 None。
+        """
+        resume_path = save_path / 'resume_checkpoint.pt'
+        if not resume_path.exists():
+            return None
+
+        log_train.info(f"Loading resume checkpoint: {resume_path}")
+        checkpoint = torch.load(resume_path, map_location=self.device, weights_only=False)
+
+        resume_version = checkpoint.get('resume_version', 0)
+        if resume_version < 1:
+            log_train.warning("Resume checkpoint version too old, skipping resume")
+            return None
+
+        saved_model_type = checkpoint.get('model_type')
+        if saved_model_type and saved_model_type != self.model_type:
+            log_train.error(f"Model type mismatch: checkpoint={saved_model_type}, current={self.model_type}")
+            return None
+
+        saved_scheduler_type = checkpoint.get('scheduler_type')
+        if saved_scheduler_type != self.scheduler_type:
+            log_train.warning(f"Scheduler type changed: {saved_scheduler_type} -> {self.scheduler_type}. "
+                              "Only model weights will be restored.")
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            self._pending_scheduler_state = None
+            self._pending_scaler_state = None
+        else:
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            self._pending_scheduler_state = checkpoint.get('scheduler_state_dict')
+            self._pending_scaler_state = checkpoint.get('scaler_state_dict')
+
+        self.best_val_loss = checkpoint['best_val_loss']
+        self.best_val_acc = checkpoint['best_val_acc']
+        self.best_majority_acc = checkpoint['best_majority_acc']
+        self.best_combined_score = checkpoint['best_combined_score']
+        self.best_epoch = checkpoint['best_epoch']
+        self.history = checkpoint.get('history', self.history)
+
+        # Restore best_state from best.pt on disk (not stored in resume checkpoint)
+        best_pt = save_path / 'best.pt'
+        if best_pt.exists():
+            best_ckpt = torch.load(best_pt, map_location=self.device, weights_only=True)
+            self.best_state = best_ckpt['model_state_dict']
+        else:
+            self.best_state = None
+            log_train.warning("best.pt not found, best_state unavailable until next improvement")
+
+        completed_epoch = checkpoint['epoch']
+        log_train.info(f"Resumed from epoch {completed_epoch}, best_epoch={self.best_epoch}, "
+                       f"best_combined_score={self.best_combined_score:.4f}")
+        return completed_epoch
+
     def train(
         self,
         train_loader: DataLoader,
@@ -311,6 +410,8 @@ class WithinSubjectTrainer:
         patience: int = 10,
         save_path: Optional[Path] = None,
         wandb_callback: Optional['WandbCallback'] = None,
+        resume_from_epoch: Optional[int] = None,
+        resume_checkpoint_interval: int = 5,
     ) -> Dict:
         """
         Full training loop with early stopping and two-phase batch size.
@@ -330,6 +431,8 @@ class WithinSubjectTrainer:
             patience: Early stopping patience
             save_path: Path to save best model
             wandb_callback: Optional WandB callback for logging
+            resume_from_epoch: 从指定 epoch 继续训练（跳过已完成的 epoch）
+            resume_checkpoint_interval: 每 N 个 epoch 保存恢复检查点（默认 5）
 
         Returns:
             Training history
@@ -451,6 +554,33 @@ class WithinSubjectTrainer:
             peak_str = " -> ".join([f"{p:.0%}" for p in peaks])
             log_train.info(f"Scheduler: CosineAnnealingWarmupDecay (peak progression: {peak_str})")
 
+        # Restore scheduler/scaler state from resume checkpoint (if pending)
+        if hasattr(self, '_pending_scheduler_state') and self._pending_scheduler_state is not None:
+            if self.scheduler is not None:
+                try:
+                    self.scheduler.load_state_dict(self._pending_scheduler_state)
+                    log_train.info("Scheduler state restored from resume checkpoint")
+                except Exception as e:
+                    log_train.warning(f"Failed to restore scheduler state: {e}")
+            self._pending_scheduler_state = None
+
+        if hasattr(self, '_pending_scaler_state') and self._pending_scaler_state is not None:
+            if self.scaler is not None:
+                try:
+                    self.scaler.load_state_dict(self._pending_scaler_state)
+                    log_train.info("AMP scaler state restored from resume checkpoint")
+                except Exception as e:
+                    log_train.warning(f"Failed to restore scaler state: {e}")
+            self._pending_scaler_state = None
+
+        # Determine start epoch for resume
+        start_epoch = resume_from_epoch if resume_from_epoch is not None else 0
+        if start_epoch > 0:
+            # Restore early stopping counter from checkpoint state
+            no_improve = max(0, start_epoch - self.best_epoch)
+            log_train.info(f"Resuming from epoch {start_epoch}, "
+                           f"epochs since last improvement: {no_improve}")
+
         # Milestone checkpoint tracking
         # Strategy: During the initial continuous best streak, don't save
         # each one individually. When the streak first breaks, save the last
@@ -460,7 +590,7 @@ class WithinSubjectTrainer:
         last_streak_epoch = None
         last_streak_info = None  # Holds checkpoint dict for the last streak best
 
-        for epoch in range(epochs):
+        for epoch in range(start_epoch, epochs):
             epoch_timer.start_epoch()
 
             # Select train loader based on epoch (two-phase batch size)
@@ -613,6 +743,11 @@ class WithinSubjectTrainer:
                 event=event,
             )
 
+            # Periodic resume checkpoint (for crash recovery)
+            if (save_path and resume_checkpoint_interval > 0
+                    and (epoch + 1) % resume_checkpoint_interval == 0):
+                self.save_resume_checkpoint(save_path, epoch + 1)
+
             # Early stopping check
             if will_stop:
                 break
@@ -641,6 +776,13 @@ class WithinSubjectTrainer:
 
         # Add milestone info to history
         self.history['milestones'] = milestones
+
+        # Clean up resume checkpoint (training completed successfully)
+        if save_path:
+            resume_path = save_path / 'resume_checkpoint.pt'
+            if resume_path.exists():
+                resume_path.unlink()
+                log_train.debug("Resume checkpoint cleaned up (training complete)")
 
         # Restore best model (prefer disk checkpoint if available)
         if save_path and (save_path / 'best.pt').exists():
