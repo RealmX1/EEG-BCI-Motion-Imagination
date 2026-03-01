@@ -720,6 +720,131 @@ def plot_electrode_overlap(
     plt.close()
 
 
+def plot_electrode_pairwise_overlap(
+    config_a: Tuple[str, List[int]],
+    config_b: Tuple[str, List[int]],
+    positions_2d: Dict[str, np.ndarray],
+    output_path: str,
+    show_labels: bool = True,
+    show_regions: bool = True,
+) -> None:
+    """
+    生成两个配置之间的通道重叠对比图.
+
+    使用三种颜色区分:
+    - 仅 A: 配置 A 的颜色
+    - 仅 B: 配置 B 的颜色
+    - 重叠: 混合色 (绿色系)
+
+    Args:
+        config_a: (配置名称, 通道索引列表)
+        config_b: (配置名称, 通道索引列表)
+        positions_2d: 128 通道 2D 坐标
+        output_path: 输出路径
+        show_labels: 是否显示电极标签
+        show_regions: 是否显示脑区着色
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
+
+    name_a, indices_a = config_a
+    name_b, indices_b = config_b
+    set_a = set(indices_a)
+    set_b = set(indices_b)
+
+    only_a = sorted(set_a - set_b)
+    only_b = sorted(set_b - set_a)
+    both = sorted(set_a & set_b)
+    all_selected = set_a | set_b
+
+    labels = BIOSEMI_128_LABELS
+    color_a = CONFIG_COLORS.get(name_a, '#F18F01')
+    color_b = CONFIG_COLORS.get(name_b, '#3B1F2B')
+    color_both = '#2ECC71'  # 鲜绿色 — 重叠
+
+    display_a = CONFIG_DISPLAY_NAMES.get(name_a, name_a)
+    display_b = CONFIG_DISPLAY_NAMES.get(name_b, name_b)
+
+    fig, ax = plt.subplots(1, 1, figsize=(8, 8.5))
+
+    # 脑区着色
+    if show_regions:
+        draw_brain_regions(ax)
+
+    draw_head_outline(ax)
+
+    # 128ch 背景 (灰色小点)
+    bg_x = [positions_2d[labels[i]][0] for i in range(128) if i not in all_selected]
+    bg_y = [positions_2d[labels[i]][1] for i in range(128) if i not in all_selected]
+    ax.scatter(bg_x, bg_y, s=15, c='lightgray', edgecolors='gray',
+               linewidths=0.3, alpha=0.5, zorder=2)
+
+    # 仅 A
+    if only_a:
+        xa = [positions_2d[labels[i]][0] for i in only_a]
+        ya = [positions_2d[labels[i]][1] for i in only_a]
+        ax.scatter(xa, ya, s=100, c=color_a, edgecolors='black',
+                   linewidths=0.8, alpha=0.9, zorder=3, marker='o')
+
+    # 仅 B
+    if only_b:
+        xb = [positions_2d[labels[i]][0] for i in only_b]
+        yb = [positions_2d[labels[i]][1] for i in only_b]
+        ax.scatter(xb, yb, s=100, c=color_b, edgecolors='black',
+                   linewidths=0.8, alpha=0.9, zorder=3, marker='o')
+
+    # 重叠
+    if both:
+        xo = [positions_2d[labels[i]][0] for i in both]
+        yo = [positions_2d[labels[i]][1] for i in both]
+        ax.scatter(xo, yo, s=120, c=color_both, edgecolors='black',
+                   linewidths=1.0, alpha=0.95, zorder=4, marker='o')
+
+    # 电极标签
+    if show_labels:
+        for i in sorted(all_selected):
+            x, y = positions_2d[labels[i]]
+            ax.annotate(labels[i], (x, y),
+                        xytext=(3, 3), textcoords='offset points',
+                        fontsize=5, ha='left', va='bottom',
+                        color='black', alpha=0.8)
+
+    # 10-20 地标
+    draw_1020_landmarks(ax, positions_2d)
+
+    # 图例
+    legend_items = [
+        Patch(facecolor=color_a, edgecolor='black', linewidth=0.8,
+              label=f'{display_a} only ({len(only_a)})'),
+        Patch(facecolor=color_b, edgecolor='black', linewidth=0.8,
+              label=f'{display_b} only ({len(only_b)})'),
+        Patch(facecolor=color_both, edgecolor='black', linewidth=0.8,
+              label=f'Both ({len(both)})'),
+    ]
+    ax.legend(handles=legend_items, loc='lower center',
+              bbox_to_anchor=(0.5, -0.08), ncol=3,
+              fontsize=9, framealpha=0.9, edgecolor='gray')
+
+    # 标题
+    total_union = len(all_selected)
+    jaccard = len(both) / total_union if total_union > 0 else 0
+    ax.set_title(
+        f'{display_a} vs {display_b} — Channel Overlap\n'
+        f'|A|={len(set_a)}  |B|={len(set_b)}  '
+        f'|A∩B|={len(both)}  Jaccard={jaccard:.2f}',
+        fontsize=11, fontweight='bold',
+    )
+    ax.set_aspect('equal')
+    ax.set_xlim([-0.65, 0.65])
+    ax.set_ylim([-0.65, 0.75])
+    ax.axis('off')
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    log_plot.info(f"Pairwise overlap plot saved: {output_path}")
+    plt.close()
+
+
 # ============================================================================
 # 3D 视图
 # ============================================================================
