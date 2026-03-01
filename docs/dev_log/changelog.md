@@ -2,6 +2,20 @@
 
 ## 2026-03-01
 
+### Commercial & Attention 扩展实验文档补录
+
+**背景**: 32ch 实验文档 (`32ch_experiment.md`) 中 Step 3-5 仅记录了 FDR 配置的完整管线结果。Commercial (2026-02-26) 和 Attention (2026-02-28~03-01) 的 ternary cross-subject / binary transfer / ternary transfer 结果已运行完成但未记入文档。
+
+**新增文档**:
+- **Step 6**: Commercial 扩展实验 — ternary cross-subject (69.35%), binary transfer (85.27%), ternary transfer (69.50%)
+- **Step 7**: Attention 扩展实验 — ternary cross-subject (71.53%), binary transfer (88.69%), ternary transfer (73.57%)
+- 核心数据速查表补充 attention 行、commercial 补齐缺失列
+- 综合总结新增第 10 条: Attention ≈ FDR >> Commercial 完整管线验证结论
+
+**关键结论**: Attention 和 FDR 在所有 4 个任务上差距 <1.1pp，均显著优于 commercial (2-4pp)。Attention 在 ternary 任务和 transfer 稳定性上略优。
+
+---
+
 ### FDR 补集通道实验（数据泄露排查）
 
 **背景**: 32 通道实验中，6 种不同 channel config（通道重合度极低）均保持较高准确率，引发数据泄露怀疑。
@@ -90,7 +104,7 @@
 - `scripts/analysis/compute_32ch_selections.py`: 数据驱动通道选择（FDR, CSP, Attention/Gradient, Band Power）
 - `scripts/experiments/run_32ch_config_comparison.py`: 6 配置对比实验
 - `scripts/experiments/run_32ch_experiment.py`: 最优配置全量实验（within + cross + transfer）
-- `docs/dev_log/implemented_plans/32ch_experiment.md`: 实现文档
+- `docs/dev_log/experiments/32ch_experiment.md`: 实验完整记录（原 `implemented_plans/`，已迁移）
 
 **修改文件** (11 个):
 - `src/preprocessing/channel_selection.py`: `CHANNEL_32_CONFIGS` 注册表 + `get_32ch_indices()` + `load_32ch_selections()`

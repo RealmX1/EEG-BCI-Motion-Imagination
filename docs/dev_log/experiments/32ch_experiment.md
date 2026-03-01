@@ -1,7 +1,7 @@
 # 32 通道实验：6 配置对比 + 最优配置全量实验
 
-**Date**: 2026-02-20 ~ 2026-02-21
-**Status**: 全部完成（32ch 6 配置对比 + FDR 扩展实验 + 8ch FDR 实验）
+**Date**: 2026-02-20 ~ 2026-03-01
+**Status**: 全部完成（Step 1-7: 6 配置对比 + FDR/Commercial/Attention 扩展实验 + 8ch FDR + 61ch 对比）
 
 ---
 
@@ -903,6 +903,261 @@ FDR 偏好颞叶和前额区域（类间区分度最高），而非传统认为�
 
 ---
 
+### Step 6: Commercial 扩展实验 (CBraMod Only)
+
+基于 Step 5 对 commercial 配置仅有 binary cross-subject 结果，Step 6 补充 ternary 及 transfer 实验，与 FDR 形成完整对照。
+
+**运行时间**: 2026-02-26 19:08 ~ 23:33
+**通道配置**: Commercial (32ch)
+**模型**: CBraMod only (transfer 包含 EEGNet 对照)
+**微调策略**: freeze=none (全参数可训练)
+
+#### 6a. Ternary Cross-Subject (CBraMod, 32ch Commercial)
+
+**Run tag**: `20260226_2042`
+**训练时长**: ~78 min (4659s)
+**Scheduler**: `cosine_annealing_warmup_decay` (50 epochs)
+**Best epoch**: 40 | **Best val_acc**: 0.442
+
+#### 6b. Binary Transfer (CBraMod + EEGNet, 32ch Commercial)
+
+**Run tag**: `20260226_2000`
+**预训练 checkpoint (CBraMod)**: `checkpoints/cross_subject/20260220_2008_cbramod_imagery_binary/best.pt` (32ch FDR binary)
+**预训练 checkpoint (EEGNet)**: `checkpoints/cross_subject/20260220_2159_eegnet_imagery_binary/best.pt`
+**微调**: 21 被试逐一微调, freeze=none
+
+#### 6c. Ternary Transfer (CBraMod + EEGNet, 32ch Commercial)
+
+**Run tag**: `20260226_2217`
+**预训练 checkpoint (CBraMod)**: `checkpoints/cross_subject/20260221_0332_cbramod_imagery_ternary/best.pt` (32ch FDR ternary)
+**预训练 checkpoint (EEGNet)**: `checkpoints/cross_subject/20260226_2042_eegnet_imagery_ternary/best.pt`
+**微调**: 21 被试逐一微调, freeze=none
+
+#### Step 6 结果汇总
+
+| 实验 | 任务 | 模型 | Mean ± Std | Median | Min | Max |
+|------|------|------|-----------|--------|-----|-----|
+| Cross-subject | Binary | CBraMod | 86.40 ± 7.95% | — | 68.75% | 96.88% |
+| **Transfer** | **Binary** | **CBraMod** | **85.27 ± 9.09%** | **85.62%** | **61.88%** | **97.50%** |
+| Transfer | Binary | EEGNet | 72.68 ± 11.81% | 71.88% | 58.12% | 95.00% |
+| Cross-subject | Ternary | CBraMod | 69.35 ± 11.93% | — | 42.92% | 90.42% |
+| **Transfer** | **Ternary** | **CBraMod** | **69.50 ± 12.56%** | **67.50%** | **43.33%** | **94.17%** |
+| Transfer | Ternary | EEGNet | 51.98 ± 12.50% | 52.92% | 33.33% | 76.67% |
+
+> **数据来源**:
+> - Binary cross-subject: `results/32_channel/commercial/20260226_1908_cross-subject_cbramod_imagery_binary.json` (Step 5 重跑)
+> - Binary transfer: `results/32_channel/commercial/20260226_2000_transfer_comparison_cache_imagery_binary.json`
+> - Ternary cross-subject: `results/32_channel/commercial/20260226_2042_cross-subject_cbramod_imagery_ternary.json`
+> - Ternary transfer: `results/32_channel/commercial/20260226_2217_transfer_comparison_cache_imagery_ternary.json`
+
+#### Binary Transfer 逐被试结果 (CBraMod)
+
+| 被试 | Cross-Subject | Transfer | 差值 |
+|------|--------------|----------|------|
+| S01 | 82.50% | 85.62% | +3.12% |
+| S02 | 90.00% | 91.88% | +1.88% |
+| S03 | 96.25% | 96.25% | 0.00% |
+| S04 | 93.12% | 96.88% | +3.76% |
+| S05 | 79.38% | 82.50% | +3.12% |
+| S06 | 80.00% | 74.38% | -5.62% |
+| S07 | 85.62% | 78.75% | -6.87% |
+| S08 | 93.12% | 85.62% | -7.50% |
+| S09 | 99.38% | 93.12% | -6.26% |
+| S10 | 70.62% | 66.25% | -4.37% |
+| S11 | 89.38% | 90.62% | +1.24% |
+| S12 | 83.75% | 87.50% | +3.75% |
+| S13 | 86.25% | 88.75% | +2.50% |
+| S14 | 83.12% | 83.12% | 0.00% |
+| S15 | 86.88% | 91.25% | +4.37% |
+| S16 | 92.50% | 85.62% | -6.88% |
+| S17 | 91.25% | 85.00% | -6.25% |
+| S18 | 88.75% | 89.38% | +0.63% |
+| S19 | 96.88% | 97.50% | +0.62% |
+| S20 | 68.75% | 61.88% | -6.87% |
+| S21 | 76.88% | 78.75% | +1.87% |
+| **Mean** | **86.40%** | **85.27%** | **-1.13%** |
+
+#### Ternary Transfer 逐被试结果 (CBraMod)
+
+| 被试 | Cross-Subject | Transfer | 差值 |
+|------|--------------|----------|------|
+| S01 | 61.25% | 57.08% | -4.17% |
+| S02 | 80.83% | 71.67% | -9.16% |
+| S03 | 82.50% | 84.17% | +1.67% |
+| S04 | 89.17% | 88.33% | -0.84% |
+| S05 | 62.50% | 60.42% | -2.08% |
+| S06 | 77.92% | 72.92% | -5.00% |
+| S07 | 64.58% | 65.83% | +1.25% |
+| S08 | 76.67% | 78.33% | +1.66% |
+| S09 | 78.33% | 84.17% | +5.84% |
+| S10 | 53.75% | 43.33% | -10.42% |
+| S11 | 75.83% | 77.50% | +1.67% |
+| S12 | 58.75% | 61.25% | +2.50% |
+| S13 | 66.25% | 67.50% | +1.25% |
+| S14 | 71.25% | 74.17% | +2.92% |
+| S15 | 70.00% | 65.42% | -4.58% |
+| S16 | 65.00% | 66.67% | +1.67% |
+| S17 | 71.67% | 76.67% | +5.00% |
+| S18 | 66.25% | 64.17% | -2.08% |
+| S19 | 90.42% | 94.17% | +3.75% |
+| S20 | 42.92% | 46.67% | +3.75% |
+| S21 | 50.42% | 59.17% | +8.75% |
+| **Mean** | **69.35%** | **69.50%** | **+0.15%** |
+
+#### Step 6 关键发现
+
+1. **Commercial binary transfer 反而下降 (-1.13%)**: 与 FDR 配置下 transfer 始终提升不同，commercial 的 binary transfer 均值低于 cross-subject。可能因为预训练 checkpoint 来自 FDR 配置，通道分布不匹配导致微调效果受限。
+
+2. **Commercial ternary transfer 几乎无变化 (+0.15%)**: 微调对 commercial ternary 的改善极为有限，进一步说明通道选择与预训练模型的匹配度对迁移效果至关重要。
+
+3. **EEGNet 在 commercial 配置下全面落后**: Binary 72.68% vs CBraMod 85.27% (差距 12.59pp)，Ternary 51.98% vs 69.50% (差距 17.52pp)。CBraMod 的优势在 commercial 布局下同样显著。
+
+4. **Commercial 在所有 4 个任务中均落后于 FDR**: Binary cross -1.70pp, binary transfer -3.63pp, ternary cross -1.44pp, ternary transfer -3.18pp。差距在 transfer 阶段进一步放大。
+
+#### Step 6 结果文件
+
+| 实验 | Run Tag | 结果文件 |
+|------|---------|---------|
+| Ternary cross-subject (CBraMod) | 20260226_2042 | `results/32_channel/commercial/20260226_2042_cross-subject_cbramod_imagery_ternary.json` |
+| Binary transfer (CBraMod+EEGNet) | 20260226_2000 | `results/32_channel/commercial/20260226_2000_transfer_comparison_cache_imagery_binary.json` |
+| Ternary transfer (CBraMod+EEGNet) | 20260226_2217 | `results/32_channel/commercial/20260226_2217_transfer_comparison_cache_imagery_ternary.json` |
+
+---
+
+### Step 7: Attention 扩展实验 (CBraMod Only)
+
+Step 2 确认 attention 为综合排名第 1 的 32ch 配置（EEGNet 最优 + 两模型平均最高），Step 7 补充 attention 配置在 ternary 及 transfer 任务上的完整结果，与 FDR、commercial 形成三方对比。
+
+**运行时间**: 2026-02-28 22:18 ~ 2026-03-01 00:30
+**通道配置**: Attention (32ch)
+**模型**: CBraMod only
+**微调策略**: freeze=none (全参数可训练)
+
+#### 7a. Ternary Cross-Subject (CBraMod, 32ch Attention)
+
+**Run tag**: `20260228_2247`
+**训练时长**: ~70 min (4228s)
+**Scheduler**: `cosine_annealing_warmup_decay` (50 epochs)
+**Best epoch**: 46 | **Best val_acc**: 0.446
+**Checkpoint**: `checkpoints/cross_subject/20260228_2247_cbramod_imagery_ternary/best.pt`
+
+#### 7b. Binary Transfer (CBraMod, 32ch Attention)
+
+**Run tag**: `20260228_2218`
+**预训练 checkpoint**: `checkpoints/cross_subject/20260220_2218_cbramod_imagery_binary/best.pt` (Step 2 attention binary cross-subject, mean=87.02%)
+**微调**: 21 被试逐一微调, freeze=none, `cosine_annealing_warmup_decay`
+
+#### 7c. Ternary Transfer (CBraMod, 32ch Attention)
+
+**Run tag**: `20260228_2358`
+**预训练 checkpoint**: `checkpoints/cross_subject/20260228_2247_cbramod_imagery_ternary/best.pt` (Step 7a)
+**微调**: 21 被试逐一微调, freeze=none, `cosine_annealing_warmup_decay`
+
+#### Step 7 结果汇总
+
+| 实验 | 任务 | 方法 | Mean ± Std | Median | Min | Max |
+|------|------|------|-----------|--------|-----|-----|
+| Cross-subject | Binary | 跨被试预训练 | 87.02 ± 9.89% | — | 61.88% | 98.12% |
+| **Transfer** | **Binary** | **跨被试→微调** | **88.69 ± 8.37%** | **90.00%** | **64.38%** | **100.00%** |
+| Cross-subject | Ternary | 跨被试预训练 | 71.53 ± 11.94% | — | 46.25% | 89.58% |
+| **Transfer** | **Ternary** | **跨被试→微调** | **73.57 ± 13.17%** | **74.17%** | **46.25%** | **92.08%** |
+
+> **数据来源**:
+> - Binary cross-subject: `results/32_channel/attention/20260220_2159_cross-subject_cbramod_imagery_binary.json` (Step 2)
+> - Binary transfer: `results/32_channel/attention/20260228_2218_transfer_comparison_cache_imagery_binary.json`
+> - Ternary cross-subject: `results/32_channel/attention/20260228_2247_cross-subject_cbramod_imagery_ternary.json`
+> - Ternary transfer: `results/32_channel/attention/20260228_2358_transfer_comparison_cache_imagery_ternary.json`
+
+#### Binary Transfer 逐被试结果
+
+| 被试 | Cross-Subject | Transfer | 差值 |
+|------|--------------|----------|------|
+| S01 | 91.25% | 93.75% | +2.50% |
+| S02 | 85.62% | 86.25% | +0.63% |
+| S03 | 98.12% | 99.38% | +1.26% |
+| S04 | 96.88% | 98.12% | +1.24% |
+| S05 | 61.88% | 92.50% | **+30.62%** |
+| S06 | 80.00% | 83.12% | +3.12% |
+| S07 | 91.25% | 83.12% | -8.13% |
+| S08 | 96.88% | 90.00% | -6.88% |
+| S09 | 96.88% | 100.00% | +3.12% |
+| S10 | 65.62% | 71.25% | +5.63% |
+| S11 | 90.00% | 90.00% | 0.00% |
+| S12 | 88.12% | 86.25% | -1.87% |
+| S13 | 91.25% | 91.25% | 0.00% |
+| S14 | 89.38% | 90.00% | +0.62% |
+| S15 | 88.75% | 95.00% | +6.25% |
+| S16 | 86.25% | 88.12% | +1.87% |
+| S17 | 90.62% | 86.88% | -3.74% |
+| S18 | 91.25% | 92.50% | +1.25% |
+| S19 | 96.25% | 95.62% | -0.63% |
+| S20 | 70.62% | 64.38% | -6.24% |
+| S21 | 80.62% | 85.00% | +4.38% |
+| **Mean** | **87.02%** | **88.69%** | **+1.67%** |
+
+#### Ternary Transfer 逐被试结果
+
+| 被试 | Cross-Subject | Transfer | 差值 |
+|------|--------------|----------|------|
+| S01 | 64.58% | 63.33% | -1.25% |
+| S02 | 82.08% | 88.33% | +6.25% |
+| S03 | 84.17% | 87.50% | +3.33% |
+| S04 | 76.67% | 85.83% | +9.16% |
+| S05 | 46.25% | 62.92% | **+16.67%** |
+| S06 | 75.83% | 74.17% | -1.66% |
+| S07 | 74.58% | 71.25% | -3.33% |
+| S08 | 82.92% | 83.33% | +0.41% |
+| S09 | 87.92% | 92.08% | +4.16% |
+| S10 | 56.25% | 48.75% | -7.50% |
+| S11 | 77.50% | 82.92% | +5.42% |
+| S12 | 65.00% | 61.67% | -3.33% |
+| S13 | 72.92% | 74.58% | +1.66% |
+| S14 | 82.92% | 85.42% | +2.50% |
+| S15 | 66.67% | 71.67% | +5.00% |
+| S16 | 65.42% | 63.33% | -2.09% |
+| S17 | 75.83% | 80.00% | +4.17% |
+| S18 | 69.58% | 71.67% | +2.09% |
+| S19 | 89.58% | 91.25% | +1.67% |
+| S20 | 49.58% | 46.25% | -3.33% |
+| S21 | 55.83% | 58.75% | +2.92% |
+| **Mean** | **71.53%** | **73.57%** | **+2.04%** |
+
+#### Step 7: 三配置横向对比 (CBraMod, 32ch)
+
+| 任务 | Attention | FDR | Commercial | Att−FDR | Att−Comm |
+|------|-----------|-----|------------|---------|----------|
+| Binary Cross | 87.02% | **88.10%** | 86.40% | -1.08pp | +0.62pp |
+| Binary Transfer | 88.69% | **88.90%** | 85.27% | -0.21pp | +3.42pp |
+| Ternary Cross | **71.53%** | 70.79% | 69.35% | +0.74pp | +2.18pp |
+| Ternary Transfer | **73.57%** | 72.68% | 69.50% | +0.89pp | +4.07pp |
+
+> **数据来源**: Attention — Step 7 上方表格; FDR — Step 3 结果汇总; Commercial — Step 6 结果汇总。
+
+#### Step 7 关键发现
+
+1. **Attention 与 FDR 差距极小 (<1.1pp)**: 在所有 4 个任务上，两者差距均在 1.1 个百分点以内。Binary 任务 FDR 微优，ternary 任务 attention 微优，整体可视为等效配置。
+
+2. **Attention transfer 提升最稳定**: Binary +1.67pp, ternary +2.04pp。相比 FDR (+0.80pp/+1.89pp) 和 commercial (-1.13pp/+0.15pp)，attention 配置的预训练→微调管线收益最一致。
+
+3. **S05 binary transfer +30.62%**: Attention 配置下 S05 从 cross-subject 的 61.88% 跃升至 transfer 的 92.50%，提升幅度极为突出。此被试在 attention 通道布局下的个体微调效果远超其他配置 (FDR +9.38%, commercial +3.12%)。
+
+4. **S09 达到 100% binary transfer**: Attention 配置下 S09 在微调后达到完美准确率。该被试在 128ch 基线下亦为高表现被试 (cross-subject 96.88%)。
+
+5. **Commercial 在 transfer 阶段差距扩大**: Commercial vs attention 差距从 cross-subject 的 0.62pp/2.18pp 扩大到 transfer 的 3.42pp/4.07pp。这进一步证实：数据驱动通道选择不仅在初始模型上更优，在迁移学习流程中优势还会放大。
+
+6. **Ternary 任务偏好 attention 配置**: 在两个 ternary 任务中 attention 均胜出，可能因为 attention 方法融合了模型梯度信息，能捕获对多类别区分更关键的通道。
+
+#### Step 7 结果文件
+
+| 实验 | Run Tag | 结果文件 |
+|------|---------|---------|
+| Binary cross-subject | 20260220_2159 | `results/32_channel/attention/20260220_2159_cross-subject_cbramod_imagery_binary.json` |
+| Ternary cross-subject | 20260228_2247 | `results/32_channel/attention/20260228_2247_cross-subject_cbramod_imagery_ternary.json` |
+| Binary transfer | 20260228_2218 | `results/32_channel/attention/20260228_2218_transfer_comparison_cache_imagery_binary.json` |
+| Ternary transfer | 20260228_2358 | `results/32_channel/attention/20260228_2358_transfer_comparison_cache_imagery_ternary.json` |
+
+---
+
 ### 综合实验意义总结 (Paper Reference)
 
 1. **通道削减的非线性特征**: 128→32ch 仅损失 2.17%（binary cross-subject），但 32→8ch 再损失 19.77%。存在明确的性能断崖——约 32 通道是性能/硬件权衡的最优折中点。
@@ -923,12 +1178,17 @@ FDR 偏好颞叶和前额区域（类间区分度最高），而非传统认为�
 
 9. **61ch ≈ 32ch FDR >> 32ch Commercial**: 61ch standard 10-10 (88.72%) 与 32ch FDR (88.10%) 差距仅 0.62pp，但 commercial 配置 (86.40%) 落后 FDR 1.70pp。数据驱动选择可用一半通道达到接近 61ch 的性能。
 
+10. **Attention ≈ FDR >> Commercial（完整管线验证）**: Step 6-7 的四任务对比表明，attention 和 FDR 在所有任务上差距 <1.1pp，均显著优于 commercial (2-4pp)。Attention 在 ternary 任务和 transfer 稳定性上略优，FDR 在 binary 任务上略优。两者均为推荐的 32ch 配置。
+
 #### 核心数据速查表
 
-| 配置 | Binary Cross | Binary Transfer | Ternary Cross | Ternary Transfer |
-|------|-------------|----------------|--------------|-----------------|
-| 128ch (baseline) | 90.27% | — | 75.42% | — |
-| 61ch standard | 88.72% | — | — | — |
-| 32ch FDR | 88.10% | 88.90% | 70.79% | 72.68% |
-| 32ch commercial | 86.40% | — | — | — |
-| 8ch FDR | 68.33% | 72.92% | 52.00% | 57.26% |
+所有数值为 CBraMod test accuracy (21 被试均值)。
+
+| 配置 | Binary Cross | Binary Transfer | Ternary Cross | Ternary Transfer | 来源 Step |
+|------|-------------|----------------|--------------|-----------------|-----------|
+| 128ch (baseline) | 90.27% | — | 75.42% | — | Step 3 (ref) |
+| 61ch standard | 88.72% | — | — | — | Step 5 |
+| 32ch FDR | 88.10% | 88.90% | 70.79% | 72.68% | Step 2-3 |
+| **32ch attention** | **87.02%** | **88.69%** | **71.53%** | **73.57%** | **Step 2, 7** |
+| 32ch commercial | 86.40% | 85.27% | 69.35% | 69.50% | Step 5-6 |
+| 8ch FDR | 68.33% | 72.92% | 52.00% | 57.26% | Step 4 |

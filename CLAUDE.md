@@ -180,6 +180,16 @@ caches/preprocessed/                  # 预处理缓存
 - **Blackwell GPU (RTX 5070/5080/5090)**: 原生支持，自动启用 TF32 优化
 - CBraMod 128 通道模式显存需求较高 (建议 12GB+)
 
+## 文档规范
+
+在实验文档中记录数据（如结果汇总表、逐被试对比表、核心数据速查表等）时，必须在数据表旁附上**数据来源**（source），注明原始 JSON 结果文件路径或引用的 Step 编号。使用 blockquote 格式：
+
+```markdown
+> **数据来源**: `results/32_channel/fdr/20260221_0445_transfer_comparison_cache_imagery_binary.json`
+```
+
+这确保所有文档中的数值均可追溯到原始实验输出，便于验证和复现。
+
 ## 文档结构
 
 | 文档 | 说明 |
@@ -188,7 +198,8 @@ caches/preprocessed/                  # 预处理缓存
 | `docs/preprocessing_architecture.md` | 预处理管线详细架构 |
 | `docs/dev_log/changelog.md` | 开发历史和变更记录 |
 | `docs/dev_log/refactoring/` | 代码重构详细记录 (Phase 1-4) |
-| `docs/dev_log/implemented_plans/32ch_experiment.md` | 32 通道实验实现文档 |
+| `docs/dev_log/experiments/32ch_experiment.md` | 32 通道实验完整记录 (Step 1-7) |
+| `docs/dev_log/experiments/reduced_channel_experiment_summary.md` | 减通道实验总结 (代码变更 + FDR 方法) |
 | `docs/dev_log/implemented_plans/experiment_db.md` | SQLite 实验注册表实现文档 |
 
 ## 参考资料
