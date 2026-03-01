@@ -201,7 +201,7 @@ EIGHT_CHANNEL_WITHIN_SUBJECT_OVERRIDES = {
     },
     'training': {
         'batch_size': 64,
-        'backbone_lr': 5e-5,
+        'backbone_lr': 1e-4,
         'classifier_lr': 2.5e-4,
         'weight_decay': 0.10,
         'label_smoothing': 0.10,
@@ -327,7 +327,9 @@ def load_yaml_config(yaml_path: str) -> dict:
         raise ValueError(f"Config file must be a YAML mapping: {yaml_path}")
 
     # 过滤代码控制的 section
-    return {k: v for k, v in raw.items() if k not in {'tasks', 'task', 'data'}}
+    # 'data' section 保留以支持 YAML 覆盖 (channels, channel_config 等)
+    # 'tasks'/'task' 由 CLI 控制，不允许 YAML 覆盖
+    return {k: v for k, v in raw.items() if k not in {'tasks', 'task'}}
 
 
 # ============================================================================
@@ -338,7 +340,7 @@ def load_yaml_config(yaml_path: str) -> dict:
 # the different optimization landscape (more data, higher overfitting risk)
 CROSS_SUBJECT_SCHEDULER_OVERRIDES: Dict[str, Dict[str, Any]] = {
     'cosine_annealing_warmup_decay': {
-        'phase_epochs': 10,             # 6→10, 更长周期避免频繁重启导致重新过拟合
+        'phase_epochs': 6,             # 较短周期，频繁重启帮助跳出局部最优
         'phase_decay': 0.5,             # 0.7→0.5, 更激进的峰值衰减抑制过拟合
         'exploration_epochs': 6,        # 保持不变
         'exploration_batch_size': 64,   # 32→64, 多被试数据更稳定的梯度估计
@@ -386,7 +388,7 @@ def get_cross_subject_config(model_type: str, task: str, n_channels: int = None)
             'patience': 15,                              # 与 within-subject 相同，靠 early stopping
             'batch_size': 256,                           # 2x within-subject
             'learning_rate': 5e-5,                       # 1e-4→5e-5
-            'backbone_lr': 5e-5,                         # 1e-4→5e-5, 预训练权重温和调整
+            'backbone_lr': 1e-4,                         # 与 within-subject 同步
             'classifier_lr': 1.5e-4,                     # 3x backbone
             'weight_decay': 0.12,                        # 0.06→0.12, 跨被试正则更强
             'label_smoothing': 0.15,                     # 0.05→0.15, 跨被试标签噪声更大

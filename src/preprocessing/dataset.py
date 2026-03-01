@@ -157,6 +157,11 @@ class FingerEEGDataset(Dataset):
 
         self._load_data()
 
+        # 释放 memory cache 中的 128ch 原始 trial 数据（加载完成后不再需要）
+        # cross-subject 场景下可节省高达 16GB 内存
+        if self.cache and hasattr(self.cache, 'clear_memory_cache'):
+            self.cache.clear_memory_cache()
+
         # Map labels to continuous indices
         self._setup_label_mapping()
 

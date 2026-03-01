@@ -1,0 +1,5 @@
+# CBraMod 4ch: FDR ∩ Attention overlap (4 channels)
+# Channels: B32 (idx 63), C8 (idx 71), D7 (idx 102), D19 (idx 114)
+data:
+  channels: 4
+  channel_config: fdr_attention_overlap

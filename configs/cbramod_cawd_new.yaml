@@ -17,7 +17,7 @@ training:
   gradient_clip: 0.5
 
 scheduler_config:
-  phase_epochs: 10
+  phase_epochs: 6
   phase_decay: 0.5
   lr_ramp_ratio: 0.1
   eta_min: 1.0e-6
