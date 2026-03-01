@@ -1,5 +1,41 @@
 # 开发变更记录
 
+## 2026-03-01
+
+### FDR 补集通道实验（数据泄露排查）
+
+**背景**: 32 通道实验中，6 种不同 channel config（通道重合度极低）均保持较高准确率，引发数据泄露怀疑。
+
+**方法**: 从表现最佳的 FDR 配置 (binary 88.10%) 的 **补集**（128 通道中 FDR 未选的 96 个通道）中随机选取 32 个通道 (seed=42)，运行 CBraMod cross-subject binary classification。
+
+**结果**:
+
+| 配置 | Mean Acc | Median | Std | Min | Max | 说明 |
+|------|----------|--------|-----|-----|-----|------|
+| FDR (最优 32ch) | **88.10%** | — | — | — | — | Fisher Discriminant Ratio top 32 |
+| FDR 补集 (随机 32ch) | **83.18%** | 83.75% | 9.80% | 59.38% | 98.12% | FDR 补集随机抽样，两次独立运行结果一致 |
+
+**代码审查结论**: **未发现 binary 任务数据泄露路径**。
+- `FingerEEGDataset` 的 `session_folder` 过滤 (`dataset.py:215-217`) 正确隔离 train/test
+- 训练集: `OfflineImagery` + `OnlineImagery_Sess01_*` + `OnlineImagery_Sess02_*_Base`
+- 测试集: `OnlineImagery_Sess02_*_Finetune`（完全独立的 session folder）
+- cross-subject 模式下 `best_val_acc` 全员一致是正常行为（单全局模型，单全局验证集）
+
+**补集高准确率的合理解释**:
+1. **体积传导 (Volume Conduction)**: EEG 信号因颅骨传导在电极间高度相关，即使非最优通道也携带大量判别信息
+2. **32/128 = 25%** 的通道比例本身不低，随机 32 通道仍有相当的空间覆盖
+3. **CBraMod 基座模型**经大规模 EEG 预训练，对通道选择具有鲁棒性
+
+**新增文件**:
+- `scripts/analysis/generate_fdr_complement.py`: FDR 补集通道生成脚本
+- `results/32_channel/channel_selections.json`: 新增 `fdr_complement` 配置条目
+
+**修改文件**:
+- `src/preprocessing/channel_selection.py`: `CHANNEL_32_CONFIGS` 添加 `'fdr_complement': None`
+- `src/training/trainer.py`: 修复 Windows 上 `Path.rename()` 在目标已存在时的 `FileExistsError`（改用 `os.replace()`）
+
+---
+
 ## 2026-02-28
 
 ### SQLite 实验注册表 (ExperimentDB)

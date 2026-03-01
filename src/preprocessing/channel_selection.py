@@ -58,6 +58,7 @@ CHANNEL_32_CONFIGS = {
     'csp': None,
     'attention': None,
     'band_power': None,
+    'fdr_complement': None,  # Random 32ch from FDR complement (leakage test)
 }
 CHANNEL_32_CONFIG_NAMES = list(CHANNEL_32_CONFIGS.keys())
 
