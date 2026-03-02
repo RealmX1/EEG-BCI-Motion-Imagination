@@ -592,6 +592,10 @@ def train_single_subject(
         gradient_clip = train_config.get('gradient_clip', 1.0 if model_type == 'cbramod' else 0.0)
         label_smoothing = train_config.get('label_smoothing', None)
 
+        # Muon optimizer support
+        optimizer_type = train_config.get('optimizer_type', 'adamw')
+        muon_config = config.get('muon_config', None)
+
         trainer = WithinSubjectTrainer(
             model, train_dataset, val_indices, device,
             model_type=model_type,
@@ -604,6 +608,8 @@ def train_single_subject(
             scheduler_config=scheduler_config,
             use_amp=use_amp,
             gradient_clip=gradient_clip,
+            optimizer_type=optimizer_type,
+            muon_config=muon_config,
         )
 
     # Create save directory

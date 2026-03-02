@@ -29,6 +29,90 @@ logger = logging.getLogger(__name__)
 log_model = SectionLogger(logger, 'model')
 log_train = SectionLogger(logger, 'train')
 
+
+def _import_muon():
+    """导入 Muon 优化器. 优先 PyTorch 内置，回退到 standalone 包."""
+    try:
+        from torch.optim import Muon
+        return Muon
+    except ImportError:
+        pass
+    try:
+        from muon import Muon
+        return Muon
+    except ImportError:
+        pass
+    raise ImportError(
+        "Muon optimizer not available. Options:\n"
+        "  1. PyTorch >= 2.10: pip install --pre torch\n"
+        "  2. Standalone: pip install muon-optimizer\n"
+        f"  Current PyTorch: {torch.__version__}"
+    )
+
+
+class MuonAdamWHybrid:
+    """Muon + AdamW 混合优化器包装器.
+
+    PyTorch 内置 Muon 仅支持 2D 参数，因此需要将 Muon (2D weights)
+    和 AdamW (bias, norm, classifier) 组合为统一接口。
+
+    暴露 param_groups, step(), zero_grad(), state_dict(), load_state_dict()
+    以兼容 PyTorch 训练管线 (GradScaler, 自定义 scheduler 等)。
+    """
+
+    def __init__(self, muon_param_group: dict, adamw_param_groups: list,
+                 weight_decay: float = 0.0):
+        Muon = _import_muon()
+
+        # Copy to avoid mutating caller's dicts
+        muon_param_group = dict(muon_param_group)
+        adamw_param_groups = [dict(g) for g in adamw_param_groups]
+
+        muon_lr = muon_param_group.pop('lr', 0.02)
+        muon_momentum = muon_param_group.pop('momentum', 0.95)
+        muon_ns_steps = muon_param_group.pop('ns_steps', 5)
+        muon_param_group.pop('use_muon', None)
+        muon_param_group.pop('weight_decay', None)
+
+        self.muon = Muon(
+            [muon_param_group],
+            lr=muon_lr,
+            momentum=muon_momentum,
+            ns_steps=muon_ns_steps,
+            weight_decay=weight_decay,
+        )
+
+        for g in adamw_param_groups:
+            g.pop('use_muon', None)
+        self.adamw = torch.optim.AdamW(
+            adamw_param_groups,
+            weight_decay=weight_decay,
+        )
+
+    @property
+    def param_groups(self):
+        return self.muon.param_groups + self.adamw.param_groups
+
+    def step(self, closure=None):
+        if closure is not None:
+            raise ValueError("MuonAdamWHybrid does not support closure")
+        self.muon.step()
+        self.adamw.step()
+
+    def zero_grad(self, set_to_none: bool = True):
+        self.muon.zero_grad(set_to_none=set_to_none)
+        self.adamw.zero_grad(set_to_none=set_to_none)
+
+    def state_dict(self):
+        return {
+            'muon': self.muon.state_dict(),
+            'adamw': self.adamw.state_dict(),
+        }
+
+    def load_state_dict(self, state_dict):
+        self.muon.load_state_dict(state_dict['muon'])
+        self.adamw.load_state_dict(state_dict['adamw'])
+
 # Scheduler classification by stepping frequency
 STEP_BASED_SCHEDULERS = {'wsd', 'cosine_decay', 'cosine_annealing_warmup_decay'}
 EPOCH_BASED_SCHEDULERS = {'plateau', 'cosine'}
@@ -61,6 +145,8 @@ class WithinSubjectTrainer:
         scheduler_config: Optional[Dict[str, Any]] = None,
         use_amp: bool = True,
         gradient_clip: float = 1.0,
+        optimizer_type: str = 'adamw',
+        muon_config: Optional[Dict[str, Any]] = None,
     ):
         self.model = model.to(device)
         self.dataset = dataset
@@ -68,6 +154,12 @@ class WithinSubjectTrainer:
         self.device = device
         self.model_type = model_type
         self.scheduler_type = scheduler_type
+
+        if optimizer_type == 'muon' and scheduler_type == 'plateau':
+            log_train.warning(
+                "Muon + ReduceLROnPlateau will decay Muon's lr along with AdamW's. "
+                "Consider using 'cosine_annealing_warmup_decay' or 'wsd' instead."
+            )
 
         # Loss function - apply label smoothing for regularization
         # None = use model-specific default (0.05 for CBraMod, 0.0 for EEGNet)
@@ -79,8 +171,14 @@ class WithinSubjectTrainer:
         else:
             self.criterion = nn.CrossEntropyLoss()
 
-        # Create optimizer based on model type
-        if model_type == 'cbramod' and hasattr(model, 'get_parameter_groups'):
+        # Create optimizer based on model type and optimizer_type
+        self.optimizer_type = optimizer_type
+
+        if optimizer_type == 'muon' and model_type == 'cbramod':
+            self.optimizer = self._create_muon_optimizer(
+                model, learning_rate, classifier_lr, weight_decay, muon_config,
+            )
+        elif model_type == 'cbramod' and hasattr(model, 'get_parameter_groups'):
             # CBraMod uses different LR for backbone and classifier
             # Default classifier_lr = 3x backbone_lr if not specified
             actual_classifier_lr = classifier_lr if classifier_lr is not None else learning_rate * 3
@@ -157,6 +255,60 @@ class WithinSubjectTrainer:
         self.best_epoch = 0
         self.best_state = None
 
+    def _get_sub_optimizers(self) -> list:
+        """返回底层优化器列表 (用于 GradScaler 兼容)."""
+        if isinstance(self.optimizer, MuonAdamWHybrid):
+            return [self.optimizer.muon, self.optimizer.adamw]
+        return [self.optimizer]
+
+    def _create_muon_optimizer(
+        self,
+        model: nn.Module,
+        backbone_lr: float,
+        classifier_lr: Optional[float],
+        weight_decay: float,
+        muon_config: Optional[Dict[str, Any]],
+    ) -> MuonAdamWHybrid:
+        """创建 Muon 混合优化器 (Muon for 2D weights + AdamW for rest)."""
+        cfg = muon_config or {}
+
+        muon_lr = cfg.get('muon_lr', 0.02)
+        muon_momentum = cfg.get('muon_momentum', 0.95)
+        muon_ns_steps = cfg.get('muon_ns_steps', 5)
+        adamw_bb_lr = cfg.get('adamw_backbone_lr', backbone_lr)
+        adamw_cls_lr = cfg.get('adamw_classifier_lr', classifier_lr or backbone_lr * 3)
+
+        if not hasattr(model, 'get_muon_parameter_groups'):
+            raise ValueError("Model does not support Muon parameter groups")
+
+        param_groups = model.get_muon_parameter_groups(
+            muon_lr=muon_lr,
+            adamw_backbone_lr=adamw_bb_lr,
+            adamw_classifier_lr=adamw_cls_lr,
+            muon_momentum=muon_momentum,
+            muon_ns_steps=muon_ns_steps,
+        )
+
+        # 统计参数分布
+        n_muon = sum(p.numel() for p in param_groups[0]['params'])
+        n_adamw_bb = sum(p.numel() for p in param_groups[1]['params'])
+        n_adamw_cls = sum(p.numel() for p in param_groups[2]['params'])
+
+        # Group 0 = Muon, Groups 1-2 = AdamW
+        optimizer = MuonAdamWHybrid(
+            muon_param_group=param_groups[0],
+            adamw_param_groups=param_groups[1:],
+            weight_decay=weight_decay,
+        )
+
+        log_train.info(
+            f"Optimizer: Muon hybrid "
+            f"(muon={n_muon:,} @ lr={muon_lr}, "
+            f"adamw_bb={n_adamw_bb:,} @ lr={adamw_bb_lr}, "
+            f"adamw_cls={n_adamw_cls:,} @ lr={adamw_cls_lr})"
+        )
+        return optimizer
+
     def train_epoch(
         self,
         dataloader: DataLoader,
@@ -216,11 +368,15 @@ class WithinSubjectTrainer:
                     t0 = time.perf_counter()
 
                 # Gradient clipping (unscale first)
+                # MuonAdamWHybrid wraps two real optimizers; unscale/step each
+                sub_opts = self._get_sub_optimizers()
                 if self.gradient_clip > 0:
-                    self.scaler.unscale_(self.optimizer)
+                    for opt in sub_opts:
+                        self.scaler.unscale_(opt)
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip)
 
-                self.scaler.step(self.optimizer)
+                for opt in sub_opts:
+                    self.scaler.step(opt)
                 self.scaler.update()
             else:
                 outputs = self.model(segments)
@@ -331,6 +487,7 @@ class WithinSubjectTrainer:
             'history': self.history,
             'scheduler_type': self.scheduler_type,
             'model_type': self.model_type,
+            'optimizer_type': self.optimizer_type,
         }
 
         temp_path = save_path / 'resume_checkpoint.pt.tmp'
@@ -366,10 +523,20 @@ class WithinSubjectTrainer:
             log_train.error(f"Model type mismatch: checkpoint={saved_model_type}, current={self.model_type}")
             return None
 
+        saved_optimizer_type = checkpoint.get('optimizer_type', 'adamw')
         saved_scheduler_type = checkpoint.get('scheduler_type')
-        if saved_scheduler_type != self.scheduler_type:
-            log_train.warning(f"Scheduler type changed: {saved_scheduler_type} -> {self.scheduler_type}. "
-                              "Only model weights will be restored.")
+        optimizer_changed = saved_optimizer_type != self.optimizer_type
+        scheduler_changed = saved_scheduler_type != self.scheduler_type
+
+        if optimizer_changed or scheduler_changed:
+            reasons = []
+            if optimizer_changed:
+                reasons.append(f"optimizer: {saved_optimizer_type} -> {self.optimizer_type}")
+            if scheduler_changed:
+                reasons.append(f"scheduler: {saved_scheduler_type} -> {self.scheduler_type}")
+            log_train.warning(
+                f"Config changed ({', '.join(reasons)}). Only model weights will be restored."
+            )
             self.model.load_state_dict(checkpoint['model_state_dict'])
             self._pending_scheduler_state = None
             self._pending_scaler_state = None
@@ -634,7 +801,11 @@ class WithinSubjectTrainer:
             self.history['val_combined_score'].append(combined_score)
 
             # Get current learning rate (used by WandB and table logger)
-            current_lr = self.optimizer.param_groups[0]['lr']
+            # Muon: param_groups[0] is the Muon group; report AdamW backbone LR instead
+            if self.optimizer_type == 'muon' and len(self.optimizer.param_groups) >= 2:
+                current_lr = self.optimizer.param_groups[1]['lr']
+            else:
+                current_lr = self.optimizer.param_groups[0]['lr']
 
             # WandB callback
             if wandb_callback is not None:

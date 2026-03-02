@@ -1,0 +1,31 @@
+# CBraMod + Muon: 混合优化器 (Muon for 2D weights + AdamW for rest)
+# 主要用于跨被试预训练场景
+model:
+  classifier_type: two_layer
+  dropout_rate: 0.35
+  freeze_backbone: false
+
+training:
+  optimizer_type: muon
+  scheduler: cosine_annealing_warmup_decay
+  epochs: 100
+  patience: 12
+  batch_size: 256
+  weight_decay: 0.12
+  label_smoothing: 0.15
+  gradient_clip: 0.5
+
+muon_config:
+  muon_lr: 0.02
+  muon_momentum: 0.95
+  muon_ns_steps: 5
+  adamw_backbone_lr: 5.0e-5
+  adamw_classifier_lr: 1.5e-4
+
+scheduler_config:
+  phase_epochs: 6
+  phase_decay: 0.5
+  lr_ramp_ratio: 0.1
+  eta_min: 1.0e-6
+  exploration_epochs: 6
+  exploration_batch_size: 64

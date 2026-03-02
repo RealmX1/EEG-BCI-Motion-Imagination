@@ -513,6 +513,57 @@ class CBraModForFingerBCI(nn.Module):
             {'params': classifier_params, 'lr': classifier_lr},
         ]
 
+    def get_muon_parameter_groups(
+        self,
+        muon_lr: float = 0.02,
+        adamw_backbone_lr: float = 1e-4,
+        adamw_classifier_lr: float = 3e-4,
+        muon_momentum: float = 0.95,
+        muon_ns_steps: int = 5,
+    ) -> list:
+        """
+        为 Muon 混合优化器生成参数分组.
+
+        分组逻辑:
+        - Group 0 (use_muon=True): backbone 中的 2D 权重矩阵
+          (attention Q/K/V/O projections, FFN linear weights, spectral_proj)
+        - Group 1 (use_muon=False): backbone 中的其他参数
+          (bias, LayerNorm, GroupNorm, Conv2d, ACPE)
+        - Group 2 (use_muon=False): classifier 全部参数
+        """
+        muon_params = []
+        adamw_backbone_params = []
+
+        for name, param in self.backbone.named_parameters():
+            if not param.requires_grad:
+                continue
+            if param.ndim == 2 and 'weight' in name:
+                muon_params.append(param)
+            else:
+                adamw_backbone_params.append(param)
+
+        classifier_params = [p for p in self.classifier.parameters() if p.requires_grad]
+
+        return [
+            {
+                'params': muon_params,
+                'use_muon': True,
+                'lr': muon_lr,
+                'momentum': muon_momentum,
+                'ns_steps': muon_ns_steps,
+            },
+            {
+                'params': adamw_backbone_params,
+                'use_muon': False,
+                'lr': adamw_backbone_lr,
+            },
+            {
+                'params': classifier_params,
+                'use_muon': False,
+                'lr': adamw_classifier_lr,
+            },
+        ]
+
     def count_parameters(self, trainable_only: bool = True) -> int:
         """Count parameters."""
         if trainable_only:

@@ -39,6 +39,9 @@ Usage:
 
     # Disable within-subject historical comparison
     uv run python scripts/run_cross_subject_comparison.py --no-within-subject-historical
+
+    # Use Muon optimizer for CBraMod (via YAML config)
+    uv run python scripts/run_cross_subject_comparison.py --config configs/cbramod_muon.yaml
 """
 
 import argparse
@@ -72,7 +75,7 @@ from src.results import (
 from src.results.cache import find_cache_by_tag, load_cache, save_cache
 from src.visualization import generate_combined_plot
 from src.training.train_cross_subject import train_cross_subject
-from src.config.training import SCHEDULER_PRESETS
+from src.config.training import SCHEDULER_PRESETS, load_yaml_config
 
 SCRIPTS_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
@@ -153,6 +156,11 @@ Examples:
         '--scheduler', type=str, default=None,
         choices=list(SCHEDULER_PRESETS.keys()),
         help='Learning rate scheduler (default: model-specific)'
+    )
+    parser.add_argument(
+        '--config', type=str, default=None, metavar='YAML_PATH',
+        help='YAML config file path (e.g., configs/cbramod_muon.yaml). '
+             'Overrides model defaults; CLI args take priority over YAML.'
     )
 
     # Output arguments
@@ -329,8 +337,8 @@ Examples:
 
     log_main.info(f"Subjects: {subjects} | Models: {args.models} | Task: {args.task}")
 
-    # Build config_overrides
-    config_overrides = {}
+    # Build config_overrides: YAML base → CLI overrides
+    config_overrides = load_yaml_config(args.config) if args.config else {}
     if args.scheduler:
         config_overrides.setdefault('training', {})['scheduler'] = args.scheduler
     if args.channels != FULL_N_CHANNELS:

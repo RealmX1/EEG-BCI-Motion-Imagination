@@ -93,6 +93,49 @@ SCHEDULER_PRESETS: Dict[str, Dict[str, Any]] = {
 
 
 # ============================================================================
+# Muon Optimizer Presets
+# ============================================================================
+
+MUON_PRESETS: Dict[str, Dict[str, Any]] = {
+    'default': {
+        'muon_lr': 0.02,
+        'muon_momentum': 0.95,
+        'muon_ns_steps': 5,
+        'adamw_backbone_lr': 1e-4,
+        'adamw_classifier_lr': 3e-4,
+        'weight_decay': 0.06,
+    },
+    'cross_subject': {
+        'muon_lr': 0.02,
+        'muon_momentum': 0.95,
+        'muon_ns_steps': 5,
+        'adamw_backbone_lr': 5e-5,
+        'adamw_classifier_lr': 1.5e-4,
+        'weight_decay': 0.12,
+    },
+    'conservative': {
+        # 使用 match_rms_adamw 自动缩放 LR，可复用 AdamW 调参经验
+        'muon_lr': 1e-4,
+        'muon_momentum': 0.95,
+        'muon_ns_steps': 5,
+        'adamw_backbone_lr': 1e-4,
+        'adamw_classifier_lr': 3e-4,
+        'weight_decay': 0.06,
+    },
+}
+
+
+def get_muon_config(preset: str = 'default') -> dict:
+    """获取 Muon 优化器超参数预设."""
+    if preset not in MUON_PRESETS:
+        raise ValueError(
+            f"Unknown Muon preset: {preset}. "
+            f"Available: {list(MUON_PRESETS.keys())}"
+        )
+    return MUON_PRESETS[preset].copy()
+
+
+# ============================================================================
 # Default Model Configurations
 # ============================================================================
 
