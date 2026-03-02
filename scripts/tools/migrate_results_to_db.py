@@ -26,6 +26,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.results.experiment_db import ExperimentDB
 from src.results.dataclasses import TrainingResult, ComparisonResult
+from src.results.statistics import compute_model_statistics
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
@@ -120,7 +121,9 @@ def infer_channel_info(file_path: Path) -> Tuple[int, Optional[str]]:
 
 def parse_comparison_cache(file_path: Path, data: Dict) -> Optional[Dict[str, Any]]:
     """Parse a comparison_cache JSON (within-subject results)."""
-    run_tag = data.get('run_tag')
+    metadata = data.get('metadata', {})
+
+    run_tag = metadata.get('run_tag') or data.get('run_tag')
     if not run_tag:
         m = COMPARISON_CACHE_RE.match(file_path.name)
         if m:
@@ -128,8 +131,8 @@ def parse_comparison_cache(file_path: Path, data: Dict) -> Optional[Dict[str, An
         else:
             return None
 
-    paradigm = data.get('paradigm')
-    task = data.get('task')
+    paradigm = metadata.get('paradigm') or data.get('paradigm')
+    task = metadata.get('task') or data.get('task')
     if not paradigm or not task:
         return None
 
@@ -138,7 +141,6 @@ def parse_comparison_cache(file_path: Path, data: Dict) -> Optional[Dict[str, An
         return None
 
     n_channels, channel_config = infer_channel_info(file_path)
-    metadata = data.get('metadata', {})
 
     subject_results: List[TrainingResult] = []
     for model_type, subjects in results_data.items():
@@ -437,6 +439,7 @@ def migrate_file(db: ExperimentDB, file_type: str, file_path: Path, data: Dict) 
 
     # Save summaries
     summary_data = parsed.get('summary', {})
+    saved_model_types = set()
     for model_type, stats in summary_data.items():
         if isinstance(stats, dict) and any(k in stats for k in ('mean', 'mean_acc', 'mean_test_acc')):
             normalized = {
@@ -448,6 +451,18 @@ def migrate_file(db: ExperimentDB, file_type: str, file_path: Path, data: Dict) 
                 'n_subjects': stats.get('n_subjects', parsed.get('n_subjects', 0)),
             }
             db.save_summary(run_id, model_type, normalized)
+            saved_model_types.add(model_type)
+
+    # Backfill: compute summaries from subject_results for models missing summary
+    models_in_results = {r.model_type for r in parsed['subject_results']}
+    for backfill_model in models_in_results - saved_model_types:
+        model_results = [r for r in parsed['subject_results'] if r.model_type == backfill_model]
+        if model_results:
+            try:
+                computed = compute_model_statistics(model_results)
+                db.save_summary(run_id, backfill_model, computed)
+            except Exception as e:
+                logger.warning(f"  Failed to backfill summary for {backfill_model}: {e}")
 
     # Save transfer config if applicable
     if file_type == 'transfer_cache' and parsed.get('transfer_config'):
