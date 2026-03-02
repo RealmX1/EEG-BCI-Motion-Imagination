@@ -222,7 +222,7 @@ class PreprocessConfig:
             segment_step_samples=128,  # 125ms @ 1024 Hz
             use_sliding_window=True,
             normalize_method='zscore_time',
-            reject_threshold=-1.0,  # No rejection
+            reject_threshold=500.0,  # Reject trials with max |amplitude| > 500 µV
             apply_car=True,
             filter_padding=100,
         )
@@ -269,7 +269,7 @@ class PreprocessConfig:
             use_sliding_window=use_sliding_window,
             normalize_method='divide',
             normalize_by=100.0,
-            reject_threshold=100.0,
+            reject_threshold=500.0,  # Match EEGNet; cached data is post-CAR (~50-200 µV typical)
             apply_car=True,
             filter_padding=100,
         )

@@ -137,6 +137,7 @@ def load_subject_data(
     elc_path: Path,
     cache_only: bool = False,
     cache_index_path: str = ".cache_index.json",
+    reject_trials: bool = True,
 ) -> FingerEEGDataset:
     """
     Load data for a single subject using session folder filtering.
@@ -150,6 +151,8 @@ def load_subject_data(
         elc_path: Path to ELC file
         cache_only: If True, load exclusively from cache index (default: False)
         cache_index_path: Path to cache index file (default: '.cache_index.json')
+        reject_trials: If True (default), apply amplitude-based trial rejection.
+            Set False for test datasets.
 
     Returns:
         FingerEEGDataset instance
@@ -163,6 +166,7 @@ def load_subject_data(
         elc_path=str(elc_path),
         cache_only=cache_only,
         cache_index_path=cache_index_path,
+        reject_trials=reject_trials,
     )
     return dataset
 
@@ -434,6 +438,7 @@ def train_single_subject(
             elc_path=elc_path,
             cache_only=cache_only,
             cache_index_path=cache_index_path,
+            reject_trials=False,
         )
 
     if len(test_dataset) == 0:

@@ -70,6 +70,7 @@ class FingerEEGDataset(Dataset):
         parallel_workers: int = 0,
         cache_only: bool = False,
         cache_index_path: str = ".cache_index.json",
+        reject_trials: bool = True,
     ):
         """
         Initialize dataset.
@@ -101,6 +102,9 @@ class FingerEEGDataset(Dataset):
                        available but preprocessed caches exist. (default: False)
             cache_index_path: Path to cache index file for cache_only mode.
                             (default: '.cache_index.json')
+            reject_trials: If True (default), apply amplitude-based trial rejection
+                          during loading. Set False for test datasets to preserve
+                          the original data distribution.
         """
         self.data_root = Path(data_root)
         self.subjects = subjects
@@ -112,6 +116,7 @@ class FingerEEGDataset(Dataset):
         self.preconvert_tensors = preconvert_tensors
         self.cache_only = cache_only
         self.cache_index_path = cache_index_path
+        self.reject_trials = reject_trials
 
         # Validate cache_only mode
         if cache_only and not use_cache:
@@ -379,11 +384,12 @@ class FingerEEGDataset(Dataset):
 
                 # v3.0: Apply sliding window, filter, normalize on load
                 segments, seg_labels, trial_indices = trials_to_segments(
-                    trials, labels, self.config
+                    trials, labels, self.config,
+                    reject_trials=self.reject_trials,
                 )
 
                 # Apply channel selection if needed (after trials_to_segments)
-                if self.channel_indices is not None:
+                if self.channel_indices is not None and segments.ndim == 3 and len(segments) > 0:
                     segments = segments[:, self.channel_indices, :]
 
                 self._store_segments(segments, seg_labels, trial_indices, session_info)
@@ -519,11 +525,12 @@ class FingerEEGDataset(Dataset):
 
                     # v3.0: Apply sliding window, filter, normalize
                     segments, seg_labels, trial_indices = trials_to_segments(
-                        trials_for_segments, labels_for_segments, self.config
+                        trials_for_segments, labels_for_segments, self.config,
+                        reject_trials=self.reject_trials,
                     )
 
                     # Apply channel selection if needed
-                    if self.channel_indices is not None:
+                    if self.channel_indices is not None and segments.ndim == 3 and len(segments) > 0:
                         segments = segments[:, self.channel_indices, :]
 
                     self._store_segments(segments, seg_labels, trial_indices, session_info)
@@ -645,11 +652,12 @@ class FingerEEGDataset(Dataset):
 
         # v3.0: Apply sliding window, filter, normalize
         segments, seg_labels, trial_indices = trials_to_segments(
-            trials_for_segments, labels_for_segments, self.config
+            trials_for_segments, labels_for_segments, self.config,
+            reject_trials=self.reject_trials,
         )
 
         # Apply channel selection if needed
-        if self.channel_indices is not None:
+        if self.channel_indices is not None and segments.ndim == 3 and len(segments) > 0:
             segments = segments[:, self.channel_indices, :]
 
         # Store segments
@@ -967,14 +975,16 @@ def create_dataloaders(
         data_root, val_subjects, config,
         task_types=task_types,
         target_classes=target_classes,
-        elc_path=elc_path
+        elc_path=elc_path,
+        reject_trials=False,
     )
 
     test_dataset = FingerEEGDataset(
         data_root, test_subjects, config,
         task_types=task_types,
         target_classes=target_classes,
-        elc_path=elc_path
+        elc_path=elc_path,
+        reject_trials=False,
     )
 
     train_loader = DataLoader(

@@ -151,6 +151,7 @@ def load_multi_subject_data(
             elc_path=str(elc_path),
             cache_only=cache_only,
             cache_index_path=cache_index_path,
+            reject_trials=False,
         )
         if len(test_ds) > 0:
             test_datasets[subject_id] = test_ds

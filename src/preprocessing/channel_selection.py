@@ -59,6 +59,7 @@ CHANNEL_32_CONFIGS = {
     'attention': None,
     'band_power': None,
     'fdr_complement': None,  # Random 32ch from FDR complement (leakage test)
+    'negative_control': None,  # 32ch from channels not selected by any of the 5 methods
 }
 CHANNEL_32_CONFIG_NAMES = list(CHANNEL_32_CONFIGS.keys())
 

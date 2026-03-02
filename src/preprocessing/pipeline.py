@@ -456,7 +456,8 @@ def preprocess_run_paper_aligned(
             labels.append(target_class)
 
     if not trials:
-        return np.array([]), np.array([]), np.array([])
+        n_ch = eeg_data.shape[0]
+        return np.empty((0, n_ch, 0), dtype=np.float32), np.array([]), np.array([])
 
     # Use float32 to reduce memory usage (half of float64)
     trials = np.array(trials, dtype=np.float32)  # [n_trials x channels x time]
@@ -576,7 +577,8 @@ def preprocess_run_to_trials(
         labels.append(target_class)
 
     if not trials:
-        return np.array([]), np.array([])
+        n_ch = eeg_data.shape[0]
+        return np.empty((0, n_ch, 0), dtype=np.float32), np.array([])
 
     trials = np.array(trials, dtype=np.float32)
     labels = np.array(labels)
@@ -601,7 +603,8 @@ def preprocess_run_to_trials(
 def trials_to_segments(
     trials: np.ndarray,
     labels: np.ndarray,
-    config: 'PreprocessConfig'
+    config: 'PreprocessConfig',
+    reject_trials: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Convert trials to segments (apply sliding window, filter, normalize).
@@ -610,6 +613,7 @@ def trials_to_segments(
     preprocessing steps that were deferred for cache efficiency.
 
     Pipeline:
+    0. Trial-level amplitude rejection (training only)
     1. Sliding window segmentation (at target_fs)
     2. Bandpass filter
     3. Primary normalization (z-score or divide)
@@ -619,6 +623,8 @@ def trials_to_segments(
         trials: [n_trials x channels x trial_samples] at target_fs
         labels: [n_trials]
         config: Preprocessing configuration
+        reject_trials: If True, apply amplitude rejection. Set False for
+            test data to preserve the original distribution.
 
     Returns:
         Tuple of (segments, seg_labels, trial_indices)
@@ -626,9 +632,31 @@ def trials_to_segments(
         - seg_labels: [n_segments]
         - trial_indices: [n_segments] original trial index for each segment
     """
-    # Step 1: Sliding window at target_fs
-    # segment_size in samples at target_fs
+    # segment_size in samples at target_fs (computed early for consistent empty returns)
     segment_size = int(config.segment_length * config.target_fs)
+
+    # Step 0: Trial-level amplitude rejection (training only)
+    # Reject trials where max |amplitude| exceeds threshold (ignoring NaN padding)
+    if reject_trials and config.reject_threshold > 0 and len(trials) > 0:
+        n_before = len(trials)
+        keep_mask = np.ones(n_before, dtype=bool)
+        for i in range(n_before):
+            valid_data = trials[i][~np.isnan(trials[i])]
+            if valid_data.size > 0 and np.max(np.abs(valid_data)) > config.reject_threshold:
+                keep_mask[i] = False
+        trials = trials[keep_mask]
+        labels = labels[keep_mask]
+        n_rejected = n_before - len(trials)
+        if n_rejected > 0:
+            logger.info(
+                f"Trial rejection: {n_rejected}/{n_before} trials "
+                f"exceeded {config.reject_threshold:.0f} µV"
+            )
+        if len(trials) == 0:
+            n_ch = trials.shape[1] if trials.ndim >= 2 else 0
+            return np.empty((0, n_ch, segment_size), dtype=np.float32), np.array([]), np.array([])
+
+    # Step 1: Sliding window at target_fs
 
     # step_size: convert from original_fs to target_fs
     # Use ceiling to ensure we don't miss segments
@@ -641,7 +669,8 @@ def trials_to_segments(
     )
 
     if len(segments) == 0:
-        return np.array([]), np.array([]), np.array([])
+        n_ch = trials.shape[1] if trials.ndim >= 2 else 0
+        return np.empty((0, n_ch, segment_size), dtype=np.float32), np.array([]), np.array([])
 
     # Step 2: Bandpass filter
     segments = apply_bandpass_filter_paper(

@@ -445,6 +445,7 @@ def finetune_subject(
             elc_path=str(elc_path),
             cache_only=cache_only,
             cache_index_path=cache_index_path,
+            reject_trials=False,
         )
 
     print_metric("Train segments", len(train_dataset), Colors.CYAN)
