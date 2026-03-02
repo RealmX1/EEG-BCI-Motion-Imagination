@@ -1,0 +1,48 @@
+{
+  "metadata": {
+    "paradigm": "imagery",
+    "task": "binary",
+    "run_tag": "20260302_0243",
+    "timestamp": "2026-03-02T02:55:37.740690",
+    "n_subjects": 21,
+    "is_complete": true,
+    "type": "cross-subject-comparison"
+  },
+  "wandb_groups": {},
+  "last_updated": "2026-03-02T02:55:37.740690",
+  "results": {
+    "eegnet": {
+      "per_subject_test_acc": {
+        "S01": 0.60625,
+        "S02": 0.76875,
+        "S03": 0.74375,
+        "S04": 0.9375,
+        "S05": 0.40625,
+        "S06": 0.7125,
+        "S07": 0.75,
+        "S08": 0.83125,
+        "S09": 0.74375,
+        "S10": 0.55,
+        "S11": 0.6625,
+        "S12": 0.71875,
+        "S13": 0.7875,
+        "S14": 0.5625,
+        "S15": 0.675,
+        "S16": 0.5,
+        "S17": 0.775,
+        "S18": 0.56875,
+        "S19": 0.69375,
+        "S20": 0.49375,
+        "S21": 0.5375
+      },
+      "mean_test_acc": 0.6678571428571429,
+      "std_test_acc": 0.12752342388540147,
+      "val_acc": 0.572973700280489,
+      "val_majority_acc": 0.6127186009538951,
+      "best_epoch": 14,
+      "training_time": 701.5195128999985,
+      "model_path": "checkpoints\\cross_subject\\20260302_0243_eegnet_imagery_binary\\best.pt",
+      "n_channels": 4
+    }
+  }
+}

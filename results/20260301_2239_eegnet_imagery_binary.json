@@ -1,0 +1,31 @@
+{
+  "metadata": {
+    "model_type": "eegnet",
+    "paradigm": "imagery",
+    "paradigm_description": "Motor Imagery (MI)",
+    "task": "binary",
+    "run_tag": "20260301_2239",
+    "timestamp": "2026-03-01T22:41:16.263832",
+    "n_subjects": 1
+  },
+  "subjects": [
+    {
+      "subject_id": "S05",
+      "task_type": "binary",
+      "model_type": "eegnet",
+      "best_val_acc": 0.7276746242263483,
+      "test_acc": 0.86875,
+      "test_acc_majority": 0.86875,
+      "epochs_trained": 16,
+      "training_time": 107.93915290000587
+    }
+  ],
+  "statistics": {
+    "mean": 0.86875,
+    "std": 0.0,
+    "min": 0.86875,
+    "max": 0.86875,
+    "median": 0.86875,
+    "n_subjects": 1
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "metadata": {
+    "type": "cross-subject",
+    "model_type": "cbramod",
+    "paradigm": "imagery",
+    "task": "binary",
+    "subjects": [
+      "S01",
+      "S02",
+      "S03",
+      "S04",
+      "S05",
+      "S06",
+      "S07",
+      "S08",
+      "S09",
+      "S10",
+      "S11",
+      "S12",
+      "S13",
+      "S14",
+      "S15",
+      "S16",
+      "S17",
+      "S18",
+      "S19",
+      "S20",
+      "S21"
+    ],
+    "n_subjects": 21,
+    "n_channels": 32,
+    "channel_config": "negative_control",
+    "run_tag": "20260302_0141",
+    "timestamp": "2026-03-02T02:23:09.853538"
+  },
+  "results": {
+    "per_subject_test_acc": {
+      "S01": 0.8625,
+      "S02": 0.88125,
+      "S03": 0.98125,
+      "S04": 0.9625,
+      "S05": 0.825,
+      "S06": 0.80625,
+      "S07": 0.8125,
+      "S08": 0.93125,
+      "S09": 0.94375,
+      "S10": 0.6,
+      "S11": 0.9375,
+      "S12": 0.8125,
+      "S13": 0.81875,
+      "S14": 0.7625,
+      "S15": 0.89375,
+      "S16": 0.7,
+      "S17": 0.85625,
+      "S18": 0.84375,
+      "S19": 0.9375,
+      "S20": 0.73125,
+      "S21": 0.75625
+    },
+    "mean_test_acc": 0.8407738095238095,
+    "std_test_acc": 0.09355374393649434,
+    "best_val_acc": 0.5942543576500968,
+    "best_epoch": 28
+  },
+  "training_info": {
+    "training_time": 2470.7832912000013,
+    "model_path": "checkpoints\\cross_subject\\20260302_0141_cbramod_imagery_binary\\best.pt"
+  }
+}
