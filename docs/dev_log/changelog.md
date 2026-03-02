@@ -2,6 +2,75 @@
 
 ## 2026-03-01
 
+### 逐被试数据质量分析（Data Quality Validation）
+
+**背景**: 跨被试/被试内实验在多种通道配置下均展现较高准确率，需要从数据层面系统排查是否存在数据污染（data contamination）或异常被试。此分析纯粹基于缓存原始数据（不参考已有实验结果），避免确认偏差。
+
+**方法**: 创建 `scripts/analysis/analyze_data_quality.py`，直接读取 HDF5 缓存文件（EEGNet 条目，post-CAR/bandpass/downsample，pre-z-score），对 21 个被试执行 12 项数据质量检查。
+
+**检查项** (4 大类):
+
+| 类别 | 检查项 |
+|------|--------|
+| 信号质量 | NaN/Inf 检测（区分填充 vs 信号污染）、死通道、极端振幅、SNR |
+| 统计异常 | trial 间方差 CV、通道间相关、标签分布、trial 数量 |
+| 跨 session 一致性 | 振幅偏移 (L2 距离)、方差稳定性 |
+| 污染检测 | 重复 trial（cosine similarity）、训练/测试分布 KS 检验 |
+
+**结果**:
+
+| 严重度 | 被试 | 数量 |
+|--------|------|------|
+| Clean | S01, S02, S06, S07, S08, S11, S13, S15, S17, S18 | 10/21 |
+| Info | S12, S19, S20 | 3/21 |
+| Minor | S03, S05, S09, S16, S21 | 5/21 |
+| **Major** | **S04, S10, S14** | **3/21** |
+
+> **数据来源**: `results/data_quality_report.md`
+
+**关键发现**:
+1. **无数据污染**: 无信号区域 NaN/Inf、无死通道、无重复 trial、Train/Test 分布分离合理
+2. **3 个严重伪迹被试**: S04 (max amp 306,796)、S10 (267,904)、S14 (125,503)，正常被试 < 10,000
+3. **S04/S10/S14 的 CV > 3.5**（全组均值 1.14），说明 trial 间变异极大（少数极端伪迹 trial 拉高方差）
+4. **S06 数据量偏少**: 仅 1,900 trials (79 runs)，因 Offline 仅 15 runs（标准 30）
+5. **5 个被试有中等伪迹**: 5-9% 的 trial 超过 10σ 阈值，后续 z-score 归一化可部分缓解
+
+**技术要点** (开发过程中修正):
+- 缓存中 NaN 是 trial 长度不一致的尾部填充（~72% trials 有填充），非数据污染
+- 缓存索引中同一 (subject, run, session) 存在多个条目（不同 `target_classes` 生成不同 cache key），加载时需按 run 去重
+- 跨 session 标签分布不平衡是预期行为（Offline 4 类 vs Online 2/3 类），需在 session 内检查平衡
+
+**新增文件**:
+- `scripts/analysis/analyze_data_quality.py`: 逐被试数据质量分析脚本 (Phase 1)
+- `results/data_quality_report.md`: 基础分析报告
+
+### 高级数据质量分析（Advanced Data Quality Analysis, Phase 2）
+
+**方法**: 创建 `scripts/analysis/analyze_data_quality_advanced.py`，复用 Phase 1 数据加载，新增 6 项深度分析。
+
+| 分析维度 | 方法 | 核心发现 |
+|----------|------|----------|
+| 类别可分性 | Fisher 判别比 + AUROC (mu+beta 带功率) | S09 Fisher 最高 (0.18)，S04/S10≈0（伪迹掩盖） |
+| 时间漂移 | 逐 run 通道均值 L2 距离 | S04 漂移 2717（全组均值 ~30），S10 漂移 537 |
+| 频谱特征 | Welch PSD (theta/mu/beta/gamma) | S04/S10 频谱功率 ~10⁵ 量级（正常被试 ~1-10） |
+| EMG 污染 | 周边 vs 中央高频功率比 (>3.0 阈值) | 仅 S02 (3.38) 和 S09 (3.01) 超阈值 |
+| 相邻 Trial 自相关 | 连续 trial Pearson r | 多数 mean r < 0.1；S04/S15/S16 > 0.3 |
+| 跨被试相似性 | 10 维特征 z-score + 欧氏距离 | S04 最孤立 (9.06)；S17↔S03 最近 (0.78) |
+
+**关键发现**:
+1. **类别可分性验证**: 所有被试 AUROC > 0.5（band power 特征含类别信息），但 Fisher 比普遍较低（<0.1），说明模型准确率主要来自时空模式学习而非简单频谱差异
+2. **跨被试聚类**: 形成两个自然聚类 — S17/S03/S21 和 S01/S20/S08，聚类内被试适合互相迁移
+3. **S04/S10 极端孤立**: 与基础分析一致，建议排除出跨被试预训练
+
+**新增文件**:
+- `scripts/analysis/analyze_data_quality_advanced.py`: 高级分析脚本
+- `results/data_quality_advanced_report.md`: 高级分析报告
+- `docs/dev_log/experiments/data_quality_analysis.md`: 实验文档更新（Phase 2 部分）
+
+**修改文件**: 无（纯新增）
+
+---
+
 ### Commercial & Attention 扩展实验文档补录
 
 **背景**: 32ch 实验文档 (`32ch_experiment.md`) 中 Step 3-5 仅记录了 FDR 配置的完整管线结果。Commercial (2026-02-26) 和 Attention (2026-02-28~03-01) 的 ternary cross-subject / binary transfer / ternary transfer 结果已运行完成但未记入文档。
