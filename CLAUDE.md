@@ -73,7 +73,7 @@ uv run python scripts/tools/migrate_results_to_db.py --execute    # 执行迁移
 uv run python scripts/tools/migrate_results_to_db.py --execute --force  # 重建数据库
 
 # 32 通道实验
-uv run python scripts/analysis/compute_32ch_selections.py                      # 数据驱动通道选择
+uv run python scripts/analysis/compute_channel_selections.py                    # 数据驱动通道选择 (任意通道数)
 uv run python scripts/experiments/run_32ch_config_comparison.py                # 6 配置对比
 uv run python scripts/experiments/run_32ch_config_comparison.py --dry-run      # 仅显示命令
 uv run python scripts/experiments/run_32ch_experiment.py                       # 全量实验 (默认 motor_cortex)
@@ -140,7 +140,7 @@ scripts/
 │   ├── compare_schedulers.py   # 调度器对比
 │   └── migrate_results_to_db.py # JSON → SQLite 一次性迁移
 ├── analysis/                   # 分析脚本
-│   ├── compute_32ch_selections.py  # 数据驱动 32ch 通道选择
+│   ├── compute_channel_selections.py  # 数据驱动 N-ch 通道选择 (FDR/CSP/Attention/BandPower)
 │   └── research/               # 研究分析
 └── internal/                   # 内部工具
 ```

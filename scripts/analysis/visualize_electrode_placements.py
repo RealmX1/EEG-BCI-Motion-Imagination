@@ -136,7 +136,7 @@ def main():
 
     if not configs:
         print("\n[ERROR] 没有找到可用的配置。")
-        print("提示: 运行 `uv run python scripts/analysis/compute_32ch_selections.py` 生成数据驱动配置")
+        print("提示: 运行 `uv run python scripts/analysis/compute_channel_selections.py` 生成数据驱动配置")
         sys.exit(1)
 
     print(f"\n共 {len(configs)} 个配置，输出目录: {output_dir}\n")

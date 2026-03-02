@@ -87,7 +87,7 @@ def check_data_driven_configs(configs: list, n_channels: int = 32) -> list:
     missing = [c for c in configs if c not in available]
     if missing:
         print(f"\n  WARNING: Configs not available for {n_channels}ch: {missing}")
-        print(f"  Run: uv run python scripts/analysis/compute_32ch_selections.py --n-channels {n_channels}")
+        print(f"  Run: uv run python scripts/analysis/compute_channel_selections.py --n-channels {n_channels}")
         print(f"  Skipping missing configs.\n")
 
     return [c for c in configs if c in available]

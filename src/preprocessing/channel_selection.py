@@ -148,7 +148,7 @@ def get_nch_indices(n_channels: int, config_name: str, json_path: Optional[str] 
     if config_name not in selections:
         raise ValueError(
             f"Config '{config_name}' not found in {json_path}. "
-            f"Run: uv run python scripts/analysis/compute_32ch_selections.py "
+            f"Run: uv run python scripts/analysis/compute_channel_selections.py "
             f"--n-channels {n_channels} --methods {config_name}"
         )
 

@@ -1,18 +1,20 @@
 #!/usr/bin/env python
 """
-Data-driven 32-channel selection analysis.
+Data-driven N-channel selection analysis.
 
-Computes optimal channel subsets from EEG data using multiple methods:
+Computes optimal channel subsets from 128-channel EEG data using multiple methods:
 - FDR: Fisher Discriminant Ratio
 - CSP: Common Spatial Patterns
 - Attention: EEGNet spatial_conv + CBraMod gradient
 - Band Power: Mu/Beta ANOVA F-statistic
 
+Supports any target channel count (e.g., 4, 8, 16, 32, 61).
+
 Usage:
-    uv run python scripts/analysis/compute_32ch_selections.py
-    uv run python scripts/analysis/compute_32ch_selections.py --methods fdr csp
-    uv run python scripts/analysis/compute_32ch_selections.py --paradigm movement
-    uv run python scripts/analysis/compute_32ch_selections.py --n-channels 32
+    uv run python scripts/analysis/compute_channel_selections.py --n-channels 8 --methods attention
+    uv run python scripts/analysis/compute_channel_selections.py --n-channels 32
+    uv run python scripts/analysis/compute_channel_selections.py --n-channels 32 --methods fdr csp
+    uv run python scripts/analysis/compute_channel_selections.py --paradigm movement
 """
 
 import argparse
@@ -170,6 +172,46 @@ def compute_csp_scores(X, y):
 # Method 3: Attention / Gradient
 # ============================================================================
 
+def _find_best_checkpoint(model_type, paradigm, task):
+    """Auto-discover the most recent 128ch cross-subject checkpoint.
+
+    Search order:
+    1. Timestamped dirs: checkpoints/cross_subject/YYYYMMDD_HHMM_{model}_{paradigm}_{task}/best.pt
+       (only 128ch — skip dirs whose config.json shows n_channels != 128)
+    2. Legacy dir: checkpoints/cross_subject/{model}_{paradigm}_{task}/best.pt
+
+    Returns:
+        Path to best.pt, or None if not found.
+    """
+    base = PROJECT_ROOT / 'checkpoints' / 'cross_subject'
+    suffix = f'{model_type}_{paradigm}_{task}'
+
+    # Timestamped dirs — sorted descending so newest first
+    candidates = sorted(base.glob(f'*_{suffix}'), reverse=True)
+    for d in candidates:
+        best_pt = d / 'best.pt'
+        if not best_pt.exists():
+            continue
+        # Prefer 128ch checkpoints for channel scoring
+        config_json = d / 'config.json'
+        if config_json.exists():
+            try:
+                with open(config_json, 'r') as f:
+                    cfg = json.load(f)
+                if cfg.get('n_channels', 128) != 128:
+                    continue
+            except Exception:
+                pass
+        return best_pt
+
+    # Legacy non-timestamped dir
+    legacy = base / suffix / 'best.pt'
+    if legacy.exists():
+        return legacy
+
+    return None
+
+
 def compute_attention_scores(X, y, cache_index_path=None, paradigm='imagery', task='binary'):
     """Combine EEGNet spatial_conv weights + CBraMod input gradient.
 
@@ -177,6 +219,8 @@ def compute_attention_scores(X, y, cache_index_path=None, paradigm='imagery', ta
     CBraMod: Compute input gradient magnitude averaged over a sample batch,
              using CBraMod-preprocessed cache data (200 Hz, 0.3-75 Hz, ÷100).
     Average both scores (normalize each to [0,1] first).
+
+    Checkpoints are auto-discovered (most recent 128ch cross-subject).
     """
     import torch
 
@@ -186,8 +230,8 @@ def compute_attention_scores(X, y, cache_index_path=None, paradigm='imagery', ta
     n_sources = 0
 
     # --- EEGNet spatial_conv weights ---
-    eegnet_path = PROJECT_ROOT / 'checkpoints' / 'cross_subject' / 'eegnet_imagery_binary' / 'best.pt'
-    if eegnet_path.exists():
+    eegnet_path = _find_best_checkpoint('eegnet', paradigm, task)
+    if eegnet_path:
         try:
             ckpt = torch.load(str(eegnet_path), map_location='cpu', weights_only=False)
             state_dict = ckpt.get('model_state_dict', ckpt)
@@ -199,12 +243,11 @@ def compute_attention_scores(X, y, cache_index_path=None, paradigm='imagery', ta
         except Exception as e:
             print(f"    Warning: EEGNet attention extraction failed: {e}")
     else:
-        print(f"    Warning: EEGNet checkpoint not found: {eegnet_path}")
+        print(f"    Warning: No EEGNet checkpoint found for {paradigm}/{task}")
 
     # --- CBraMod input gradient ---
-    # Use the best 21-subject cross-subject checkpoint
-    cbramod_path = PROJECT_ROOT / 'checkpoints' / 'cross_subject' / '20260206_1029_cbramod_imagery_binary' / 'best.pt'
-    if cbramod_path.exists():
+    cbramod_path = _find_best_checkpoint('cbramod', paradigm, task)
+    if cbramod_path:
         try:
             from src.models.cbramod_adapter import CBraModForFingerBCI
 
@@ -258,7 +301,7 @@ def compute_attention_scores(X, y, cache_index_path=None, paradigm='imagery', ta
         except Exception as e:
             print(f"    Warning: CBraMod gradient extraction failed: {e}")
     else:
-        print(f"    Warning: CBraMod checkpoint not found: {cbramod_path}")
+        print(f"    Warning: No CBraMod checkpoint found for {paradigm}/{task}")
 
     if n_sources == 0:
         raise RuntimeError(
@@ -367,18 +410,21 @@ def select_top_channels(scores, n=32):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Compute data-driven 32-channel selections',
+        description='Compute data-driven N-channel selections from 128ch EEG data',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 Examples:
-  # Compute all 4 methods
-  uv run python scripts/analysis/compute_32ch_selections.py
+  # 8-channel attention selection
+  uv run python scripts/analysis/compute_channel_selections.py --n-channels 8 --methods attention
+
+  # 32-channel selection with all methods
+  uv run python scripts/analysis/compute_channel_selections.py --n-channels 32
 
   # Only FDR and CSP
-  uv run python scripts/analysis/compute_32ch_selections.py --methods fdr csp
+  uv run python scripts/analysis/compute_channel_selections.py --n-channels 32 --methods fdr csp
 
   # Motor Execution paradigm
-  uv run python scripts/analysis/compute_32ch_selections.py --paradigm movement
+  uv run python scripts/analysis/compute_channel_selections.py --paradigm movement
 '''
     )
     parser.add_argument(

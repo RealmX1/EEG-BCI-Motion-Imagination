@@ -41,7 +41,7 @@ def main():
     # Load existing channel selections
     if not SELECTIONS_JSON.exists():
         print(f"ERROR: {SELECTIONS_JSON} not found.")
-        print("Run: uv run python scripts/analysis/compute_32ch_selections.py")
+        print("Run: uv run python scripts/analysis/compute_channel_selections.py")
         sys.exit(1)
 
     with open(SELECTIONS_JSON, 'r', encoding='utf-8') as f:

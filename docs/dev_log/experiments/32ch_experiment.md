@@ -28,7 +28,7 @@
 
 ```bash
 # Step 1: 计算数据驱动通道选择 (生成 JSON)
-uv run python scripts/analysis/compute_32ch_selections.py
+uv run python scripts/analysis/compute_channel_selections.py
 
 # Step 2: 6 配置对比 (确定最优)
 uv run python scripts/experiments/run_32ch_config_comparison.py
@@ -102,7 +102,7 @@ Strategy E 的查找逻辑：
 
 | 文件 | 说明 |
 |------|------|
-| `scripts/analysis/compute_32ch_selections.py` | 4 种 data-driven 方法计算最优 32ch 子集 |
+| `scripts/analysis/compute_channel_selections.py` | 4 种 data-driven 方法计算最优 32ch 子集 |
 
 ### Phase 2-3: 实验脚本（2 个新文件）
 
@@ -308,7 +308,7 @@ results/32_channel/
 **修复**: 新增 `is_32ch_cbramod` 变量，在 epochs/learning_rate/patience 默认值逻辑中
 各添加 `elif is_32ch_cbramod` 分支。`channels` 默认 `None`，不影响 128ch 路径。
 
-### Bug 3 (Medium): compute_32ch_selections.py NaN 处理与模型参数
+### Bug 3 (Medium): compute_channel_selections.py NaN 处理与模型参数
 
 运行 Step 1 时发现多个问题：
 
@@ -644,7 +644,7 @@ NaN 截断后有效信号长度: 277 样本 (2.77s @ EEGNet 100Hz)
 | `src/preprocessing/data_loader.py` | `channel_32_config` → `channel_config` + `channel_n_target` |
 | `src/preprocessing/dataset.py` | Strategy 'E' 调用 `get_nch_indices(n_target, config)` |
 | `src/training/*.py` | `channel_config` 优先触发 strategy E（任意 N） |
-| `scripts/analysis/compute_32ch_selections.py` | `--output` 默认值从 `--n-channels` 自动推导 |
+| `scripts/analysis/compute_channel_selections.py` | `--output` 默认值从 `--n-channels` 自动推导 |
 | `scripts/experiments/run_32ch_experiment.py` | 新增 `--channels`, `--models`, `--steps` |
 | `scripts/experiments/run_32ch_config_comparison.py` | 新增 `--channels`，自动过滤不适用配置 |
 
