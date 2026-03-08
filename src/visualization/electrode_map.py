@@ -34,23 +34,27 @@ log_plot = SectionLogger(logger, 'electrode')
 
 # 32ch 配置颜色映射 (视觉区分度高的色板)
 CONFIG_COLORS: Dict[str, str] = {
-    'motor_cortex':   '#2E86AB',   # 蓝 — 手动: 运动皮层
-    'commercial':     '#A23B72',   # 紫红 — 手动: 商业 10-20
-    'fdr':            '#F18F01',   # 橙 — 数据驱动: Fisher
-    'csp':            '#C73E1D',   # 红 — 数据驱动: CSP
-    'attention':      '#3B1F2B',   # 深棕 — 数据驱动: 注意力
-    'band_power':     '#44BBA4',   # 青绿 — 数据驱动: 频带功率
-    'standard_1010':  '#6A0DAD',   # 紫 — 标准 10-10 系统 (61ch)
+    'motor_cortex':      '#2E86AB',   # 蓝 — 手动: 运动皮层
+    'commercial':        '#A23B72',   # 紫红 — 手动: 商业 10-20
+    'fdr':               '#F18F01',   # 橙 — 数据驱动: Fisher
+    'csp':               '#C73E1D',   # 红 — 数据驱动: CSP
+    'attention':         '#3B1F2B',   # 深棕 — 数据驱动: 注意力
+    'band_power':        '#44BBA4',   # 青绿 — 数据驱动: 频带功率
+    'fdr_complement':    '#7B7B7B',   # 灰 — 对照: FDR 补集
+    'negative_control':  '#4A4A4A',   # 深灰 — 对照: 阴性对照
+    'standard_1010':     '#6A0DAD',   # 紫 — 标准 10-10 系统 (61ch)
 }
 
 CONFIG_DISPLAY_NAMES: Dict[str, str] = {
-    'motor_cortex':   'Motor Cortex',
-    'commercial':     'Commercial 10-20',
-    'fdr':            'FDR',
-    'csp':            'CSP',
-    'attention':      'Attention',
-    'band_power':     'Band Power',
-    'standard_1010':  'Standard 10-10 (61ch)',
+    'motor_cortex':      'Motor Cortex',
+    'commercial':        'Commercial 10-20',
+    'fdr':               'FDR',
+    'csp':               'CSP',
+    'attention':         'Attention',
+    'band_power':        'Band Power',
+    'fdr_complement':    'FDR Complement',
+    'negative_control':  'Negative Control',
+    'standard_1010':     'Standard 10-10 (61ch)',
 }
 
 # 脑区定义: 名称 → (颜色, alpha)

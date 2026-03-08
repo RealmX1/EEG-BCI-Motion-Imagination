@@ -28,8 +28,8 @@ import time
 from pathlib import Path
 
 
-ALL_CONFIGS = ['motor_cortex', 'commercial', 'fdr', 'csp', 'attention', 'band_power']
-HAND_PICKED_CONFIGS = ['motor_cortex', 'commercial']
+ALL_CONFIGS = ['commercial', 'fdr', 'csp', 'attention', 'band_power']
+HAND_PICKED_CONFIGS = ['commercial']
 DATA_DRIVEN_CONFIGS = ['fdr', 'csp', 'attention', 'band_power']
 
 

@@ -27,6 +27,8 @@ CONFIG_DISPLAY_NAMES: Dict[str, str] = {
     'csp': 'CSP',
     'attention': 'Attention',
     'band_power': 'Band Power',
+    'fdr_complement': 'FDR Complement',
+    'negative_control': 'Negative Control',
     'standard_1010': 'Standard 10-10 (61ch)',
 }
 

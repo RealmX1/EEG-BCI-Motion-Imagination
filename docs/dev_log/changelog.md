@@ -1,5 +1,23 @@
 # 开发变更记录
 
+## 2026-03-02
+
+### 4ch 实验框架集成
+
+将 4ch `fdr_attention_overlap` 配置纳入标准实验 CLI 框架，支持 `--channels 4 --channel-config fdr_attention_overlap` 参数调用。
+
+**修改文件**:
+- `src/config/constants.py`: `SUPPORTED_CHANNEL_COUNTS` 添加 4（`[4, 8, 32, 61, 128]`）
+
+**运行命令**:
+```bash
+uv run python scripts/experiments/run_cross_subject_comparison.py \
+    --channels 4 --channel-config fdr_attention_overlap \
+    --models cbramod --task binary --cache-only --no-wandb
+```
+
+---
+
 ## 2026-03-01
 
 ### 逐被试数据质量分析（Data Quality Validation）
@@ -116,6 +134,36 @@
 **修改文件**:
 - `src/preprocessing/channel_selection.py`: `CHANNEL_32_CONFIGS` 添加 `'fdr_complement': None`
 - `src/training/trainer.py`: 修复 Windows 上 `Path.rename()` 在目标已存在时的 `FileExistsError`（改用 `os.replace()`）
+
+---
+
+### 配置间通道重叠可视化 & 4ch 实验配置
+
+**背景**: 32ch 实验中各数据驱动方法选择的通道重合度极低，需要直观展示空间分布差异。同时创建 FDR ∩ Attention 交集的 4 通道配置用于最小通道数实验。
+
+#### 新增 `plot_electrode_pairwise_overlap()` 可视化函数
+
+在 `src/visualization/electrode_map.py` 中新增两配置间通道重叠 2D 头部对比图。使用三色方案（A-only / B-only / Both），标题含 |A|、|B|、|A∩B|、Jaccard 统计。
+
+**生成的可视化**:
+- `results/32_channel/electrode_placements/overlap_fdr_vs_attention_2d.png`: FDR vs Attention，重叠 4 通道 (Jaccard=0.07)
+- `results/32_channel/electrode_placements/overlap_fdr_vs_band_power_2d.png`: FDR vs Band Power，重叠 4 通道 (Jaccard=0.07)
+- `results/32_channel/electrode_placements/overlap_fdr8_vs_fdr32_2d.png`: FDR 8ch ⊆ 32ch 子集关系
+
+**关键发现**: FDR 与 Attention/Band Power 空间选择几乎互补 — FDR 偏好两侧颞叶-额叶区域，Attention/Band Power 偏向中线和前额。
+
+#### 4ch fdr_attention_overlap 配置
+
+创建 FDR ∩ Attention 交集的 4 通道配置（B32, C8, D7, D19 — indices [63, 71, 102, 114]）。
+
+> **数据来源**: `results/4_channel/channel_selections.json`
+
+**代码流水线审查**: YAML → `config_overrides` → `apply_channel_overrides(4, 'fdr_attention_overlap')` → strategy 'E' → `get_nch_indices(4, ...)` → JSON 加载 → `segments[:, indices, :]` → model `n_channels=4`。确认通道切片正确，缓存加载 128ch 后在内存中切片到 4ch。
+
+**新增文件**:
+- `src/visualization/electrode_map.py`: `plot_electrode_pairwise_overlap()` 函数
+- `results/4_channel/channel_selections.json`: 4ch 配置定义
+- `configs/cbramod_4ch_fdr_attention.yaml`: CBraMod 4ch YAML 配置
 
 ---
 

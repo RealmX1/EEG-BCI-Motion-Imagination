@@ -38,7 +38,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from src.visualization.cross_subject import generate_config_comparison_plot
 
 
-ALL_CONFIGS_ORDER = ['motor_cortex', 'commercial', 'fdr', 'csp', 'attention', 'band_power']
+ALL_CONFIGS_ORDER = ['commercial', 'fdr', 'csp', 'attention', 'band_power']
 
 
 def load_json(path: Path) -> dict:
