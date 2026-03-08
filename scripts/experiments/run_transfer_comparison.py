@@ -184,6 +184,7 @@ def finetune_and_get_result(
     wandb_project: str = 'eeg-bci',
     wandb_entity: Optional[str] = None,
     wandb_group: Optional[str] = None,
+    verbose: int = 2,
 ) -> TrainingResult:
     """
     Fine-tune a pretrained model on a single subject and return TrainingResult.
@@ -212,6 +213,7 @@ def finetune_and_get_result(
         wandb_project=wandb_project,
         wandb_entity=wandb_entity,
         wandb_group=wandb_group,
+        verbose=verbose,
     )
 
     return TrainingResult(
@@ -326,6 +328,7 @@ def run_transfer_model(
 
     results: List[TrainingResult] = []
     total_subjects = len(subject_ids)
+    first_subject_trained = False
 
     try:
         for idx, subject_id in enumerate(subject_ids, 1):
@@ -353,6 +356,9 @@ def run_transfer_model(
             try:
                 set_seed(seed)
 
+                # Full verbose for first subject, minimal for subsequent (shared config already shown)
+                verbose = 2 if not first_subject_trained else 1
+
                 result = finetune_and_get_result(
                     subject_id=subject_id,
                     model_type=model_type,
@@ -376,8 +382,10 @@ def run_transfer_model(
                     wandb_project=wandb_project,
                     wandb_entity=wandb_entity,
                     wandb_group=wandb_group,
+                    verbose=verbose,
                 )
 
+                first_subject_trained = True
                 results.append(result)
 
                 # Save to cache immediately

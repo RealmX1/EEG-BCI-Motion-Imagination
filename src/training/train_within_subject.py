@@ -615,6 +615,7 @@ def train_single_subject(
             gradient_clip=gradient_clip,
             optimizer_type=optimizer_type,
             muon_config=muon_config,
+            verbose=verbose,
         )
 
     # Create save directory

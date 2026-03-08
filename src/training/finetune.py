@@ -286,6 +286,7 @@ def finetune_subject(
     wandb_project: str = 'eeg-bci',
     wandb_entity: Optional[str] = None,
     wandb_group: Optional[str] = None,
+    verbose: int = 2,
 ) -> Dict:
     """
     Finetune a pretrained model on a single subject's data.
@@ -534,17 +535,17 @@ def finetune_subject(
     wandb_callback = WandbCallback(wandb_logger) if wandb_logger.enabled else None
 
     # ========== OPTIMIZER SETUP ==========
-    print_section_header("Finetuning Setup")
-
     weight_decay = 0.05 if model_type == 'cbramod' else 0.0
     optimizer = get_finetune_optimizer(
         model, model_type, freeze_strategy, learning_rate, weight_decay
     )
 
-    print_metric("Epochs", epochs, Colors.CYAN)
-    print_metric("Learning rate", f"{learning_rate:.0e}", Colors.CYAN)
-    print_metric("Batch size", batch_size, Colors.CYAN)
-    print_metric("Freeze strategy", freeze_strategy, Colors.YELLOW)
+    if verbose >= 2:
+        print_section_header("Finetuning Setup")
+        print_metric("Epochs", epochs, Colors.CYAN)
+        print_metric("Learning rate", f"{learning_rate:.0e}", Colors.CYAN)
+        print_metric("Batch size", batch_size, Colors.CYAN)
+        print_metric("Freeze strategy", freeze_strategy, Colors.YELLOW)
 
     # ========== TRAINER SETUP ==========
     # Create trainer (we'll use our custom optimizer)
@@ -560,6 +561,7 @@ def finetune_subject(
         scheduler_type='plateau' if model_type == 'eegnet' else 'cosine_annealing_warmup_decay',
         use_amp=True,
         gradient_clip=1.0 if model_type == 'cbramod' else 0.0,
+        verbose=verbose,
     )
 
     # Replace optimizer with our finetuning-aware one
@@ -780,6 +782,7 @@ def finetune_all_subjects(
         run_tag = datetime.now().strftime('%Y%m%d_%H%M')
 
     all_results = {}
+    kwargs.pop('verbose', None)  # We control verbose explicitly
 
     for i, subject_id in enumerate(subjects, 1):
         print(f"\n{'='*70}")
@@ -792,6 +795,7 @@ def finetune_all_subjects(
                 subject_id=subject_id,
                 freeze_strategy=freeze_strategy,
                 run_tag=run_tag,
+                verbose=2 if i == 1 else 1,
                 **kwargs,
             )
             all_results[subject_id] = results

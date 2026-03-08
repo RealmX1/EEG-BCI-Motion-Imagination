@@ -147,6 +147,7 @@ class WithinSubjectTrainer:
         gradient_clip: float = 1.0,
         optimizer_type: str = 'adamw',
         muon_config: Optional[Dict[str, Any]] = None,
+        verbose: int = 2,
     ):
         self.model = model.to(device)
         self.dataset = dataset
@@ -154,6 +155,7 @@ class WithinSubjectTrainer:
         self.device = device
         self.model_type = model_type
         self.scheduler_type = scheduler_type
+        self.verbose = verbose
 
         if optimizer_type == 'muon' and scheduler_type == 'plateau':
             log_train.warning(
@@ -167,7 +169,8 @@ class WithinSubjectTrainer:
             label_smoothing = 0.05 if model_type == 'cbramod' else 0.0
         if label_smoothing > 0:
             self.criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
-            log_model.info(f"Label smoothing={label_smoothing}")
+            if self.verbose >= 2:
+                log_model.info(f"Label smoothing={label_smoothing}")
         else:
             self.criterion = nn.CrossEntropyLoss()
 
@@ -190,7 +193,8 @@ class WithinSubjectTrainer:
                 param_groups,
                 weight_decay=weight_decay,
             )
-            log_train.info(f"Optimizer: AdamW (backbone_lr={learning_rate}, classifier_lr={actual_classifier_lr})")
+            if self.verbose >= 2:
+                log_train.info(f"Optimizer: AdamW (backbone_lr={learning_rate}, classifier_lr={actual_classifier_lr})")
         else:
             # EEGNet uses standard Adam
             self.optimizer = torch.optim.Adam(
@@ -203,7 +207,7 @@ class WithinSubjectTrainer:
         # This ensures consistent initialization regardless of model type.
         self.scheduler = None
         self.scheduler_needs_metric = False  # For ReduceLROnPlateau
-        if scheduler_type:
+        if scheduler_type and self.verbose >= 2:
             log_train.info(f"Scheduler: {scheduler_type} (will be initialized in train())")
 
         # Scheduler-specific parameters (read from scheduler_config or use defaults)
@@ -233,7 +237,8 @@ class WithinSubjectTrainer:
         self.use_amp = use_amp and device.type == 'cuda'
         if self.use_amp:
             self.scaler = torch.amp.GradScaler('cuda')
-            log_train.info("AMP enabled")
+            if self.verbose >= 2:
+                log_train.info("AMP enabled")
         else:
             self.scaler = None
 
@@ -301,12 +306,13 @@ class WithinSubjectTrainer:
             weight_decay=weight_decay,
         )
 
-        log_train.info(
-            f"Optimizer: Muon hybrid "
-            f"(muon={n_muon:,} @ lr={muon_lr}, "
-            f"adamw_bb={n_adamw_bb:,} @ lr={adamw_bb_lr}, "
-            f"adamw_cls={n_adamw_cls:,} @ lr={adamw_cls_lr})"
-        )
+        if self.verbose >= 2:
+            log_train.info(
+                f"Optimizer: Muon hybrid "
+                f"(muon={n_muon:,} @ lr={muon_lr}, "
+                f"adamw_bb={n_adamw_bb:,} @ lr={adamw_bb_lr}, "
+                f"adamw_cls={n_adamw_cls:,} @ lr={adamw_cls_lr})"
+            )
         return optimizer
 
     def train_epoch(
@@ -646,7 +652,8 @@ class WithinSubjectTrainer:
                 min_lr=1e-6,
             )
             self.scheduler_needs_metric = True
-            log_train.info("Scheduler: ReduceLROnPlateau (mode=max, factor=0.3, patience=2, metric=combined_score)")
+            if self.verbose >= 2:
+                log_train.info("Scheduler: ReduceLROnPlateau (mode=max, factor=0.3, patience=2, metric=combined_score)")
 
         elif self.scheduler_type == 'cosine':
             self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -654,19 +661,21 @@ class WithinSubjectTrainer:
                 T_max=epochs,
                 eta_min=1e-6,
             )
-            log_train.info(f"Scheduler: CosineAnnealing (T_max={epochs})")
+            if self.verbose >= 2:
+                log_train.info(f"Scheduler: CosineAnnealing (T_max={epochs})")
 
         elif self.scheduler_type == 'wsd':
             wsd_warmup_steps = int(total_steps * self.wsd_warmup_ratio)
             wsd_stable_steps = int(total_steps * self.wsd_stable_ratio)
             wsd_decay_steps = total_steps - wsd_warmup_steps - wsd_stable_steps
-            log_train.info(
-                f"{Colors.BRIGHT_YELLOW}WSD Scheduler: "
-                f"warmup={wsd_warmup_steps} ({self.wsd_warmup_ratio*100:.0f}%) | "
-                f"stable={wsd_stable_steps} ({self.wsd_stable_ratio*100:.0f}%) | "
-                f"decay={wsd_decay_steps} ({(1-self.wsd_warmup_ratio-self.wsd_stable_ratio)*100:.0f}%)"
-                f"{Colors.RESET}"
-            )
+            if self.verbose >= 2:
+                log_train.info(
+                    f"{Colors.BRIGHT_YELLOW}WSD Scheduler: "
+                    f"warmup={wsd_warmup_steps} ({self.wsd_warmup_ratio*100:.0f}%) | "
+                    f"stable={wsd_stable_steps} ({self.wsd_stable_ratio*100:.0f}%) | "
+                    f"decay={wsd_decay_steps} ({(1-self.wsd_warmup_ratio-self.wsd_stable_ratio)*100:.0f}%)"
+                    f"{Colors.RESET}"
+                )
             self.scheduler = WSDScheduler(
                 self.optimizer,
                 total_steps=total_steps,
@@ -675,40 +684,44 @@ class WithinSubjectTrainer:
                 decay_ratio=self.wsd_decay_ratio,
                 eta_min=1e-6,
             )
-            log_train.info(f"Scheduler: WSD (total_steps={total_steps}, warmup={self.wsd_warmup_ratio}, decay={self.wsd_decay_ratio})")
+            if self.verbose >= 2:
+                log_train.info(f"Scheduler: WSD (total_steps={total_steps}, warmup={self.wsd_warmup_ratio}, decay={self.wsd_decay_ratio})")
 
         elif self.scheduler_type == 'cosine_decay':
             t_0 = total_steps // self.cosine_decay_cycles  # Cycle length
-            log_train.info(
-                f"{Colors.BRIGHT_YELLOW}CosineDecayRestarts Scheduler: "
-                f"T_0={t_0} ({100/self.cosine_decay_cycles:.0f}% per cycle) | "
-                f"decay_factor={self.cosine_decay_factor} | "
-                f"cycles={self.cosine_decay_cycles}"
-                f"{Colors.RESET}"
-            )
+            if self.verbose >= 2:
+                log_train.info(
+                    f"{Colors.BRIGHT_YELLOW}CosineDecayRestarts Scheduler: "
+                    f"T_0={t_0} ({100/self.cosine_decay_cycles:.0f}% per cycle) | "
+                    f"decay_factor={self.cosine_decay_factor} | "
+                    f"cycles={self.cosine_decay_cycles}"
+                    f"{Colors.RESET}"
+                )
             self.scheduler = CosineDecayRestarts(
                 self.optimizer,
                 T_0=t_0,
                 decay_factor=self.cosine_decay_factor,
                 eta_min=1e-6,
             )
-            peaks = [self.cosine_decay_factor ** i for i in range(self.cosine_decay_cycles)]
-            peak_str = " -> ".join([f"{p:.2f}" for p in peaks])
-            log_train.info(f"Scheduler: CosineDecayRestarts (peak progression: {peak_str})")
+            if self.verbose >= 2:
+                peaks = [self.cosine_decay_factor ** i for i in range(self.cosine_decay_cycles)]
+                peak_str = " -> ".join([f"{p:.2f}" for p in peaks])
+                log_train.info(f"Scheduler: CosineDecayRestarts (peak progression: {peak_str})")
 
         elif self.scheduler_type == 'cosine_annealing_warmup_decay':
             num_phases = epochs // self.phase_epochs
             if epochs % self.phase_epochs != 0:
                 num_phases += 1
 
-            log_train.info(
-                f"{Colors.BRIGHT_YELLOW}CosineAnnealingWarmupDecay Scheduler: "
-                f"phase_epochs={self.phase_epochs} | "
-                f"num_phases={num_phases} | "
-                f"phase_decay={self.phase_decay} | "
-                f"lr_ramp_ratio={self.lr_ramp_ratio}"
-                f"{Colors.RESET}"
-            )
+            if self.verbose >= 2:
+                log_train.info(
+                    f"{Colors.BRIGHT_YELLOW}CosineAnnealingWarmupDecay Scheduler: "
+                    f"phase_epochs={self.phase_epochs} | "
+                    f"num_phases={num_phases} | "
+                    f"phase_decay={self.phase_decay} | "
+                    f"lr_ramp_ratio={self.lr_ramp_ratio}"
+                    f"{Colors.RESET}"
+                )
             self.scheduler = CosineAnnealingWarmupDecay(
                 self.optimizer,
                 total_epochs=epochs,
@@ -717,9 +730,10 @@ class WithinSubjectTrainer:
                 lr_ramp_ratio=self.lr_ramp_ratio,
                 eta_min=self.cawd_eta_min,
             )
-            peaks = [self.phase_decay ** i for i in range(num_phases)]
-            peak_str = " -> ".join([f"{p:.0%}" for p in peaks])
-            log_train.info(f"Scheduler: CosineAnnealingWarmupDecay (peak progression: {peak_str})")
+            if self.verbose >= 2:
+                peaks = [self.phase_decay ** i for i in range(num_phases)]
+                peak_str = " -> ".join([f"{p:.0%}" for p in peaks])
+                log_train.info(f"Scheduler: CosineAnnealingWarmupDecay (peak progression: {peak_str})")
 
         # Restore scheduler/scaler state from resume checkpoint (if pending)
         if hasattr(self, '_pending_scheduler_state') and self._pending_scheduler_state is not None:
