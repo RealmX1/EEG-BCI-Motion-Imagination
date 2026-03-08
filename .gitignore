@@ -103,3 +103,7 @@ nul
 analysis_data/wandb_data.json
 
 tmp/
+
+# Binary documents (track .md source only)
+*.pdf
+*.pptx
