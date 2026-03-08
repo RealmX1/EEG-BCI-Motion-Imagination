@@ -76,8 +76,8 @@ uv run python scripts/tools/migrate_results_to_db.py --execute --force  # 重建
 uv run python scripts/analysis/compute_channel_selections.py                    # 数据驱动通道选择 (任意通道数)
 uv run python scripts/experiments/run_32ch_config_comparison.py                # 6 配置对比
 uv run python scripts/experiments/run_32ch_config_comparison.py --dry-run      # 仅显示命令
-uv run python scripts/experiments/run_32ch_experiment.py                       # 全量实验 (默认 motor_cortex)
-uv run python scripts/experiments/run_32ch_experiment.py --channel-config commercial  # 指定配置
+uv run python scripts/experiments/run_reduced_channel_experiment.py                       # 全量实验 (默认 motor_cortex)
+uv run python scripts/experiments/run_reduced_channel_experiment.py --channel-config commercial  # 指定配置
 ```
 
 ## 数据划分协议
@@ -126,7 +126,7 @@ scripts/
 │   ├── run_cross_subject_comparison.py   # 跨被试模型对比
 │   ├── run_transfer_comparison.py       # 迁移学习对比 (跨被试→微调→对比)
 │   ├── run_32ch_config_comparison.py   # 32ch 6 配置对比
-│   ├── run_32ch_experiment.py          # 32ch 全量实验
+│   ├── run_reduced_channel_experiment.py  # N-ch 全量实验 (任意通道数)
 │   ├── run_8ch_experiment.py           # 8ch 全量实验
 │   ├── run_single_model.py     # 单模型训练 (被试内)
 │   ├── run_cross_subject.py    # 单模型跨被试预训练

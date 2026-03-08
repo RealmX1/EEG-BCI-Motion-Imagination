@@ -34,7 +34,7 @@ uv run python scripts/analysis/compute_channel_selections.py
 uv run python scripts/experiments/run_32ch_config_comparison.py
 
 # Step 3: 最优配置全量实验
-uv run python scripts/experiments/run_32ch_experiment.py --channel-config <best>
+uv run python scripts/experiments/run_reduced_channel_experiment.py --channel-config <best>
 ```
 
 ---
@@ -109,7 +109,7 @@ Strategy E 的查找逻辑：
 | 文件 | 说明 |
 |------|------|
 | `scripts/experiments/run_32ch_config_comparison.py` | 6 配置对比（调用 cross-subject comparison × 6） |
-| `scripts/experiments/run_32ch_experiment.py` | 全量实验（within + cross + transfer × binary + ternary） |
+| `scripts/experiments/run_reduced_channel_experiment.py` | 全量实验（within + cross + transfer × binary + ternary） |
 
 ---
 
@@ -645,7 +645,7 @@ NaN 截断后有效信号长度: 277 样本 (2.77s @ EEGNet 100Hz)
 | `src/preprocessing/dataset.py` | Strategy 'E' 调用 `get_nch_indices(n_target, config)` |
 | `src/training/*.py` | `channel_config` 优先触发 strategy E（任意 N） |
 | `scripts/analysis/compute_channel_selections.py` | `--output` 默认值从 `--n-channels` 自动推导 |
-| `scripts/experiments/run_32ch_experiment.py` | 新增 `--channels`, `--models`, `--steps` |
+| `scripts/experiments/run_reduced_channel_experiment.py` | 新增 `--channels`, `--models`, `--steps` |
 | `scripts/experiments/run_32ch_config_comparison.py` | 新增 `--channels`，自动过滤不适用配置 |
 
 **运行时间**: 2026-02-21 12:18 ~ 16:24 (总计 4.1 小时)

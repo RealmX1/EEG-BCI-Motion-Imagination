@@ -220,7 +220,7 @@ uv run python scripts/experiments/run_cross_subject_comparison.py \
 **新增文件**:
 - `scripts/analysis/compute_channel_selections.py`: 数据驱动 N-ch 通道选择（FDR, CSP, Attention/Gradient, Band Power）
 - `scripts/experiments/run_32ch_config_comparison.py`: 6 配置对比实验
-- `scripts/experiments/run_32ch_experiment.py`: 最优配置全量实验（within + cross + transfer）
+- `scripts/experiments/run_reduced_channel_experiment.py`: 最优配置全量实验（within + cross + transfer, 任意通道数）
 - `docs/dev_log/experiments/32ch_experiment.md`: 实验完整记录（原 `implemented_plans/`，已迁移）
 
 **修改文件** (11 个):

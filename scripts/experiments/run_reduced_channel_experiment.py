@@ -3,27 +3,33 @@
 Reduced-channel experiment automation.
 
 Runs cross-subject and transfer learning comparisons for specified tasks
-using --channels N --channel-config <name>. Supports any channel count
-(8, 32, etc.) with data-driven or hand-picked channel configurations.
+using --channels N --channel-config <name>. Supports arbitrary channel counts
+with data-driven or hand-picked channel configurations.
+
+Commonly tested channel counts: 4, 8, 32, 128 — but any count supported by
+compute_channel_selections.py can be used (e.g., 16, 61).
 
 Use run_32ch_config_comparison.py first to determine the best channel config,
 then use this script to run the full experiment pipeline with that config.
 
 Usage:
     # 32ch FDR full pipeline (cross-subject + transfer, binary + ternary)
-    uv run python scripts/experiments/run_32ch_experiment.py --channel-config fdr
+    uv run python scripts/experiments/run_reduced_channel_experiment.py --channel-config fdr
 
     # CBraMod only, ternary cross-subject + binary/ternary transfer
-    uv run python scripts/experiments/run_32ch_experiment.py --channel-config fdr --models cbramod --tasks ternary binary
+    uv run python scripts/experiments/run_reduced_channel_experiment.py --channel-config fdr --models cbramod --tasks ternary binary
 
     # 8ch FDR experiment
-    uv run python scripts/experiments/run_32ch_experiment.py --channels 8 --channel-config fdr
+    uv run python scripts/experiments/run_reduced_channel_experiment.py --channels 8 --channel-config fdr
+
+    # 4ch experiment
+    uv run python scripts/experiments/run_reduced_channel_experiment.py --channels 4 --channel-config fdr
 
     # Include within-subject step
-    uv run python scripts/experiments/run_32ch_experiment.py --channel-config fdr --steps within cross transfer
+    uv run python scripts/experiments/run_reduced_channel_experiment.py --channel-config fdr --steps within cross transfer
 
     # Dry run
-    uv run python scripts/experiments/run_32ch_experiment.py --channel-config fdr --dry-run
+    uv run python scripts/experiments/run_reduced_channel_experiment.py --channel-config fdr --dry-run
 """
 
 import argparse
@@ -145,20 +151,20 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 Examples:
-  # 32ch FDR, CBraMod only (as used in 32ch Step 3)
-  uv run python scripts/experiments/run_32ch_experiment.py --channel-config fdr --models cbramod
+  # 32ch FDR, CBraMod only
+  uv run python scripts/experiments/run_reduced_channel_experiment.py --channel-config fdr --models cbramod
 
   # 8ch FDR experiment
-  uv run python scripts/experiments/run_32ch_experiment.py --channels 8 --channel-config fdr
+  uv run python scripts/experiments/run_reduced_channel_experiment.py --channels 8 --channel-config fdr
 
   # Full pipeline including within-subject
-  uv run python scripts/experiments/run_32ch_experiment.py --channel-config fdr --steps within cross transfer
+  uv run python scripts/experiments/run_reduced_channel_experiment.py --channel-config fdr --steps within cross transfer
 
   # Only binary task
-  uv run python scripts/experiments/run_32ch_experiment.py --channel-config fdr --tasks binary
+  uv run python scripts/experiments/run_reduced_channel_experiment.py --channel-config fdr --tasks binary
 
   # Dry run
-  uv run python scripts/experiments/run_32ch_experiment.py --channel-config fdr --dry-run
+  uv run python scripts/experiments/run_reduced_channel_experiment.py --channel-config fdr --dry-run
 '''
     )
     parser.add_argument(
