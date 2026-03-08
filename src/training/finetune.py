@@ -59,6 +59,7 @@ from src.config.training import (
     THIRTYTWO_CHANNEL_FINETUNE_OVERRIDES,
     SIXTYONE_CHANNEL_FINETUNE_OVERRIDES,
 )
+from src.config.constants import TASKS
 from src.training.train_within_subject import (
     WithinSubjectTrainer,
     majority_vote_accuracy,
@@ -344,6 +345,17 @@ def finetune_subject(
     model_config = checkpoint['model_config']
     model_type = model_config['model_type']
     n_classes = model_config['n_classes']
+
+    # Validate that the pretrained model's n_classes matches the current task
+    task_n_classes = TASKS[task]['n_classes']
+    if n_classes != task_n_classes:
+        ckpt_task = checkpoint.get('training_config', {}).get('task', 'unknown')
+        raise ValueError(
+            f"Checkpoint/task n_classes mismatch: pretrained model has"
+            f" n_classes={n_classes} (task='{ckpt_task}'),"
+            f" but current task '{task}' requires n_classes={task_n_classes}."
+            f" Checkpoint: {pretrained_path}"
+        )
 
     print_metric("Model type", model_type.upper(), Colors.CYAN)
     print_metric("Pretrained from", Path(pretrained_path).parent.name, Colors.CYAN)

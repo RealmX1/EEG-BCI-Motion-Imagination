@@ -46,7 +46,7 @@ from typing import Dict, List, Optional, Tuple
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.config.constants import FULL_N_CHANNELS, SUPPORTED_CHANNEL_COUNTS, PARADIGM_CONFIG
+from src.config.constants import FULL_N_CHANNELS, SUPPORTED_CHANNEL_COUNTS, PARADIGM_CONFIG, TASKS
 from src.utils.device import set_seed, check_cuda_available, get_device
 from src.utils.logging import SectionLogger, setup_logging
 
@@ -701,12 +701,27 @@ Examples:
         sys.exit(1)
 
     # Resolve classifier_type from pretrained checkpoints
+    # Also validate n_classes matches current task to catch binary/ternary mismatches early
     classifier_types = {}
+    expected_n_classes = TASKS[args.task]['n_classes']
     for model_type, path in pretrained_paths.items():
         try:
             ckpt = torch.load(path, map_location='cpu', weights_only=False)
             ct = ckpt.get('model_config', {}).get('classifier_type', 'two_layer')
             classifier_types[model_type] = ct
+            ckpt_n_classes = ckpt.get('model_config', {}).get('n_classes')
+            ckpt_task = ckpt.get('training_config', {}).get('task', 'unknown')
+            if ckpt_n_classes is not None and ckpt_n_classes != expected_n_classes:
+                log_main.error(
+                    f"Checkpoint/task mismatch for {model_type.upper()}:\n"
+                    f"  Pretrained checkpoint: n_classes={ckpt_n_classes}"
+                    f" (trained on task='{ckpt_task}')\n"
+                    f"  Current task '{args.task}' expects n_classes={expected_n_classes}\n"
+                    f"  Checkpoint: {path}\n"
+                    f"  Fix: use a pretrained model trained on task='{args.task}',"
+                    f" or change --task to '{ckpt_task}'."
+                )
+                sys.exit(1)
         except Exception:
             classifier_types[model_type] = 'unknown'
 
