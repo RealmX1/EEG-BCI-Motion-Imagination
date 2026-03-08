@@ -1,0 +1,38 @@
+{
+  "metadata": {
+    "paradigm": "imagery",
+    "task": "ternary",
+    "run_tag": "20260302_2112",
+    "timestamp": "2026-03-02T21:12:29.762275",
+    "n_subjects": 0,
+    "is_complete": true,
+    "type": "transfer-comparison",
+    "transfer_config": {
+      "freeze_strategy": "backbone",
+      "finetune_epochs": null,
+      "finetune_lr": null,
+      "finetune_batch_size": null,
+      "pretrained_paths": {
+        "cbramod": "checkpoints/cross_subject/20260302_1903_cbramod_imagery_binary/best.pt"
+      },
+      "classifier_types": {
+        "cbramod": "two_layer"
+      }
+    }
+  },
+  "wandb_groups": {},
+  "last_updated": "2026-03-02T21:12:29.762275",
+  "results": {
+    "cbramod": {}
+  },
+  "summary": {
+    "cbramod": {
+      "mean": 0.0,
+      "std": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "median": 0.0,
+      "n_subjects": 0
+    }
+  }
+}
