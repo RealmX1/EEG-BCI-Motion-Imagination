@@ -294,6 +294,7 @@ Examples:
     log_main.info(f"Paradigm: {paradigm_desc}")
 
     # Initialize ExperimentDB (dual-write)
+    import shlex
     import sqlite3
     db = ExperimentDB()
     db_run_id = None
@@ -305,6 +306,7 @@ Examples:
             task=args.task,
             n_channels=args.channels,
             channel_config=args.channel_config if args.channels != FULL_N_CHANNELS else None,
+            command=" ".join(shlex.quote(a) for a in sys.argv),
         )
         log_main.info(f"DB run created: {db_run_id}")
     except sqlite3.IntegrityError:

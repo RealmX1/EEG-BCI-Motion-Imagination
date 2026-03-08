@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_DB_PATH = 'results/experiments.db'
 
 # Schema version for future migrations
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 
 _SCHEMA_SQL = """
 -- Schema version tracking
@@ -74,7 +74,8 @@ CREATE TABLE IF NOT EXISTS runs (
     -- Legacy migration flag: 1 = migrated from JSON, 0 = created natively via DB
     is_legacy       INTEGER NOT NULL DEFAULT 0,
     -- [deprecated] Legacy-only columns below — NULL for new runs
-    legacy_source   TEXT    -- original JSON filename, e.g. '20260205_0116_comparison_cache_imagery_binary.json'
+    legacy_source   TEXT,   -- original JSON filename, e.g. '20260205_0116_comparison_cache_imagery_binary.json'
+    command         TEXT    -- full terminal command used to launch this run (sys.argv)
 );
 
 -- Transfer learning specific configuration
@@ -228,6 +229,8 @@ class ExperimentDB:
             # Apply migrations
             if current_version < 2:
                 self._migrate_to_v2(conn)
+            if current_version < 3:
+                self._migrate_to_v3(conn)
 
             conn.execute(
                 "INSERT OR REPLACE INTO schema_info (key, value) VALUES (?, ?)",
@@ -244,6 +247,13 @@ class ExperimentDB:
         if 'legacy_source' not in cols:
             conn.execute("ALTER TABLE runs ADD COLUMN legacy_source TEXT")
             logger.info("Schema migration v2: added runs.legacy_source")
+
+    def _migrate_to_v3(self, conn: sqlite3.Connection):
+        """v2 -> v3: Add command column to runs."""
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(runs)").fetchall()}
+        if 'command' not in cols:
+            conn.execute("ALTER TABLE runs ADD COLUMN command TEXT")
+            logger.info("Schema migration v3: added runs.command")
 
     def close(self):
         """Close the database connection."""
@@ -278,6 +288,7 @@ class ExperimentDB:
         is_legacy: bool = False,
         legacy_source: Optional[str] = None,
         git_commit: Optional[str] = None,
+        command: Optional[str] = None,
     ) -> str:
         """Create a new experiment run.
 
@@ -299,6 +310,7 @@ class ExperimentDB:
             legacy_source: [deprecated] Original JSON filename for migrated runs
             git_commit: Override for git commit hash. If None, auto-detected
                 from current HEAD (new runs) or left as None (legacy runs).
+            command: Full terminal command used to launch this run (from sys.argv).
 
         Returns:
             run_id: Unique identifier for this run
@@ -324,12 +336,12 @@ class ExperimentDB:
                    (run_id, run_tag, experiment_type, paradigm, task,
                     n_channels, channel_config, n_subjects, is_complete,
                     git_commit, wandb_group, created_at, updated_at, notes,
-                    is_legacy, legacy_source)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)""",
+                    is_legacy, legacy_source, command)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (run_id, run_tag, experiment_type, paradigm, task,
                  n_channels, channel_config, n_subjects, git_commit,
                  wandb_group, created_at, updated_at, notes,
-                 int(is_legacy), legacy_source),
+                 int(is_legacy), legacy_source, command),
             )
 
         logger.info(f"Created run: {run_id}")
