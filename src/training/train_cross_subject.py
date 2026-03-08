@@ -518,7 +518,6 @@ def train_cross_subject(
             main_train_loader=main_train_loader,
             exploration_epochs=exploration_epochs,
             epochs=config['training']['epochs'],
-            patience=config['training'].get('patience', 10),
             save_path=save_path,
             wandb_callback=wandb_callback,
             resume_from_epoch=resume_from_epoch,

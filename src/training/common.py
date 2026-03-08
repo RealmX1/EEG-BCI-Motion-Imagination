@@ -257,7 +257,7 @@ def apply_config_overrides(
         applied = []
 
         # Preset overrides model default, but not user-specified values
-        for key in ('epochs', 'patience'):
+        for key in ('epochs',):
             if key in preset and key not in training_overrides:
                 config['training'][key] = preset[key]
                 applied.append(f"{key}={preset[key]}")

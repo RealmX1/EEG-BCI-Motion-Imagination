@@ -629,7 +629,6 @@ def train_single_subject(
             main_train_loader=main_train_loader,
             exploration_epochs=exploration_epochs,
             epochs=config['training']['epochs'],
-            patience=config['training']['patience'],
             save_path=subject_save_dir,
             wandb_callback=wandb_callback,
         )

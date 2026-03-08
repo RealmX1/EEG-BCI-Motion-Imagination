@@ -143,10 +143,6 @@ Examples:
         help='Batch size (default: 64 for EEGNet, 128 for CBraMod)'
     )
     parser.add_argument(
-        '--patience', type=int, default=None,
-        help='Early stopping patience (default: 5)'
-    )
-    parser.add_argument(
         '--seed', type=int, default=42,
         help='Random seed (default: 42)'
     )
@@ -214,7 +210,6 @@ Examples:
         'epochs': args.epochs,
         'learning_rate': args.learning_rate,
         'batch_size': args.batch_size,
-        'patience': args.patience,
         'save_dir': args.output_dir,
         'data_root': args.data_root,
         'paradigm': args.paradigm,

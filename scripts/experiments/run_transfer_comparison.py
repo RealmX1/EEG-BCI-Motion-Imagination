@@ -171,7 +171,6 @@ def finetune_and_get_result(
     epochs: Optional[int] = None,
     learning_rate: Optional[float] = None,
     batch_size: Optional[int] = None,
-    patience: Optional[int] = None,
     seed: int = 42,
     channels: Optional[int] = None,
     channel_config: Optional[str] = None,
@@ -199,7 +198,6 @@ def finetune_and_get_result(
         epochs=epochs,
         learning_rate=learning_rate,
         batch_size=batch_size,
-        patience=patience,
         paradigm=paradigm,
         task=task,
         seed=seed,
@@ -242,7 +240,6 @@ def run_transfer_model(
     epochs: Optional[int] = None,
     learning_rate: Optional[float] = None,
     batch_size: Optional[int] = None,
-    patience: Optional[int] = None,
     seed: int = 42,
     channels: Optional[int] = None,
     channel_config: Optional[str] = None,
@@ -371,7 +368,6 @@ def run_transfer_model(
                     epochs=epochs,
                     learning_rate=learning_rate,
                     batch_size=batch_size,
-                    patience=patience,
                     seed=seed,
                     channels=channels,
                     channel_config=channel_config,
@@ -516,11 +512,6 @@ Examples:
         '--finetune-batch-size', type=int, default=None,
         help='Fine-tuning batch size (default: model-specific)'
     )
-    parser.add_argument(
-        '--finetune-patience', type=int, default=None,
-        help='Early stopping patience (default: 5)'
-    )
-
     # Cache/resume arguments
     parser.add_argument(
         '--resume', nargs='?', const='', default=None,
@@ -771,7 +762,6 @@ Examples:
             epochs=args.finetune_epochs,
             learning_rate=args.finetune_lr,
             batch_size=args.finetune_batch_size,
-            patience=args.finetune_patience,
             seed=args.seed,
             channels=channels_arg,
             channel_config=channel_config_arg,

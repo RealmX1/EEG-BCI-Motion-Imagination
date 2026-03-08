@@ -8,7 +8,6 @@ model:
 training:
   scheduler: cosine_annealing_warmup_decay
   epochs: 100
-  patience: 15
   batch_size: 128
   backbone_lr: 1.0e-4
   classifier_lr: 3.0e-4

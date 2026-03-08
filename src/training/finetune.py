@@ -267,7 +267,6 @@ def finetune_subject(
     epochs: Optional[int] = None,
     learning_rate: Optional[float] = None,
     batch_size: Optional[int] = None,
-    patience: Optional[int] = None,
     save_dir: str = 'checkpoints/finetuned',
     data_root: str = 'data',
     paradigm: str = 'imagery',
@@ -299,7 +298,6 @@ def finetune_subject(
         epochs: Number of finetuning epochs (None = use default)
         learning_rate: Learning rate (None = use default based on strategy)
         batch_size: Batch size (None = use default)
-        patience: Early stopping patience (None = use default)
         save_dir: Directory to save finetuned model
         data_root: Path to data directory
         paradigm: 'imagery' or 'movement'
@@ -402,16 +400,6 @@ def finetune_subject(
 
     if batch_size is None:
         batch_size = 64 if model_type == 'eegnet' else 128
-
-    if patience is None:
-        if is_8ch_cbramod:
-            patience = EIGHT_CHANNEL_FINETUNE_OVERRIDES['patience']
-        elif is_32ch_cbramod:
-            patience = THIRTYTWO_CHANNEL_FINETUNE_OVERRIDES['patience']
-        elif is_61ch_cbramod:
-            patience = SIXTYONE_CHANNEL_FINETUNE_OVERRIDES['patience']
-        else:
-            patience = 5 if model_type == 'cbramod' else 5
 
     # ========== DATA LOADING ==========
     print_section_header(f"Data Loading ({subject_id})")
@@ -614,7 +602,6 @@ def finetune_subject(
             train_loader,
             val_loader,
             epochs=epochs,
-            patience=patience,
             save_path=save_path,
             wandb_callback=wandb_callback,
         )

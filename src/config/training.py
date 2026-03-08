@@ -2,7 +2,7 @@
 Training configuration for EEG-BCI project.
 
 This module contains:
-- SCHEDULER_PRESETS: Recommended epochs/patience for each scheduler type
+- SCHEDULER_PRESETS: Recommended epochs for each scheduler type
 - get_default_config(): Default training configurations for each model (within-subject)
 - get_cross_subject_config(): Cross-subject pretraining configurations
 - CROSS_SUBJECT_SCHEDULER_OVERRIDES: Scheduler parameter overrides for cross-subject
@@ -33,13 +33,14 @@ from .constants import TASKS
 # Scheduler Presets
 # ============================================================================
 
-# Scheduler presets: recommended epochs/patience for each scheduler type
+# Scheduler presets: recommended epochs for each scheduler type
 # These values can be overridden by user-specified config_overrides
+# Early stopping patience is computed automatically in WithinSubjectTrainer.train():
+#   CAWD: 2 * phase_epochs | others: 10
 SCHEDULER_PRESETS: Dict[str, Dict[str, Any]] = {
     'plateau': {
         # ReduceLROnPlateau - 靠 LR 衰减收敛
         'epochs': 30,
-        'patience': 5,
         # Exploration phase (optional for traditional schedulers)
         'exploration_epochs': 5,
         'exploration_batch_size': 32,
@@ -47,7 +48,6 @@ SCHEDULER_PRESETS: Dict[str, Dict[str, Any]] = {
     'cosine': {
         # CosineAnnealingLR - 需要较多 epochs 到达 min LR
         'epochs': 30,
-        'patience': 7,
         # Exploration phase
         'exploration_epochs': 5,
         'exploration_batch_size': 32,
@@ -55,7 +55,6 @@ SCHEDULER_PRESETS: Dict[str, Dict[str, Any]] = {
     'wsd': {
         # Warmup-Stable-Decay - 有明确的阶段
         'epochs': 50,
-        'patience': 10,
         # WSD-specific parameters
         'warmup_ratio': 0.1,            # 10% = 5 epochs warmup
         'stable_ratio': 0.0,            # 0% = no stable phase
@@ -68,7 +67,6 @@ SCHEDULER_PRESETS: Dict[str, Dict[str, Any]] = {
     'cosine_decay': {
         # CosineDecayRestarts - 周期性重启
         'epochs': 50,
-        'patience': 10,
         # CosineDecayRestarts-specific
         'decay_factor': 0.7,            # Peak reduces by 30% each cycle
         'num_cycles': 5,                # Number of restart cycles
@@ -79,7 +77,6 @@ SCHEDULER_PRESETS: Dict[str, Dict[str, Any]] = {
     'cosine_annealing_warmup_decay': {
         # 多阶段余弦，每阶段带 LR ramp-up + cosine decay
         'epochs': 50,
-        'patience': 10,
         # CAWD-specific parameters
         'phase_epochs': 6,              # Epochs per cosine decay phase
         'phase_decay': 0.7,             # Peak LR decay between phases (100% → 70% → 49%...)
@@ -179,7 +176,6 @@ def get_default_config(model_type: str, task: str, n_channels: int = None) -> di
             'training': {
                 'scheduler': default_scheduler,
                 'epochs': SCHEDULER_PRESETS[default_scheduler]['epochs'],
-                'patience': SCHEDULER_PRESETS[default_scheduler]['patience'],
                 'batch_size': 128,
                 'learning_rate': 1e-4,  # Restored to v1 value - crucial for hard subjects
                 'backbone_lr': 1e-4,
@@ -205,7 +201,6 @@ def get_default_config(model_type: str, task: str, n_channels: int = None) -> di
             'training': {
                 'scheduler': default_scheduler,
                 'epochs': SCHEDULER_PRESETS[default_scheduler]['epochs'],
-                'patience': SCHEDULER_PRESETS[default_scheduler]['patience'],
                 'batch_size': 64,
                 'learning_rate': 1e-3,
                 'weight_decay': 0,
@@ -268,7 +263,6 @@ EIGHT_CHANNEL_CROSS_SUBJECT_OVERRIDES = {
 
 EIGHT_CHANNEL_FINETUNE_OVERRIDES = {
     'epochs': 20,
-    'patience': 8,
     'learning_rate': 5e-5,
 }
 
@@ -298,7 +292,6 @@ THIRTYTWO_CHANNEL_CROSS_SUBJECT_OVERRIDES = {
 
 THIRTYTWO_CHANNEL_FINETUNE_OVERRIDES = {
     'epochs': 25,
-    'patience': 10,
     'learning_rate': 8e-5,
 }
 
@@ -328,7 +321,6 @@ SIXTYONE_CHANNEL_CROSS_SUBJECT_OVERRIDES = {
 
 SIXTYONE_CHANNEL_FINETUNE_OVERRIDES = {
     'epochs': 23,                # Between 32ch (25) and 128ch default
-    'patience': 8,               # Between 32ch (10) and 128ch default
     'learning_rate': 9e-5,       # Between 32ch (8e-5) and 128ch default (1e-4)
 }
 
@@ -428,7 +420,6 @@ def get_cross_subject_config(model_type: str, task: str, n_channels: int = None)
         config['model']['dropout_rate'] = 0.35          # 跨被试过拟合风险高，需要较高 dropout
         config['training'].update({
             'epochs': 100,                               # 与 within-subject 相同，靠 early stopping
-            'patience': 15,                              # 与 within-subject 相同，靠 early stopping
             'batch_size': 256,                           # 2x within-subject
             'learning_rate': 5e-5,                       # 1e-4→5e-5
             'backbone_lr': 1e-4,                         # 与 within-subject 同步
@@ -440,7 +431,6 @@ def get_cross_subject_config(model_type: str, task: str, n_channels: int = None)
     else:  # eegnet
         config['training'].update({
             'epochs': 50,                                # 30→50, 更多数据可以训练更久
-            'patience': 10,                              # 5→10, 跨被试数据更多样
             'batch_size': 128,                           # 2x within-subject
             'learning_rate': 5e-4,                       # 1e-3→5e-4
             'weight_decay': 1e-4,                        # 0→1e-4, 轻微正则

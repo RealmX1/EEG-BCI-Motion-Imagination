@@ -580,7 +580,6 @@ class WithinSubjectTrainer:
         main_train_loader: Optional[DataLoader] = None,
         exploration_epochs: int = 0,
         epochs: int = 50,
-        patience: int = 10,
         save_path: Optional[Path] = None,
         wandb_callback: Optional['WandbCallback'] = None,
         resume_from_epoch: Optional[int] = None,
@@ -601,7 +600,6 @@ class WithinSubjectTrainer:
             exploration_epochs: Number of epochs for exploration phase (small batch).
                                After this, switches to main_train_loader.
             epochs: Maximum epochs
-            patience: Early stopping patience
             save_path: Path to save best model
             wandb_callback: Optional WandB callback for logging
             resume_from_epoch: 从指定 epoch 继续训练（跳过已完成的 epoch）
@@ -611,6 +609,12 @@ class WithinSubjectTrainer:
             Training history
         """
         from ..utils.timing import Colors
+
+        # Compute early stopping patience from scheduler type
+        if self.scheduler_type == 'cosine_annealing_warmup_decay':
+            patience = 2 * self.phase_epochs
+        else:
+            patience = 10
 
         # Use single loader if main_train_loader not provided
         if main_train_loader is None:
