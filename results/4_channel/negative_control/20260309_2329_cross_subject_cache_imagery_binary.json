@@ -1,0 +1,81 @@
+{
+  "metadata": {
+    "paradigm": "imagery",
+    "task": "binary",
+    "run_tag": "20260309_2329",
+    "timestamp": "2026-03-10T00:23:51.295731",
+    "n_subjects": 21,
+    "is_complete": true,
+    "type": "cross-subject-comparison"
+  },
+  "wandb_groups": {},
+  "last_updated": "2026-03-10T00:23:51.295731",
+  "results": {
+    "eegnet": {
+      "per_subject_test_acc": {
+        "S01": 0.4875,
+        "S02": 0.5375,
+        "S03": 0.61875,
+        "S04": 0.7,
+        "S05": 0.46875,
+        "S06": 0.6,
+        "S07": 0.59375,
+        "S08": 0.63125,
+        "S09": 0.56875,
+        "S10": 0.63125,
+        "S11": 0.5375,
+        "S12": 0.6,
+        "S13": 0.625,
+        "S14": 0.48125,
+        "S15": 0.5875,
+        "S16": 0.51875,
+        "S17": 0.5625,
+        "S18": 0.6125,
+        "S19": 0.50625,
+        "S20": 0.55,
+        "S21": 0.5625
+      },
+      "mean_test_acc": 0.5705357142857144,
+      "std_test_acc": 0.057124252923857505,
+      "val_acc": 0.5534119254375524,
+      "val_majority_acc": 0.5904610492845787,
+      "best_epoch": 39,
+      "training_time": 956.1340921999945,
+      "model_path": "checkpoints\\cross_subject\\20260309_2329_eegnet_imagery_binary\\best.pt",
+      "n_channels": 4
+    },
+    "cbramod": {
+      "per_subject_test_acc": {
+        "S01": 0.68125,
+        "S02": 0.70625,
+        "S03": 0.75,
+        "S04": 0.8375,
+        "S05": 0.54375,
+        "S06": 0.65625,
+        "S07": 0.66875,
+        "S08": 0.775,
+        "S09": 0.65,
+        "S10": 0.5375,
+        "S11": 0.6875,
+        "S12": 0.55625,
+        "S13": 0.6625,
+        "S14": 0.65,
+        "S15": 0.7625,
+        "S16": 0.64375,
+        "S17": 0.6625,
+        "S18": 0.65625,
+        "S19": 0.91875,
+        "S20": 0.6,
+        "S21": 0.59375
+      },
+      "mean_test_acc": 0.6761904761904761,
+      "std_test_acc": 0.09154386486822225,
+      "val_acc": 0.5452980417473638,
+      "val_majority_acc": 0.5834398976982097,
+      "best_epoch": 29,
+      "training_time": 2299.588549100008,
+      "model_path": "checkpoints\\cross_subject\\20260309_2329_cbramod_imagery_binary\\best.pt",
+      "n_channels": 4
+    }
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "metadata": {
+    "type": "cross-subject",
+    "model_type": "eegnet",
+    "paradigm": "imagery",
+    "task": "binary",
+    "subjects": [
+      "S01",
+      "S02",
+      "S03",
+      "S04",
+      "S05",
+      "S06",
+      "S07",
+      "S08",
+      "S09",
+      "S10",
+      "S11",
+      "S12",
+      "S13",
+      "S14",
+      "S15",
+      "S16",
+      "S17",
+      "S18",
+      "S19",
+      "S20",
+      "S21"
+    ],
+    "n_subjects": 21,
+    "n_channels": 4,
+    "channel_config": "negative_control",
+    "run_tag": "20260309_2329",
+    "timestamp": "2026-03-09T23:45:28.603571"
+  },
+  "results": {
+    "per_subject_test_acc": {
+      "S01": 0.4875,
+      "S02": 0.5375,
+      "S03": 0.61875,
+      "S04": 0.7,
+      "S05": 0.46875,
+      "S06": 0.6,
+      "S07": 0.59375,
+      "S08": 0.63125,
+      "S09": 0.56875,
+      "S10": 0.63125,
+      "S11": 0.5375,
+      "S12": 0.6,
+      "S13": 0.625,
+      "S14": 0.48125,
+      "S15": 0.5875,
+      "S16": 0.51875,
+      "S17": 0.5625,
+      "S18": 0.6125,
+      "S19": 0.50625,
+      "S20": 0.55,
+      "S21": 0.5625
+    },
+    "mean_test_acc": 0.5705357142857144,
+    "std_test_acc": 0.057124252923857505,
+    "best_val_acc": 0.5534119254375524,
+    "best_epoch": 39
+  },
+  "training_info": {
+    "training_time": 956.1340921999945,
+    "model_path": "checkpoints\\cross_subject\\20260309_2329_eegnet_imagery_binary\\best.pt"
+  }
+}
