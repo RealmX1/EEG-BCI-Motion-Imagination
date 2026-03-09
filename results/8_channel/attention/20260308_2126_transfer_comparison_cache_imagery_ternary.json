@@ -1,0 +1,39 @@
+{
+  "metadata": {
+    "paradigm": "imagery",
+    "task": "ternary",
+    "run_tag": "20260308_2126",
+    "timestamp": "2026-03-08T21:27:18.538310",
+    "n_subjects": null,
+    "is_complete": false,
+    "type": "transfer-comparison",
+    "transfer_config": {
+      "freeze_strategy": "backbone",
+      "finetune_epochs": null,
+      "finetune_lr": null,
+      "finetune_batch_size": null,
+      "pretrained_paths": {
+        "cbramod": "checkpoints\\cross_subject\\20260302_2140_cbramod_imagery_ternary\\best.pt"
+      },
+      "classifier_types": {
+        "cbramod": "two_layer"
+      }
+    }
+  },
+  "wandb_groups": {},
+  "last_updated": "2026-03-08T21:27:18.538310",
+  "results": {
+    "cbramod": {
+      "S01": {
+        "subject_id": "S01",
+        "task_type": "ternary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.45481049562682213,
+        "test_acc": 0.5125,
+        "test_acc_majority": 0.5125,
+        "epochs_trained": 0,
+        "training_time": 27.878650099999504
+      }
+    }
+  }
+}
