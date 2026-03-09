@@ -410,6 +410,29 @@ def migrate_file(db: ExperimentDB, file_type: str, file_path: Path, data: Dict) 
     # Find the git commit where this file was first added to the repo
     file_git_commit = _get_file_first_commit(file_path)
 
+    # Infer preprocessing version from metadata or timestamp
+    pp_version = data.get('metadata', {}).get('preprocessing_version')
+    if pp_version is None:
+        from src.config.constants import (
+            _PREPROCESSING_V0_2_TIMESTAMP,
+            _PREPROCESSING_V1_0_TIMESTAMP,
+            _PREPROCESSING_V2_0_TIMESTAMP,
+        )
+        # Use created_at derived from run_tag
+        created_at = parsed.get('created_at', '')
+        if not created_at:
+            m = re.match(r'^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})$', parsed['run_tag'])
+            if m:
+                created_at = f"{m.group(1)}-{m.group(2)}-{m.group(3)}T{m.group(4)}:{m.group(5)}:00"
+        if created_at >= _PREPROCESSING_V2_0_TIMESTAMP:
+            pp_version = 'v2.0'
+        elif created_at >= _PREPROCESSING_V1_0_TIMESTAMP:
+            pp_version = 'v1.0'
+        elif created_at >= _PREPROCESSING_V0_2_TIMESTAMP:
+            pp_version = 'v0.2'
+        else:
+            pp_version = 'v0.1'
+
     if run_already_exists:
         # Run exists — append results (e.g., second model for cross-subject)
         run_id = run_id_candidate
@@ -429,6 +452,7 @@ def migrate_file(db: ExperimentDB, file_type: str, file_path: Path, data: Dict) 
                 is_legacy=True,
                 legacy_source=file_path.name,
                 git_commit=file_git_commit,
+                preprocessing_version=pp_version,
             )
         except Exception as e:
             logger.error(f"  Failed to create run for {file_path.name}: {e}")

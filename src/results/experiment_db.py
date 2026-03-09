@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_DB_PATH = 'results/experiments.db'
 
 # Schema version for future migrations
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 5
 
 _SCHEMA_SQL = """
 -- Schema version tracking
@@ -75,7 +75,8 @@ CREATE TABLE IF NOT EXISTS runs (
     is_legacy       INTEGER NOT NULL DEFAULT 0,
     -- [deprecated] Legacy-only columns below — NULL for new runs
     legacy_source   TEXT,   -- original JSON filename, e.g. '20260205_0116_comparison_cache_imagery_binary.json'
-    command         TEXT    -- full terminal command used to launch this run (sys.argv)
+    command         TEXT,   -- full terminal command used to launch this run (sys.argv)
+    preprocessing_version TEXT  -- e.g., 'v1.0', 'v2.0'; tracks data filtering/cleaning version
 );
 
 -- Transfer learning specific configuration
@@ -231,6 +232,10 @@ class ExperimentDB:
                 self._migrate_to_v2(conn)
             if current_version < 3:
                 self._migrate_to_v3(conn)
+            if current_version < 4:
+                self._migrate_to_v4(conn)
+            if current_version < 5:
+                self._migrate_to_v5(conn)
 
             conn.execute(
                 "INSERT OR REPLACE INTO schema_info (key, value) VALUES (?, ?)",
@@ -254,6 +259,53 @@ class ExperimentDB:
         if 'command' not in cols:
             conn.execute("ALTER TABLE runs ADD COLUMN command TEXT")
             logger.info("Schema migration v3: added runs.command")
+
+    def _migrate_to_v4(self, conn: sqlite3.Connection):
+        """v3 -> v4: Add preprocessing_version column and backfill."""
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(runs)").fetchall()}
+        if 'preprocessing_version' not in cols:
+            conn.execute("ALTER TABLE runs ADD COLUMN preprocessing_version TEXT")
+            logger.info("Schema migration v4: added runs.preprocessing_version")
+
+        # Backfill: commit 5bb2395 (2026-03-02 17:18:47) introduced trial rejection
+        from ..config.constants import _PREPROCESSING_V2_TIMESTAMP
+        n_v1 = conn.execute(
+            "UPDATE runs SET preprocessing_version = 'v1.0' "
+            "WHERE preprocessing_version IS NULL AND created_at < ?",
+            (_PREPROCESSING_V2_TIMESTAMP,),
+        ).rowcount
+        n_v2 = conn.execute(
+            "UPDATE runs SET preprocessing_version = 'v2.0' "
+            "WHERE preprocessing_version IS NULL AND created_at >= ?",
+            (_PREPROCESSING_V2_TIMESTAMP,),
+        ).rowcount
+        if n_v1 or n_v2:
+            logger.info(
+                f"Schema migration v4: backfilled preprocessing_version "
+                f"(v1.0={n_v1}, v2.0={n_v2})"
+            )
+
+    def _migrate_to_v5(self, conn: sqlite3.Connection):
+        """v4 -> v5: Reclassify early v1.0 runs into v0.1/v0.2."""
+        from ..config.constants import (
+            _PREPROCESSING_V0_2_TIMESTAMP,
+            _PREPROCESSING_V1_0_TIMESTAMP,
+        )
+        n_v01 = conn.execute(
+            "UPDATE runs SET preprocessing_version = 'v0.1' "
+            "WHERE preprocessing_version = 'v1.0' AND created_at < ?",
+            (_PREPROCESSING_V0_2_TIMESTAMP,),
+        ).rowcount
+        n_v02 = conn.execute(
+            "UPDATE runs SET preprocessing_version = 'v0.2' "
+            "WHERE preprocessing_version = 'v1.0' AND created_at < ?",
+            (_PREPROCESSING_V1_0_TIMESTAMP,),
+        ).rowcount
+        if n_v01 or n_v02:
+            logger.info(
+                f"Schema migration v5: reclassified early runs "
+                f"(v0.1={n_v01}, v0.2={n_v02})"
+            )
 
     def close(self):
         """Close the database connection."""
@@ -289,6 +341,7 @@ class ExperimentDB:
         legacy_source: Optional[str] = None,
         git_commit: Optional[str] = None,
         command: Optional[str] = None,
+        preprocessing_version: Optional[str] = None,
     ) -> str:
         """Create a new experiment run.
 
@@ -311,6 +364,9 @@ class ExperimentDB:
             git_commit: Override for git commit hash. If None, auto-detected
                 from current HEAD (new runs) or left as None (legacy runs).
             command: Full terminal command used to launch this run (from sys.argv).
+            preprocessing_version: Override for preprocessing version string.
+                If None, auto-populated from PREPROCESSING_VERSION constant
+                (new runs) or left as None (legacy runs).
 
         Returns:
             run_id: Unique identifier for this run
@@ -329,6 +385,9 @@ class ExperimentDB:
             updated_at = created_at
         if git_commit is None and not is_legacy:
             git_commit = _get_git_commit()
+        if preprocessing_version is None and not is_legacy:
+            from ..config.constants import PREPROCESSING_VERSION
+            preprocessing_version = PREPROCESSING_VERSION
 
         with self._connection() as conn:
             conn.execute(
@@ -336,12 +395,12 @@ class ExperimentDB:
                    (run_id, run_tag, experiment_type, paradigm, task,
                     n_channels, channel_config, n_subjects, is_complete,
                     git_commit, wandb_group, created_at, updated_at, notes,
-                    is_legacy, legacy_source, command)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    is_legacy, legacy_source, command, preprocessing_version)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (run_id, run_tag, experiment_type, paradigm, task,
                  n_channels, channel_config, n_subjects, git_commit,
                  wandb_group, created_at, updated_at, notes,
-                 int(is_legacy), legacy_source, command),
+                 int(is_legacy), legacy_source, command, preprocessing_version),
             )
 
         logger.info(f"Created run: {run_id}")
@@ -585,6 +644,7 @@ class ExperimentDB:
         experiment_type: Optional[str] = None,
         channel_config: Optional[str] = None,
         is_complete: Optional[bool] = None,
+        preprocessing_version: Optional[str] = None,
         order_by: str = 'created_at DESC',
         limit: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
@@ -599,6 +659,7 @@ class ExperimentDB:
             experiment_type: 'within_subject' | 'cross_subject' | 'transfer' | 'config_comparison'
             channel_config: 'motor_cortex' | 'commercial' | 'fdr' | etc.
             is_complete: Filter by completion status
+            preprocessing_version: 'v1.0' | 'v2.0' | etc.
             order_by: SQL ORDER BY clause (default: newest first)
             limit: Maximum number of results
 
@@ -626,6 +687,9 @@ class ExperimentDB:
         if is_complete is not None:
             clauses.append("is_complete = ?")
             params.append(int(is_complete))
+        if preprocessing_version is not None:
+            clauses.append("preprocessing_version = ?")
+            params.append(preprocessing_version)
 
         where = " AND ".join(clauses) if clauses else "1=1"
 

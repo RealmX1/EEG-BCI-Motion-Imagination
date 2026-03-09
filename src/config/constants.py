@@ -76,3 +76,30 @@ FULL_N_CHANNELS = 128
 
 # Supported reduced channel counts for experiments
 SUPPORTED_CHANNEL_COUNTS = [4, 8, 32, 61, FULL_N_CHANNELS]
+
+# ============================================================================
+# Preprocessing Version Tracking
+# ============================================================================
+
+# Current preprocessing version — increment when preprocessing logic changes
+# Full version history with parameters: docs/preprocessing_versions.md
+PREPROCESSING_VERSION = "v2.0"
+
+# Version history for documentation and backfill
+PREPROCESSING_VERSION_HISTORY: Dict[str, str] = {
+    "v0.1": "CBraMod 19ch, segment-level cache, 125ms step, 60Hz notch",
+    "v0.2": "CBraMod 128ch, trial-level cache (v3.0), 125ms step, 60Hz notch",
+    "v1.0": "CBraMod 128ch, 500ms step, no notch; EEGNet unchanged throughout v0.x-v1.0",
+    "v2.0": "Training trial amplitude rejection >500µV (both models)",
+}
+
+# Boundaries for preprocessing version backfill
+# commit 0157fa1: CBraMod 128ch + trial-level cache (2026-01-11)
+_PREPROCESSING_V0_2_TIMESTAMP = "2026-01-11T01:56:06"
+# commit 52f1edf: CBraMod step 125ms→500ms, notch removed (2026-01-27)
+_PREPROCESSING_V1_0_TIMESTAMP = "2026-01-27T03:11:09"
+# commit 5bb2395: trial amplitude rejection >500µV (2026-03-02)
+_PREPROCESSING_V2_0_TIMESTAMP = "2026-03-02T17:18:47"
+
+# Legacy alias for existing code that references this
+_PREPROCESSING_V2_TIMESTAMP = _PREPROCESSING_V2_0_TIMESTAMP

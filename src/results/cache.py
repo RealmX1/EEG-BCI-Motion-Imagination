@@ -365,6 +365,7 @@ def save_cache(
     timestamp = existing_timestamp or datetime.now().isoformat()
 
     # Create/update metadata structure
+    from ..config.constants import PREPROCESSING_VERSION
     metadata = {
         'paradigm': paradigm,
         'task': task,
@@ -372,6 +373,7 @@ def save_cache(
         'timestamp': timestamp,
         'n_subjects': n_subjects,
         'is_complete': is_complete,
+        'preprocessing_version': PREPROCESSING_VERSION,
     }
     if extra_metadata:
         metadata.update(extra_metadata)
@@ -1221,6 +1223,7 @@ def save_single_model_results(
     Returns:
         Path to saved file
     """
+    from ..config.constants import PREPROCESSING_VERSION
     output = {
         'metadata': {
             'model_type': model_type,
@@ -1230,6 +1233,7 @@ def save_single_model_results(
             'run_tag': run_tag,
             'timestamp': datetime.now().isoformat(),
             'n_subjects': statistics['n_subjects'],
+            'preprocessing_version': PREPROCESSING_VERSION,
         },
         'subjects': [result_to_dict(r) for r in results],
         'statistics': statistics,
@@ -1630,6 +1634,7 @@ def save_cross_subject_result(
     """
     from .serialization import generate_result_filename
 
+    from ..config.constants import PREPROCESSING_VERSION
     output = {
         'metadata': {
             'type': 'cross-subject',
@@ -1642,6 +1647,7 @@ def save_cross_subject_result(
             'channel_config': channel_config,
             'run_tag': run_tag,
             'timestamp': datetime.now().isoformat(),
+            'preprocessing_version': PREPROCESSING_VERSION,
         },
         'results': {
             'per_subject_test_acc': result.get('per_subject_test_acc', {}),
