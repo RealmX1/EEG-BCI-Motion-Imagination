@@ -8,144 +8,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-本项目是一个基于脑电图（EEG）的脑机接口（BCI）研究项目，对比验证 EEG 基座模型（CBraMod）与传统 CNN（EEGNet）在单指级别运动解码任务中的性能。
+EEG 脑机接口研究项目，对比 EEG 基座模型（CBraMod）与传统 CNN（EEGNet）在单指运动解码中的性能。支持 4/8/32/128 通道实验，被试内/跨被试/迁移学习三种训练范式。21 个被试数据已合并（3640 条缓存，31.4 GB）。
 
-**当前状态**: Phase 4 - 代码重构 + 迁移学习 + 多通道实验 + SQLite 实验注册表。跨被试预训练→个体微调管线已完成，WandB 参数标准化。**实验结果使用 SQLite 注册表 (`ExperimentDB`) 管理**，训练脚本双写 (JSON cache + SQLite)。**支持 8/32/128 通道实验**，32ch 支持 6 种配置对比。**所有 21 个被试数据 (S01-S21) 已合并完成**。详见 `docs/dev_log/changelog.md`。
+实验结果双写：JSON cache + SQLite 注册表 (`ExperimentDB`)。详细命令、文件索引、脚本目录树见 `docs/codebase_reference.md`。
 
-**缓存状态**: 3640 条预处理缓存（31.4 GB），覆盖所有 21 个被试。合并报告: `caches/MERGE_COMPLETE_REPORT.txt`
-
-## 快速命令
+## 常用命令
 
 ```bash
-# 安装
-uv sync
-uv pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu128
-
-# 验证安装
-uv run python scripts/verify_installation.py
-
-# 被试内模型对比 (推荐)
-uv run python scripts/run_within_subject_comparison.py                # 新运行 (默认)
-uv run python scripts/run_within_subject_comparison.py --resume       # 恢复最近运行
-uv run python scripts/run_within_subject_comparison.py --resume 20260205  # 恢复特定运行
-uv run python scripts/run_within_subject_comparison.py --skip-training    # 仅查看结果
-uv run python scripts/run_within_subject_comparison.py --paradigm movement  # Motor Execution
-
-# 单模型训练 (WandB 默认启用)
-uv run python scripts/run_single_model.py --subject S01 --model eegnet --task binary
-uv run python scripts/run_single_model.py --subject S01 --model cbramod --no-wandb  # 禁用 WandB
-
-# 数据预处理 (ZIP -> 缓存)
-uv run python scripts/preprocess_zip.py                               # Motor Imagery
-uv run python scripts/preprocess_zip.py --paradigm movement           # Motor Execution
-
-# 缓存管理
-uv run python scripts/cache_helper.py --stats
-uv run python scripts/cache_helper.py --model cbramod --execute
-
-# 跨被试训练与模型对比
-uv run python scripts/run_cross_subject.py --model eegnet                # 单模型跨被试预训练
-uv run python scripts/run_cross_subject.py --model cbramod --subjects S01 S02 S03 S04 S05
-uv run python scripts/run_cross_subject_comparison.py                    # 双模型对比 (EEGNet + CBraMod)
-uv run python scripts/run_cross_subject_comparison.py --paradigm movement  # Motor Execution
-uv run python scripts/run_cross_subject_comparison.py --no-within-subject-historical  # 无历史对比
-
-# 迁移学习对比 (自动查找最优跨被试预训练模型 → 逐被试微调 → 对比)
-uv run python scripts/run_transfer_comparison.py                           # 默认: backbone 冻结
-uv run python scripts/run_transfer_comparison.py --freeze-strategy partial # 部分冻结
-uv run python scripts/run_transfer_comparison.py --resume                  # 恢复运行
-uv run python scripts/run_transfer_comparison.py --paradigm movement       # Motor Execution
-uv run python scripts/run_transfer_comparison.py \
-    --pretrained-eegnet checkpoints/cross_subject/.../best.pt \
-    --pretrained-cbramod checkpoints/cross_subject/.../best.pt             # 手动指定检查点
-
-# 个体微调 (单模型)
-uv run python scripts/run_finetune.py \
-    --pretrained checkpoints/cross_subject/eegnet_imagery_binary/best.pt \
-    --subject S01
-uv run python scripts/run_finetune.py \
-    --pretrained checkpoints/cross_subject/cbramod_imagery_binary/best.pt \
-    --all-subjects --freeze-strategy backbone
-
-# 实验结果数据库
-uv run python scripts/tools/migrate_results_to_db.py              # 预览迁移
-uv run python scripts/tools/migrate_results_to_db.py --execute    # 执行迁移
-uv run python scripts/tools/migrate_results_to_db.py --execute --force  # 重建数据库
-
-# 32 通道实验
-uv run python scripts/analysis/compute_channel_selections.py                    # 数据驱动通道选择 (任意通道数)
-uv run python scripts/experiments/run_32ch_config_comparison.py                # 6 配置对比
-uv run python scripts/experiments/run_32ch_config_comparison.py --dry-run      # 仅显示命令
-uv run python scripts/experiments/run_reduced_channel_experiment.py                       # 全量实验 (默认 motor_cortex)
-uv run python scripts/experiments/run_reduced_channel_experiment.py --channel-config commercial  # 指定配置
+uv sync                                                    # 安装依赖
+uv run python scripts/run_within_subject_comparison.py     # 被试内对比 (最常用)
+uv run python scripts/run_cross_subject_comparison.py      # 跨被试对比
+uv run python scripts/run_transfer_comparison.py           # 迁移学习对比
 ```
 
-## 数据划分协议
+完整命令参考见 `docs/codebase_reference.md`。
 
-遵循原论文实验设计，支持 Motor Imagery (MI) 和 Motor Execution (ME) 两种范式。
+## 数据划分协议
 
 | 数据来源 | 用途 |
 |----------|------|
 | `Offline*` + `Online*_Sess01_*` + `Online*_Sess02_*_Base` | **训练** (时序分割 80/20) |
 | `Online*_Sess02_*_Finetune` | **测试** (完全独立) |
 
-**关键设计决策**:
-1. **Trial-level 分割**: 防止同一 trial 的 segments 泄露到验证集
-2. **时序分割**: 验证集取训练数据最后 20%
-3. **Quaternary 特殊处理**: 仅使用 Offline 数据，时序分割 60/20/20
-
-详细架构说明见 `docs/preprocessing_architecture.md`。
-
-## 关键文件
-
-### src/ 模块
-
-| 文件 | 说明 |
-|------|------|
-| `src/preprocessing/data_loader.py` | 数据加载和预处理管线 |
-| `src/preprocessing/cache_manager.py` | HDF5 预处理缓存 (v3.0) |
-| `src/models/eegnet.py` | EEGNet-8,2 实现 |
-| `src/models/cbramod_adapter.py` | CBraMod 适配器 (支持 19/128 通道) |
-| `src/training/common.py` | 共享训练工具 (时序分割、配置覆盖、性能优化) |
-| `src/training/train_within_subject.py` | 被试内训练模块 (API) |
-| `src/training/train_cross_subject.py` | 跨被试预训练模块 |
-| `src/training/finetune.py` | 个体微调模块 (支持冻结策略) |
-| `src/results/experiment_db.py` | SQLite 实验注册表 (ExperimentDB) — 元数据 + 最终指标 + 结构化查询 |
-| `src/results/cache.py` | JSON 结果缓存 (旧系统，查询函数已标记 deprecated，由 ExperimentDB 替代) |
-| `src/results/` | 结果管理 (dataclasses、序列化、统计) |
-| `src/visualization/` | 可视化模块 (对比图、单模型图) |
-| `src/config/` | 配置模块 (常量、预设、实验配置) |
-| `src/evaluation/metrics.py` | 评估指标库 (TODO: 待集成到训练流程) |
-
-### scripts/ 目录结构
-
-```
-scripts/
-├── experiments/                # 训练实验脚本
-│   ├── run_within_subject_comparison.py  # 被试内模型对比
-│   ├── run_cross_subject_comparison.py   # 跨被试模型对比
-│   ├── run_transfer_comparison.py       # 迁移学习对比 (跨被试→微调→对比)
-│   ├── run_32ch_config_comparison.py   # 32ch 6 配置对比
-│   ├── run_reduced_channel_experiment.py  # N-ch 全量实验 (任意通道数)
-│   ├── run_8ch_experiment.py           # 8ch 全量实验
-│   ├── run_single_model.py     # 单模型训练 (被试内)
-│   ├── run_cross_subject.py    # 单模型跨被试预训练
-│   └── run_finetune.py         # 个体微调
-├── preprocessing/              # 数据预处理脚本
-│   ├── preprocess_zip.py       # ZIP 解压和预处理
-│   ├── cache_helper.py         # 缓存管理
-│   └── merge_cache_index.py    # 缓存索引合并
-├── tools/                      # 工具脚本
-│   ├── verify_installation.py  # 安装验证
-│   ├── compare_schedulers.py   # 调度器对比
-│   └── migrate_results_to_db.py # JSON → SQLite 一次性迁移
-├── analysis/                   # 分析脚本
-│   ├── compute_channel_selections.py  # 数据驱动 N-ch 通道选择 (FDR/CSP/Attention/BandPower)
-│   └── research/               # 研究分析
-└── internal/                   # 内部工具
-```
-
-**向后兼容**: 根目录的 wrapper 脚本 (`scripts/run_*.py`) 仍然有效
+关键约束：Trial-level 分割（防泄露）、时序分割（验证集取末 20%）、Quaternary 仅 Offline 数据 60/20/20。详见 `docs/preprocessing_architecture.md`。
 
 ## 模型配置
 
@@ -156,51 +41,60 @@ scripts/
 
 CBraMod 使用 ACPE（非对称条件位置编码）支持任意通道数输入。
 
-## 数据位置
+## 数据与输出位置
 
 ```
-data/
-├── S01/                              # 被试数据
-│   ├── OfflineImagery/              # 离线训练 (30 runs)
-│   └── OnlineImagery_Sess*/         # 在线数据
-├── biosemi128.ELC                    # 电极位置文件
-└── channel_mapping.json              # 通道映射表
-
-checkpoints/                          # 模型检查点
-results/                              # 实验结果
-├── experiments.db                   # SQLite 实验注册表 (ExperimentDB)
-├── *.json                           # JSON 结果缓存 (旧格式，双写保留)
-└── *.png                            # 可视化图表
-caches/preprocessed/                  # 预处理缓存
+data/S01-S21/          # 被试原始数据
+caches/preprocessed/   # HDF5 预处理缓存
+checkpoints/           # 模型检查点
+results/               # 实验结果 (experiments.db + JSON + PNG)
 ```
 
 ## GPU 要求
 
 - **必须使用 NVIDIA GPU**，CPU 模式已禁用
-- **Blackwell GPU (RTX 5070/5080/5090)**: 原生支持，自动启用 TF32 优化
-- CBraMod 128 通道模式显存需求较高 (建议 12GB+)
+- CBraMod 128 通道模式建议 12GB+ 显存
 
-## 文档规范
+## 实验结果引用规范
 
-在实验文档中记录数据（如结果汇总表、逐被试对比表、核心数据速查表等）时，必须在数据表旁附上**数据来源**（source），注明原始 JSON 结果文件路径或引用的 Step 编号。使用 blockquote 格式：
+**任何时候引用实验数据（对话、文档、分析报告中），都必须标注数据来源**，包括：
+1. 结果文件路径（JSON cache 或 SQLite 查询条件）
+2. 实验运行标识（时间戳前缀，如 `20260221_0445`）
+
+这确保所有数值可追溯到原始实验输出，防止张冠李戴。
+
+### 格式规范
+
+**在文档/报告中**，使用 blockquote 标注：
 
 ```markdown
 > **数据来源**: `results/32_channel/fdr/20260221_0445_transfer_comparison_cache_imagery_binary.json`
 ```
 
-这确保所有文档中的数值均可追溯到原始实验输出，便于验证和复现。
+**在对话中引用数据时**，使用内联标注：
 
-## 文档结构
+```markdown
+cross-subject 准确率 88.10% (来源: `results/32_channel/fdr/20260221_0445_transfer_comparison_cache_imagery_binary.json`, model=cbramod)
+```
 
-| 文档 | 说明 |
-|------|------|
-| `docs/TROUBLESHOOTING.md` | 故障排除指南 |
-| `docs/preprocessing_architecture.md` | 预处理管线详细架构 |
-| `docs/dev_log/changelog.md` | 开发历史和变更记录 |
-| `docs/dev_log/refactoring/` | 代码重构详细记录 (Phase 1-4) |
-| `docs/dev_log/experiments/32ch_experiment.md` | 32 通道实验完整记录 (Step 1-7) |
-| `docs/dev_log/experiments/reduced_channel_experiment_summary.md` | 减通道实验总结 (代码变更 + FDR 方法) |
-| `docs/dev_log/implemented_plans/experiment_db.md` | SQLite 实验注册表实现文档 |
+**引用多个实验对比时**，使用表格附带来源列：
+
+```markdown
+| 配置 | Binary Acc | 来源 |
+|------|-----------|------|
+| FDR 32ch | 88.10% | `results/32_channel/fdr/20260221_0445_..._imagery_binary.json` |
+| 补集 32ch | 83.18% | `results/32_channel/fdr_complement/20260301_..._imagery_binary.json` |
+```
+
+**引用 SQLite 查询结果时**：
+
+```markdown
+> **数据来源**: ExperimentDB 查询 — `SELECT * FROM experiments WHERE channel_config='fdr' AND task='binary' AND paradigm='imagery'`
+```
+
+### 命名约定
+
+结果文件遵循格式：`{timestamp}_{experiment_type}_{paradigm}_{task}.json`，其中 timestamp 为 `YYYYMMDD_HHMM`，是唯一标识一次运行的关键字段。
 
 ## 参考资料
 
