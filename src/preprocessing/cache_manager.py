@@ -43,11 +43,11 @@ Usage:
     if cache.has_valid_cache(subject, run, session_folder, config, mat_path):
         trials, labels = cache.load(...)
         # Apply sliding window on load
-        segments, seg_labels, trial_indices = trials_to_segments(trials, labels, config)
+        segments, seg_labels, trial_indices, rej_info = trials_to_segments(trials, labels, config)
     else:
         trials, labels = preprocess_run_to_trials(...)
         cache.save(subject, run, session_folder, config, trials, labels, mat_path)
-        segments, seg_labels, trial_indices = trials_to_segments(trials, labels, config)
+        segments, seg_labels, trial_indices, rej_info = trials_to_segments(trials, labels, config)
 """
 
 import hashlib
