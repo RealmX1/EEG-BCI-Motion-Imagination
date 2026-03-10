@@ -291,6 +291,9 @@ class FingerEEGDataset(Dataset):
         total_start = time.perf_counter()
         n_cache_hits = 0
         n_cache_misses = 0
+        self._rejection_total = 0
+        self._rejection_seen = 0
+        self._rejection_threshold = None
 
         # Phase 1: Collect all files and check cache status
         files_to_process = []  # (mat_path, session_info, needs_processing, is_offline)
@@ -383,10 +386,11 @@ class FingerEEGDataset(Dataset):
                         labels = self._map_labels_to_indices(labels, self.target_classes)
 
                 # v3.0: Apply sliding window, filter, normalize on load
-                segments, seg_labels, trial_indices = trials_to_segments(
+                segments, seg_labels, trial_indices, rej_info = trials_to_segments(
                     trials, labels, self.config,
                     reject_trials=self.reject_trials,
                 )
+                self._accumulate_rejection(rej_info)
 
                 # Apply channel selection if needed (after trials_to_segments)
                 if self.channel_indices is not None and segments.ndim == 3 and len(segments) > 0:
@@ -436,6 +440,21 @@ class FingerEEGDataset(Dataset):
         # Log summary
         log_load.debug(f"Load time: {format_time(total_time)} ({n_cache_hits} hits, {n_cache_misses} miss, {self.parallel_workers}w)")
         log_load.info(f"Loaded {len(self.trials)} segs (cache: {'hit' if n_cache_misses == 0 else 'partial'})")
+
+        # Log trial rejection summary (once, not per-file)
+        if self._rejection_total > 0:
+            pct = self._rejection_total / self._rejection_seen * 100
+            log_load.info(
+                f"Trial rejection: {self._rejection_total}/{self._rejection_seen} "
+                f"({pct:.1f}%) rejected (threshold: {self._rejection_threshold:.0f} µV)"
+            )
+
+    def _accumulate_rejection(self, rej_info: dict | None):
+        """Accumulate trial rejection stats from a single trials_to_segments call."""
+        if rej_info is not None:
+            self._rejection_total += rej_info['n_rejected']
+            self._rejection_seen += rej_info['n_total']
+            self._rejection_threshold = rej_info['threshold']
 
     def _load_uncached_parallel(self, uncached_files: List[Tuple[Path, Dict, bool]]):
         """
@@ -524,10 +543,11 @@ class FingerEEGDataset(Dataset):
                             labels_for_segments = self._map_labels_to_indices(labels, self.target_classes)
 
                     # v3.0: Apply sliding window, filter, normalize
-                    segments, seg_labels, trial_indices = trials_to_segments(
+                    segments, seg_labels, trial_indices, rej_info = trials_to_segments(
                         trials_for_segments, labels_for_segments, self.config,
                         reject_trials=self.reject_trials,
                     )
+                    self._accumulate_rejection(rej_info)
 
                     # Apply channel selection if needed
                     if self.channel_indices is not None and segments.ndim == 3 and len(segments) > 0:
@@ -651,10 +671,11 @@ class FingerEEGDataset(Dataset):
                 labels_for_segments = self._map_labels_to_indices(labels, self.target_classes)
 
         # v3.0: Apply sliding window, filter, normalize
-        segments, seg_labels, trial_indices = trials_to_segments(
+        segments, seg_labels, trial_indices, rej_info = trials_to_segments(
             trials_for_segments, labels_for_segments, self.config,
             reject_trials=self.reject_trials,
         )
+        self._accumulate_rejection(rej_info)
 
         # Apply channel selection if needed
         if self.channel_indices is not None and segments.ndim == 3 and len(segments) > 0:

@@ -605,7 +605,7 @@ def trials_to_segments(
     labels: np.ndarray,
     config: 'PreprocessConfig',
     reject_trials: bool = True,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
     """
     Convert trials to segments (apply sliding window, filter, normalize).
 
@@ -627,34 +627,38 @@ def trials_to_segments(
             test data to preserve the original distribution.
 
     Returns:
-        Tuple of (segments, seg_labels, trial_indices)
+        Tuple of (segments, seg_labels, trial_indices, rejection_info)
         - segments: [n_segments x channels x segment_samples]
         - seg_labels: [n_segments]
         - trial_indices: [n_segments] original trial index for each segment
+        - rejection_info: dict with 'n_rejected', 'n_total', 'threshold' (or None if not applied)
     """
     # segment_size in samples at target_fs (computed early for consistent empty returns)
     segment_size = int(config.segment_length * config.target_fs)
 
     # Step 0: Trial-level amplitude rejection (training only)
     # Reject trials where max |amplitude| exceeds threshold (ignoring NaN padding)
+    rejection_info = None
     if reject_trials and config.reject_threshold > 0 and len(trials) > 0:
         n_before = len(trials)
-        keep_mask = np.ones(n_before, dtype=bool)
-        for i in range(n_before):
-            valid_data = trials[i][~np.isnan(trials[i])]
-            if valid_data.size > 0 and np.max(np.abs(valid_data)) > config.reject_threshold:
-                keep_mask[i] = False
+        # Vectorized: max |amplitude| per trial, treating NaN as 0 (NaN = padding, not real signal)
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', RuntimeWarning)  # suppress all-NaN slice warning
+            max_amp = np.nanmax(np.abs(trials), axis=(1, 2))
+        # All-NaN trials → nanmax returns nan → keep them (padding, not artifact)
+        keep_mask = np.isnan(max_amp) | (max_amp <= config.reject_threshold)
         trials = trials[keep_mask]
         labels = labels[keep_mask]
         n_rejected = n_before - len(trials)
-        if n_rejected > 0:
-            logger.info(
-                f"Trial rejection: {n_rejected}/{n_before} trials "
-                f"exceeded {config.reject_threshold:.0f} µV"
-            )
+        rejection_info = {
+            'n_rejected': n_rejected,
+            'n_total': n_before,
+            'threshold': config.reject_threshold,
+        }
         if len(trials) == 0:
             n_ch = trials.shape[1] if trials.ndim >= 2 else 0
-            return np.empty((0, n_ch, segment_size), dtype=np.float32), np.array([]), np.array([])
+            return np.empty((0, n_ch, segment_size), dtype=np.float32), np.array([]), np.array([]), rejection_info
 
     # Step 1: Sliding window at target_fs
 
@@ -670,7 +674,7 @@ def trials_to_segments(
 
     if len(segments) == 0:
         n_ch = trials.shape[1] if trials.ndim >= 2 else 0
-        return np.empty((0, n_ch, segment_size), dtype=np.float32), np.array([]), np.array([])
+        return np.empty((0, n_ch, segment_size), dtype=np.float32), np.array([]), np.array([]), rejection_info
 
     # Step 2: Bandpass filter
     segments = apply_bandpass_filter_paper(
@@ -703,7 +707,7 @@ def trials_to_segments(
         elif config.extra_normalize == 'robust':
             segments = apply_robust_normalize(segments, axis=-1)
 
-    return segments, seg_labels, trial_indices
+    return segments, seg_labels, trial_indices, rejection_info
 
 
 def _process_single_mat_file(
