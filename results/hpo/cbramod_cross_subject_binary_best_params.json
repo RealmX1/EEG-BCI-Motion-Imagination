@@ -1,0 +1,21 @@
+{
+  "study_name": "cbramod_cross_subject_binary",
+  "best_trial_number": 4,
+  "best_value": 0.9068452380952381,
+  "best_params": {
+    "backbone_lr": 0.00013353819088790598,
+    "batch_size": 256,
+    "classifier_lr_ratio": 1.623422152178822,
+    "dropout_rate": 0.36868411173731186,
+    "exploration_batch_size": 128,
+    "exploration_epochs": 3,
+    "gradient_clip": 1.3632755555559435,
+    "label_smoothing": 0.2848747353910473,
+    "phase_decay": 0.4989499894055425,
+    "phase_epochs": 10,
+    "weight_decay": 0.12958827716950871
+  },
+  "n_trials": 77,
+  "n_complete": 43,
+  "n_pruned": 6
+}
