@@ -138,6 +138,7 @@ def load_multi_subject_data(
         cache_only=cache_only,
         cache_index_path=cache_index_path,
     )
+    log_data.info(f"Train data: {len(subjects)} subjects, {len(train_dataset)} segs")
 
     # Load test data for each subject separately (for per-subject evaluation)
     test_datasets = {}
@@ -155,6 +156,9 @@ def load_multi_subject_data(
         )
         if len(test_ds) > 0:
             test_datasets[subject_id] = test_ds
+
+    total_test_segs = sum(len(ds) for ds in test_datasets.values())
+    log_data.info(f"Test data: {len(test_datasets)} subjects, {total_test_segs} segs total")
 
     return train_dataset, test_datasets
 

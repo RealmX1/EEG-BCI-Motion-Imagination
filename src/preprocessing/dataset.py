@@ -270,7 +270,7 @@ class FingerEEGDataset(Dataset):
 
             files_to_process.append((virtual_mat_path, session_info, needs_processing, is_offline))
 
-        logger.info(f"Cache-only mode: Found {len(files_to_process)} cached files for {len(self.subjects)} subjects")
+        logger.debug(f"Cache-only mode: Found {len(files_to_process)} cached files for {len(self.subjects)} subjects")
 
         return files_to_process
 
@@ -439,7 +439,7 @@ class FingerEEGDataset(Dataset):
 
         # Log summary
         log_load.debug(f"Load time: {format_time(total_time)} ({n_cache_hits} hits, {n_cache_misses} miss, {self.parallel_workers}w)")
-        log_load.info(f"Loaded {len(self.trials)} segs (cache: {'hit' if n_cache_misses == 0 else 'partial'})")
+        log_load.debug(f"Loaded {len(self.trials)} segs (cache: {'hit' if n_cache_misses == 0 else 'partial'})")
 
         # Log trial rejection summary (once, not per-file)
         if self._rejection_total > 0:

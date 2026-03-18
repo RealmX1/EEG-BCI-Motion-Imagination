@@ -432,7 +432,7 @@ class PreprocessingCache:
         """Clear in-memory cache."""
         self._memory_cache.clear()
         self._memory_cache_size = 0
-        logger.info("Memory cache cleared")
+        logger.debug("Memory cache cleared")
 
     def preload_to_memory(
         self,

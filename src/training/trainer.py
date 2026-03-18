@@ -782,6 +782,8 @@ class WithinSubjectTrainer:
             if epoch < exploration_epochs:
                 current_train_loader = train_loader  # Small batch (exploration)
             else:
+                if epoch == exploration_epochs:
+                    torch.cuda.empty_cache()  # release cached blocks before batch size increase
                 current_train_loader = main_train_loader  # Normal batch (main)
 
             # Train (profile only first epoch to diagnose bottlenecks)
