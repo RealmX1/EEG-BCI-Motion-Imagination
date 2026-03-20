@@ -77,14 +77,14 @@ SCHEDULER_PRESETS: Dict[str, Dict[str, Any]] = {
     'cosine_annealing_warmup_decay': {
         # 多阶段余弦，每阶段带 LR ramp-up + cosine decay
         'epochs': 50,
-        # CAWD-specific parameters
-        'phase_epochs': 6,              # Epochs per cosine decay phase
-        'phase_decay': 0.7,             # Peak LR decay between phases (100% → 70% → 49%...)
+        # CAWD-specific parameters (HPO-optimized for within-subject)
+        'phase_epochs': 8,              # 6→8 (HPO within)
+        'phase_decay': 0.47,            # 0.7→0.47 (HPO within: 0.468)
         'lr_ramp_ratio': 0.1,           # Fraction of each phase for LR ramp-up (10%)
         'eta_min': 1e-6,                # Minimum learning rate
         # Exploration phase (small batch for loss landscape exploration)
-        'exploration_epochs': 6,        # Epochs with small batch size
-        'exploration_batch_size': 32,   # Batch size during exploration
+        'exploration_epochs': 4,        # 6→4 (HPO within)
+        'exploration_batch_size': 64,   # 32→64 (HPO within)
     },
 }
 
@@ -170,18 +170,19 @@ def get_default_config(model_type: str, task: str, n_channels: int = None) -> di
             'model': {
                 'name': 'CBraMod',
                 'classifier_type': 'two_layer',
-                'dropout_rate': 0.15,  # Slightly higher than v1 (0.1) for mild regularization
+                'dropout_rate': 0.10,  # HPO within: 0.098, rounded to 0.10
                 'freeze_backbone': False,
             },
             'training': {
                 'scheduler': default_scheduler,
                 'epochs': SCHEDULER_PRESETS[default_scheduler]['epochs'],
-                'batch_size': 128,
-                'learning_rate': 1e-4,  # Restored to v1 value - crucial for hard subjects
-                'backbone_lr': 1e-4,
-                'classifier_lr': 3e-4,  # 3x backbone
-                'weight_decay': 0.06,  # Slightly higher than v1 (0.05)
-                'label_smoothing': 0.05,
+                'batch_size': 256,       # 128→256 (HPO within)
+                'learning_rate': 2.9e-4, # 1e-4→2.9e-4 (HPO within: 2.87e-4)
+                'backbone_lr': 2.9e-4,   # = learning_rate (HPO within)
+                'classifier_lr': 1.2e-3, # backbone×4.03=1.16e-3, rounded (HPO within)
+                'weight_decay': 0.026,   # 0.06→0.026 (HPO within: 0.0264)
+                'label_smoothing': 0.05, # Keep original (HPO suggested 0.09)
+                'gradient_clip': 0.73,   # New (HPO within: 0.729)
             },
             'data': {},
             'tasks': tasks,
@@ -191,19 +192,19 @@ def get_default_config(model_type: str, task: str, n_channels: int = None) -> di
         default_scheduler = 'plateau'
         config = {
             'model': {
-                'name': 'EEGNet-8,2',
-                'F1': 8,
-                'D': 2,
-                'F2': 16,
+                'name': 'EEGNet-16,4',  # HPO within: F1=16, D=4
+                'F1': 16,               # 8→16 (HPO within)
+                'D': 4,                 # 2→4 (HPO within)
+                'F2': 64,               # F1×D=64 (HPO within)
                 'kernel_length': 64,
-                'dropout_rate': 0.5,
+                'dropout_rate': 0.27,   # 0.5→0.27 (HPO within: 0.271)
             },
             'training': {
                 'scheduler': default_scheduler,
                 'epochs': SCHEDULER_PRESETS[default_scheduler]['epochs'],
                 'batch_size': 64,
-                'learning_rate': 1e-3,
-                'weight_decay': 0,
+                'learning_rate': 4e-3,  # 1e-3→4e-3 (HPO within: 3.98e-3)
+                'weight_decay': 1e-5,   # 0→1e-5 (HPO within: 1.09e-5)
             },
             'data': {},
             'tasks': tasks,
@@ -375,10 +376,10 @@ def load_yaml_config(yaml_path: str) -> dict:
 # the different optimization landscape (more data, higher overfitting risk)
 CROSS_SUBJECT_SCHEDULER_OVERRIDES: Dict[str, Dict[str, Any]] = {
     'cosine_annealing_warmup_decay': {
-        'phase_epochs': 6,             # 较短周期，频繁重启帮助跳出局部最优
-        'phase_decay': 0.5,             # 0.7→0.5, 更激进的峰值衰减抑制过拟合
-        'exploration_epochs': 6,        # 保持不变
-        'exploration_batch_size': 64,   # 32→64, 多被试数据更稳定的梯度估计
+        'phase_epochs': 10,             # 6→10 (HPO cross)
+        'phase_decay': 0.50,            # 0.50 (HPO cross: 0.499, essentially unchanged)
+        'exploration_epochs': 3,        # 6→3 (HPO cross)
+        'exploration_batch_size': 128,  # 64→128 (HPO cross)
     },
 }
 
@@ -417,23 +418,30 @@ def get_cross_subject_config(model_type: str, task: str, n_channels: int = None)
     config = get_default_config(model_type, task)
 
     if model_type == 'cbramod':
-        config['model']['dropout_rate'] = 0.35          # 跨被试过拟合风险高，需要较高 dropout
+        config['model']['dropout_rate'] = 0.37          # HPO cross: 0.369, rounded
         config['training'].update({
-            'epochs': 100,                               # 与 within-subject 相同，靠 early stopping
-            'batch_size': 256,                           # 2x within-subject
-            'learning_rate': 5e-5,                       # 1e-4→5e-5
-            'backbone_lr': 1e-4,                         # 与 within-subject 同步
-            'classifier_lr': 1.5e-4,                     # 3x backbone
-            'weight_decay': 0.12,                        # 0.06→0.12, 跨被试正则更强
-            'label_smoothing': 0.15,                     # 0.05→0.15, 跨被试标签噪声更大
-            'gradient_clip': 0.5,                        # 1.0→0.5, 跨被试梯度方差更大
+            'epochs': 100,                               # (unchanged)
+            'batch_size': 256,                           # (unchanged)
+            'learning_rate': 1.3e-4,                     # 5e-5→1.3e-4 (HPO cross: 1.335e-4)
+            'backbone_lr': 1.3e-4,                       # = learning_rate (HPO cross)
+            'classifier_lr': 2.2e-4,                     # backbone×1.62=2.17e-4 (HPO cross)
+            'weight_decay': 0.13,                        # 0.12→0.13 (HPO cross: 0.130)
+            'label_smoothing': 0.05,                     # Keep conservative (HPO suggested 0.28)
+            'gradient_clip': 1.4,                        # 0.5→1.4 (HPO cross: 1.363)
         })
     else:  # eegnet
+        config['model'].update({
+            'F1': 16,                                    # HPO within: capacity is biggest lever
+            'D': 4,                                      # HPO within
+            'F2': 64,                                    # F1×D
+            'dropout_rate': 0.35,                        # Lower than old 0.5, higher than within 0.27
+        })
+        config['model']['name'] = 'EEGNet-16,4'         # Update name to match architecture
         config['training'].update({
-            'epochs': 50,                                # 30→50, 更多数据可以训练更久
-            'batch_size': 128,                           # 2x within-subject
-            'learning_rate': 5e-4,                       # 1e-3→5e-4
-            'weight_decay': 1e-4,                        # 0→1e-4, 轻微正则
+            'epochs': 50,                                # (unchanged)
+            'batch_size': 128,                           # (unchanged)
+            'learning_rate': 1e-3,                       # Between within HPO (4e-3) and old (5e-4)
+            'weight_decay': 1e-4,                        # (unchanged)
         })
 
     # Apply reduced-channel cross-subject presets for CBraMod

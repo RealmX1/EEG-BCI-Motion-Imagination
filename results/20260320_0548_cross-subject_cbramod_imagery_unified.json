@@ -1,0 +1,468 @@
+{
+  "metadata": {
+    "type": "cross-subject",
+    "model_type": "cbramod",
+    "paradigm": "imagery",
+    "task": "unified",
+    "subjects": [
+      "S01",
+      "S02",
+      "S03",
+      "S04",
+      "S05",
+      "S06",
+      "S07",
+      "S08",
+      "S09",
+      "S10",
+      "S11",
+      "S12",
+      "S13",
+      "S14",
+      "S15",
+      "S16",
+      "S17",
+      "S18",
+      "S19",
+      "S20",
+      "S21"
+    ],
+    "n_subjects": 21,
+    "n_channels": 128,
+    "channel_config": null,
+    "run_tag": "20260320_0548",
+    "timestamp": "2026-03-20T09:53:36.263482",
+    "preprocessing_version": "v2.0"
+  },
+  "results": {
+    "per_subject_test_acc": {
+      "S01": 0.6605024968789014,
+      "S02": 0.7386574074074074,
+      "S03": 0.7804697253433209,
+      "S04": 0.7696486928104574,
+      "S05": 0.6620248538011696,
+      "S06": 0.7091540404040404,
+      "S07": 0.6561875780274656,
+      "S08": 0.6919007490636705,
+      "S09": 0.8044540229885057,
+      "S10": 0.5096807628524046,
+      "S11": 0.6633928571428571,
+      "S12": 0.6381944444444444,
+      "S13": 0.6959770114942528,
+      "S14": 0.6402538314176246,
+      "S15": 0.6793859649122806,
+      "S16": 0.6333333333333333,
+      "S17": 0.7352355072463768,
+      "S18": 0.6841312056737588,
+      "S19": 0.8950133868808567,
+      "S20": 0.5,
+      "S21": 0.56875
+    },
+    "mean_test_acc": 0.6817308510534824,
+    "std_test_acc": 0.08954386560369695,
+    "best_val_acc": 0.5458209707216033,
+    "best_epoch": 17
+  },
+  "training_info": {
+    "training_time": 4871.1670742999995,
+    "model_path": "checkpoints\\cross_subject\\20260320_0548_cbramod_imagery_unified\\best.pt"
+  },
+  "subtask_results": {
+    "binary": {
+      "accuracy": 0.8934523809523811,
+      "std": 0.09436260543167974,
+      "n_subjects": 21
+    },
+    "ternary": {
+      "accuracy": 0.6863095238095237,
+      "std": 0.10847169779009806,
+      "n_subjects": 21
+    },
+    "quaternary": {
+      "accuracy": 0.4654306483985423,
+      "std": 0.11493858648914407,
+      "n_subjects": 21
+    },
+    "mean_accuracy": 0.6817308510534824,
+    "per_subject": {
+      "S01": {
+        "binary": {
+          "accuracy": 0.9125,
+          "n_trials": 160,
+          "n_segments": 652
+        },
+        "ternary": {
+          "accuracy": 0.6083333333333333,
+          "n_trials": 240,
+          "n_segments": 983
+        },
+        "quaternary": {
+          "accuracy": 0.4606741573033708,
+          "n_trials": 89,
+          "n_segments": 801
+        },
+        "mean_accuracy": 0.6605024968789014
+      },
+      "S02": {
+        "binary": {
+          "accuracy": 0.94375,
+          "n_trials": 160,
+          "n_segments": 652
+        },
+        "ternary": {
+          "accuracy": 0.8833333333333333,
+          "n_trials": 240,
+          "n_segments": 980
+        },
+        "quaternary": {
+          "accuracy": 0.3888888888888889,
+          "n_trials": 90,
+          "n_segments": 810
+        },
+        "mean_accuracy": 0.7386574074074074
+      },
+      "S03": {
+        "binary": {
+          "accuracy": 0.99375,
+          "n_trials": 160,
+          "n_segments": 651
+        },
+        "ternary": {
+          "accuracy": 0.8083333333333333,
+          "n_trials": 240,
+          "n_segments": 986
+        },
+        "quaternary": {
+          "accuracy": 0.5393258426966292,
+          "n_trials": 89,
+          "n_segments": 801
+        },
+        "mean_accuracy": 0.7804697253433209
+      },
+      "S04": {
+        "binary": {
+          "accuracy": 0.98125,
+          "n_trials": 160,
+          "n_segments": 648
+        },
+        "ternary": {
+          "accuracy": 0.7541666666666667,
+          "n_trials": 240,
+          "n_segments": 978
+        },
+        "quaternary": {
+          "accuracy": 0.5735294117647058,
+          "n_trials": 68,
+          "n_segments": 612
+        },
+        "mean_accuracy": 0.7696486928104574
+      },
+      "S05": {
+        "binary": {
+          "accuracy": 0.93125,
+          "n_trials": 160,
+          "n_segments": 655
+        },
+        "ternary": {
+          "accuracy": 0.5916666666666667,
+          "n_trials": 240,
+          "n_segments": 972
+        },
+        "quaternary": {
+          "accuracy": 0.4631578947368421,
+          "n_trials": 95,
+          "n_segments": 855
+        },
+        "mean_accuracy": 0.6620248538011696
+      },
+      "S06": {
+        "binary": {
+          "accuracy": 0.84375,
+          "n_trials": 160,
+          "n_segments": 654
+        },
+        "ternary": {
+          "accuracy": 0.8291666666666667,
+          "n_trials": 240,
+          "n_segments": 977
+        },
+        "quaternary": {
+          "accuracy": 0.45454545454545453,
+          "n_trials": 44,
+          "n_segments": 396
+        },
+        "mean_accuracy": 0.7091540404040404
+      },
+      "S07": {
+        "binary": {
+          "accuracy": 0.85625,
+          "n_trials": 160,
+          "n_segments": 654
+        },
+        "ternary": {
+          "accuracy": 0.6291666666666667,
+          "n_trials": 240,
+          "n_segments": 984
+        },
+        "quaternary": {
+          "accuracy": 0.48314606741573035,
+          "n_trials": 89,
+          "n_segments": 801
+        },
+        "mean_accuracy": 0.6561875780274656
+      },
+      "S08": {
+        "binary": {
+          "accuracy": 0.925,
+          "n_trials": 160,
+          "n_segments": 651
+        },
+        "ternary": {
+          "accuracy": 0.7125,
+          "n_trials": 240,
+          "n_segments": 979
+        },
+        "quaternary": {
+          "accuracy": 0.43820224719101125,
+          "n_trials": 89,
+          "n_segments": 801
+        },
+        "mean_accuracy": 0.6919007490636705
+      },
+      "S09": {
+        "binary": {
+          "accuracy": 0.9875,
+          "n_trials": 160,
+          "n_segments": 650
+        },
+        "ternary": {
+          "accuracy": 0.8166666666666667,
+          "n_trials": 240,
+          "n_segments": 979
+        },
+        "quaternary": {
+          "accuracy": 0.6091954022988506,
+          "n_trials": 87,
+          "n_segments": 783
+        },
+        "mean_accuracy": 0.8044540229885057
+      },
+      "S10": {
+        "binary": {
+          "accuracy": 0.6625,
+          "n_trials": 160,
+          "n_segments": 654
+        },
+        "ternary": {
+          "accuracy": 0.5083333333333333,
+          "n_trials": 240,
+          "n_segments": 979
+        },
+        "quaternary": {
+          "accuracy": 0.3582089552238806,
+          "n_trials": 67,
+          "n_segments": 603
+        },
+        "mean_accuracy": 0.5096807628524046
+      },
+      "S11": {
+        "binary": {
+          "accuracy": 0.91875,
+          "n_trials": 160,
+          "n_segments": 651
+        },
+        "ternary": {
+          "accuracy": 0.6666666666666666,
+          "n_trials": 240,
+          "n_segments": 987
+        },
+        "quaternary": {
+          "accuracy": 0.40476190476190477,
+          "n_trials": 84,
+          "n_segments": 756
+        },
+        "mean_accuracy": 0.6633928571428571
+      },
+      "S12": {
+        "binary": {
+          "accuracy": 0.90625,
+          "n_trials": 160,
+          "n_segments": 660
+        },
+        "ternary": {
+          "accuracy": 0.6416666666666667,
+          "n_trials": 240,
+          "n_segments": 978
+        },
+        "quaternary": {
+          "accuracy": 0.36666666666666664,
+          "n_trials": 90,
+          "n_segments": 810
+        },
+        "mean_accuracy": 0.6381944444444444
+      },
+      "S13": {
+        "binary": {
+          "accuracy": 0.9375,
+          "n_trials": 160,
+          "n_segments": 644
+        },
+        "ternary": {
+          "accuracy": 0.6791666666666667,
+          "n_trials": 240,
+          "n_segments": 978
+        },
+        "quaternary": {
+          "accuracy": 0.47126436781609193,
+          "n_trials": 87,
+          "n_segments": 783
+        },
+        "mean_accuracy": 0.6959770114942528
+      },
+      "S14": {
+        "binary": {
+          "accuracy": 0.89375,
+          "n_trials": 160,
+          "n_segments": 654
+        },
+        "ternary": {
+          "accuracy": 0.7166666666666667,
+          "n_trials": 240,
+          "n_segments": 979
+        },
+        "quaternary": {
+          "accuracy": 0.3103448275862069,
+          "n_trials": 87,
+          "n_segments": 783
+        },
+        "mean_accuracy": 0.6402538314176246
+      },
+      "S15": {
+        "binary": {
+          "accuracy": 0.95,
+          "n_trials": 160,
+          "n_segments": 647
+        },
+        "ternary": {
+          "accuracy": 0.625,
+          "n_trials": 240,
+          "n_segments": 984
+        },
+        "quaternary": {
+          "accuracy": 0.4631578947368421,
+          "n_trials": 95,
+          "n_segments": 855
+        },
+        "mean_accuracy": 0.6793859649122806
+      },
+      "S16": {
+        "binary": {
+          "accuracy": 0.875,
+          "n_trials": 160,
+          "n_segments": 652
+        },
+        "ternary": {
+          "accuracy": 0.625,
+          "n_trials": 240,
+          "n_segments": 974
+        },
+        "quaternary": {
+          "accuracy": 0.4,
+          "n_trials": 95,
+          "n_segments": 855
+        },
+        "mean_accuracy": 0.6333333333333333
+      },
+      "S17": {
+        "binary": {
+          "accuracy": 0.89375,
+          "n_trials": 160,
+          "n_segments": 653
+        },
+        "ternary": {
+          "accuracy": 0.725,
+          "n_trials": 240,
+          "n_segments": 972
+        },
+        "quaternary": {
+          "accuracy": 0.5869565217391305,
+          "n_trials": 92,
+          "n_segments": 828
+        },
+        "mean_accuracy": 0.7352355072463768
+      },
+      "S18": {
+        "binary": {
+          "accuracy": 0.9375,
+          "n_trials": 160,
+          "n_segments": 650
+        },
+        "ternary": {
+          "accuracy": 0.7,
+          "n_trials": 240,
+          "n_segments": 978
+        },
+        "quaternary": {
+          "accuracy": 0.4148936170212766,
+          "n_trials": 94,
+          "n_segments": 846
+        },
+        "mean_accuracy": 0.6841312056737588
+      },
+      "S19": {
+        "binary": {
+          "accuracy": 0.9875,
+          "n_trials": 160,
+          "n_segments": 655
+        },
+        "ternary": {
+          "accuracy": 0.8541666666666666,
+          "n_trials": 240,
+          "n_segments": 970
+        },
+        "quaternary": {
+          "accuracy": 0.8433734939759037,
+          "n_trials": 83,
+          "n_segments": 747
+        },
+        "mean_accuracy": 0.8950133868808567
+      },
+      "S20": {
+        "binary": {
+          "accuracy": 0.625,
+          "n_trials": 160,
+          "n_segments": 645
+        },
+        "ternary": {
+          "accuracy": 0.475,
+          "n_trials": 240,
+          "n_segments": 973
+        },
+        "quaternary": {
+          "accuracy": 0.4,
+          "n_trials": 95,
+          "n_segments": 855
+        },
+        "mean_accuracy": 0.5
+      },
+      "S21": {
+        "binary": {
+          "accuracy": 0.8,
+          "n_trials": 160,
+          "n_segments": 654
+        },
+        "ternary": {
+          "accuracy": 0.5625,
+          "n_trials": 240,
+          "n_segments": 977
+        },
+        "quaternary": {
+          "accuracy": 0.34375,
+          "n_trials": 64,
+          "n_segments": 576
+        },
+        "mean_accuracy": 0.56875
+      }
+    }
+  }
+}

@@ -1,0 +1,1106 @@
+{
+  "metadata": {
+    "paradigm": "imagery",
+    "task": "unified",
+    "run_tag": "20260320_0243",
+    "timestamp": "2026-03-20T05:46:33.839515",
+    "n_subjects": 21,
+    "is_complete": true,
+    "preprocessing_version": "v2.0",
+    "classifier_type": "two_layer"
+  },
+  "wandb_groups": {
+    "eegnet": "eegnet_imagery_unified_20260320_0243",
+    "cbramod": "cbramod_imagery_unified_20260320_0243"
+  },
+  "last_updated": "2026-03-20T05:46:33.859756",
+  "results": {
+    "eegnet": {
+      "S01": {
+        "subject_id": "S01",
+        "task_type": "unified",
+        "model_type": "eegnet",
+        "best_val_acc": 0.4674481229209568,
+        "test_acc": 0.5485720973782772,
+        "test_acc_majority": 0.5485720973782772,
+        "epochs_trained": 30,
+        "training_time": 368.83845250000013,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.74375,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.475,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.42696629213483145,
+            "n_trials": 89
+          },
+          "mean_accuracy": 0.5485720973782772
+        }
+      },
+      "S02": {
+        "subject_id": "S02",
+        "task_type": "unified",
+        "model_type": "eegnet",
+        "best_val_acc": 0.6195106649937264,
+        "test_acc": 0.7622685185185185,
+        "test_acc_majority": 0.7622685185185185,
+        "epochs_trained": 16,
+        "training_time": 210.91134130000137,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.93125,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.8,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.5555555555555556,
+            "n_trials": 90
+          },
+          "mean_accuracy": 0.7622685185185185
+        }
+      },
+      "S03": {
+        "subject_id": "S03",
+        "task_type": "unified",
+        "model_type": "eegnet",
+        "best_val_acc": 0.6144767899291896,
+        "test_acc": 0.7225343320848939,
+        "test_acc_majority": 0.7225343320848939,
+        "epochs_trained": 19,
+        "training_time": 244.54263809999975,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.925,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.6583333333333333,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.5842696629213483,
+            "n_trials": 89
+          },
+          "mean_accuracy": 0.7225343320848939
+        }
+      },
+      "S04": {
+        "subject_id": "S04",
+        "task_type": "unified",
+        "model_type": "eegnet",
+        "best_val_acc": 0.6045654082528534,
+        "test_acc": 0.7053921568627451,
+        "test_acc_majority": 0.7053921568627451,
+        "epochs_trained": 25,
+        "training_time": 292.9434370999952,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.9125,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.7625,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.4411764705882353,
+            "n_trials": 68
+          },
+          "mean_accuracy": 0.7053921568627451
+        }
+      },
+      "S05": {
+        "subject_id": "S05",
+        "task_type": "unified",
+        "model_type": "eegnet",
+        "best_val_acc": 0.4820552147239264,
+        "test_acc": 0.706140350877193,
+        "test_acc_majority": 0.706140350877193,
+        "epochs_trained": 30,
+        "training_time": 379.427812599999,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.9625,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.5875,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.5684210526315789,
+            "n_trials": 95
+          },
+          "mean_accuracy": 0.706140350877193
+        }
+      },
+      "S06": {
+        "subject_id": "S06",
+        "task_type": "unified",
+        "model_type": "eegnet",
+        "best_val_acc": 0.6138235885071328,
+        "test_acc": 0.6506313131313132,
+        "test_acc_majority": 0.6506313131313132,
+        "epochs_trained": 24,
+        "training_time": 237.44113430001016,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.75,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.6791666666666667,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.5227272727272727,
+            "n_trials": 44
+          },
+          "mean_accuracy": 0.6506313131313132
+        }
+      },
+      "S07": {
+        "subject_id": "S07",
+        "task_type": "unified",
+        "model_type": "eegnet",
+        "best_val_acc": 0.6208418729307899,
+        "test_acc": 0.6751872659176029,
+        "test_acc_majority": 0.6751872659176029,
+        "epochs_trained": 29,
+        "training_time": 349.99471660000563,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.825,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.65,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.550561797752809,
+            "n_trials": 89
+          },
+          "mean_accuracy": 0.6751872659176029
+        }
+      },
+      "S08": {
+        "subject_id": "S08",
+        "task_type": "unified",
+        "model_type": "eegnet",
+        "best_val_acc": 0.6083095464636854,
+        "test_acc": 0.7292056803995006,
+        "test_acc_majority": 0.7292056803995006,
+        "epochs_trained": 23,
+        "training_time": 293.2103233000089,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.91875,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.6958333333333333,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.5730337078651685,
+            "n_trials": 89
+          },
+          "mean_accuracy": 0.7292056803995006
+        }
+      },
+      "S09": {
+        "subject_id": "S09",
+        "task_type": "unified",
+        "model_type": "eegnet",
+        "best_val_acc": 0.6636994837101655,
+        "test_acc": 0.7902146464646465,
+        "test_acc_majority": 0.7902146464646465,
+        "epochs_trained": 21,
+        "training_time": 248.54556949999824,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.99375,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.7291666666666666,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.6477272727272727,
+            "n_trials": 88
+          },
+          "mean_accuracy": 0.7902146464646465
+        }
+      },
+      "S10": {
+        "subject_id": "S10",
+        "task_type": "unified",
+        "model_type": "eegnet",
+        "best_val_acc": 0.49263649425287354,
+        "test_acc": 0.5513474295190713,
+        "test_acc_majority": 0.5513474295190713,
+        "epochs_trained": 16,
+        "training_time": 191.64039420000336,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.7625,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.5333333333333333,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.3582089552238806,
+            "n_trials": 67
+          },
+          "mean_accuracy": 0.5513474295190713
+        }
+      },
+      "S11": {
+        "subject_id": "S11",
+        "task_type": "unified",
+        "model_type": "eegnet",
+        "best_val_acc": 0.5499755421490299,
+        "test_acc": 0.6124591503267974,
+        "test_acc_majority": 0.6124591503267974,
+        "epochs_trained": 27,
+        "training_time": 325.60214980000455,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.78125,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.6208333333333333,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.43529411764705883,
+            "n_trials": 85
+          },
+          "mean_accuracy": 0.6124591503267974
+        }
+      },
+      "S12": {
+        "subject_id": "S12",
+        "task_type": "unified",
+        "model_type": "eegnet",
+        "best_val_acc": 0.4965266814019577,
+        "test_acc": 0.5993055555555555,
+        "test_acc_majority": 0.5993055555555555,
+        "epochs_trained": 30,
+        "training_time": 361.7001295999944,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.80625,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.5583333333333333,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.43333333333333335,
+            "n_trials": 90
+          },
+          "mean_accuracy": 0.5993055555555555
+        }
+      },
+      "S13": {
+        "subject_id": "S13",
+        "task_type": "unified",
+        "model_type": "eegnet",
+        "best_val_acc": 0.604760413404322,
+        "test_acc": 0.7433073870573871,
+        "test_acc_majority": 0.7433073870573871,
+        "epochs_trained": 21,
+        "training_time": 262.7843857000116,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.98125,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.7541666666666667,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.4945054945054945,
+            "n_trials": 91
+          },
+          "mean_accuracy": 0.7433073870573871
+        }
+      },
+      "S14": {
+        "subject_id": "S14",
+        "task_type": "unified",
+        "model_type": "eegnet",
+        "best_val_acc": 0.5260180995475113,
+        "test_acc": 0.570522030651341,
+        "test_acc_majority": 0.570522030651341,
+        "epochs_trained": 16,
+        "training_time": 209.97725110000465,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.81875,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.525,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.367816091954023,
+            "n_trials": 87
+          },
+          "mean_accuracy": 0.570522030651341
+        }
+      },
+      "S15": {
+        "subject_id": "S15",
+        "task_type": "unified",
+        "model_type": "eegnet",
+        "best_val_acc": 0.5341880341880342,
+        "test_acc": 0.6631944444444445,
+        "test_acc_majority": 0.6631944444444445,
+        "epochs_trained": 30,
+        "training_time": 396.0256273999985,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.8625,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.5958333333333333,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.53125,
+            "n_trials": 96
+          },
+          "mean_accuracy": 0.6631944444444445
+        }
+      },
+      "S16": {
+        "subject_id": "S16",
+        "task_type": "unified",
+        "model_type": "eegnet",
+        "best_val_acc": 0.4732243973467076,
+        "test_acc": 0.5069078947368421,
+        "test_acc_majority": 0.5069078947368421,
+        "epochs_trained": 17,
+        "training_time": 223.73065599999973,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.64375,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.4875,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.3894736842105263,
+            "n_trials": 95
+          },
+          "mean_accuracy": 0.5069078947368421
+        }
+      },
+      "S17": {
+        "subject_id": "S17",
+        "task_type": "unified",
+        "model_type": "eegnet",
+        "best_val_acc": 0.552285050348567,
+        "test_acc": 0.6085845153664303,
+        "test_acc_majority": 0.6085845153664303,
+        "epochs_trained": 17,
+        "training_time": 227.48137999999744,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.80625,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.5833333333333334,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.43617021276595747,
+            "n_trials": 94
+          },
+          "mean_accuracy": 0.6085845153664303
+        }
+      },
+      "S18": {
+        "subject_id": "S18",
+        "task_type": "unified",
+        "model_type": "eegnet",
+        "best_val_acc": 0.5522479668559153,
+        "test_acc": 0.6966008771929825,
+        "test_acc_majority": 0.6966008771929825,
+        "epochs_trained": 30,
+        "training_time": 392.6589544000017,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.95625,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.7125,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.42105263157894735,
+            "n_trials": 95
+          },
+          "mean_accuracy": 0.6966008771929825
+        }
+      },
+      "S19": {
+        "subject_id": "S19",
+        "task_type": "unified",
+        "model_type": "eegnet",
+        "best_val_acc": 0.7582454378034489,
+        "test_acc": 0.8004960317460318,
+        "test_acc_majority": 0.8004960317460318,
+        "epochs_trained": 30,
+        "training_time": 348.10396259999834,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.93125,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.7083333333333334,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.7619047619047619,
+            "n_trials": 84
+          },
+          "mean_accuracy": 0.8004960317460318
+        }
+      },
+      "S20": {
+        "subject_id": "S20",
+        "task_type": "unified",
+        "model_type": "eegnet",
+        "best_val_acc": 0.4190373673689067,
+        "test_acc": 0.49517543859649127,
+        "test_acc_majority": 0.49517543859649127,
+        "epochs_trained": 18,
+        "training_time": 235.21404219999386,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.65,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.425,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.4105263157894737,
+            "n_trials": 95
+          },
+          "mean_accuracy": 0.49517543859649127
+        }
+      },
+      "S21": {
+        "subject_id": "S21",
+        "task_type": "unified",
+        "model_type": "eegnet",
+        "best_val_acc": 0.46186612576064906,
+        "test_acc": 0.5566773504273504,
+        "test_acc_majority": 0.5566773504273504,
+        "epochs_trained": 22,
+        "training_time": 222.19116709999798,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.71875,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.5666666666666667,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.38461538461538464,
+            "n_trials": 65
+          },
+          "mean_accuracy": 0.5566773504273504
+        }
+      }
+    },
+    "cbramod": {
+      "S01": {
+        "subject_id": "S01",
+        "task_type": "unified",
+        "model_type": "cbramod",
+        "best_val_acc": 0.4931895573212259,
+        "test_acc": 0.6549469413233459,
+        "test_acc_majority": 0.6549469413233459,
+        "epochs_trained": 25,
+        "training_time": 211.95160839999153,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.8875,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.6166666666666667,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.4606741573033708,
+            "n_trials": 89
+          },
+          "mean_accuracy": 0.6549469413233459
+        }
+      },
+      "S02": {
+        "subject_id": "S02",
+        "task_type": "unified",
+        "model_type": "cbramod",
+        "best_val_acc": 0.6031390134529148,
+        "test_acc": 0.7664351851851853,
+        "test_acc_majority": 0.7664351851851853,
+        "epochs_trained": 21,
+        "training_time": 179.6367878000019,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.98125,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.8958333333333334,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.4222222222222222,
+            "n_trials": 90
+          },
+          "mean_accuracy": 0.7664351851851853
+        }
+      },
+      "S03": {
+        "subject_id": "S03",
+        "task_type": "unified",
+        "model_type": "cbramod",
+        "best_val_acc": 0.5595036661026509,
+        "test_acc": 0.7509051186017478,
+        "test_acc_majority": 0.7509051186017478,
+        "epochs_trained": 32,
+        "training_time": 262.07246729999315,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.9875,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.7708333333333334,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.4943820224719101,
+            "n_trials": 89
+          },
+          "mean_accuracy": 0.7509051186017478
+        }
+      },
+      "S04": {
+        "subject_id": "S04",
+        "task_type": "unified",
+        "model_type": "cbramod",
+        "best_val_acc": 0.6179987413467589,
+        "test_acc": 0.770220588235294,
+        "test_acc_majority": 0.770220588235294,
+        "epochs_trained": 28,
+        "training_time": 212.67155440000352,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.94375,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.8375,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.5294117647058824,
+            "n_trials": 68
+          },
+          "mean_accuracy": 0.770220588235294
+        }
+      },
+      "S05": {
+        "subject_id": "S05",
+        "task_type": "unified",
+        "model_type": "cbramod",
+        "best_val_acc": 0.47113798790544253,
+        "test_acc": 0.6358552631578948,
+        "test_acc_majority": 0.6358552631578948,
+        "epochs_trained": 21,
+        "training_time": 183.89880369999446,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.83125,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.55,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.5263157894736842,
+            "n_trials": 95
+          },
+          "mean_accuracy": 0.6358552631578948
+        }
+      },
+      "S06": {
+        "subject_id": "S06",
+        "task_type": "unified",
+        "model_type": "cbramod",
+        "best_val_acc": 0.5867828612926652,
+        "test_acc": 0.669760101010101,
+        "test_acc_majority": 0.669760101010101,
+        "epochs_trained": 35,
+        "training_time": 216.57265439999173,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.84375,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.7791666666666667,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.38636363636363635,
+            "n_trials": 44
+          },
+          "mean_accuracy": 0.669760101010101
+        }
+      },
+      "S07": {
+        "subject_id": "S07",
+        "task_type": "unified",
+        "model_type": "cbramod",
+        "best_val_acc": 0.5610169491525424,
+        "test_acc": 0.6510533707865168,
+        "test_acc_majority": 0.6510533707865168,
+        "epochs_trained": 25,
+        "training_time": 215.4695584000001,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.81875,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.6625,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.47191011235955055,
+            "n_trials": 89
+          },
+          "mean_accuracy": 0.6510533707865168
+        }
+      },
+      "S08": {
+        "subject_id": "S08",
+        "task_type": "unified",
+        "model_type": "cbramod",
+        "best_val_acc": 0.550056882821388,
+        "test_acc": 0.6791276529338327,
+        "test_acc_majority": 0.6791276529338327,
+        "epochs_trained": 42,
+        "training_time": 320.72766769999,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.90625,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.7041666666666667,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.42696629213483145,
+            "n_trials": 89
+          },
+          "mean_accuracy": 0.6791276529338327
+        }
+      },
+      "S09": {
+        "subject_id": "S09",
+        "task_type": "unified",
+        "model_type": "cbramod",
+        "best_val_acc": 0.6342710997442456,
+        "test_acc": 0.8005747126436781,
+        "test_acc_majority": 0.8005747126436781,
+        "epochs_trained": 29,
+        "training_time": 214.39315399999032,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.9875,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.8625,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.5517241379310345,
+            "n_trials": 87
+          },
+          "mean_accuracy": 0.8005747126436781
+        }
+      },
+      "S10": {
+        "subject_id": "S10",
+        "task_type": "unified",
+        "model_type": "cbramod",
+        "best_val_acc": 0.4306003873466753,
+        "test_acc": 0.45678897180762856,
+        "test_acc_majority": 0.45678897180762856,
+        "epochs_trained": 21,
+        "training_time": 161.810478600004,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.55625,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.4708333333333333,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.34328358208955223,
+            "n_trials": 67
+          },
+          "mean_accuracy": 0.45678897180762856
+        }
+      },
+      "S11": {
+        "subject_id": "S11",
+        "task_type": "unified",
+        "model_type": "cbramod",
+        "best_val_acc": 0.5318021201413428,
+        "test_acc": 0.6415674603174603,
+        "test_acc_majority": 0.6415674603174603,
+        "epochs_trained": 23,
+        "training_time": 188.65118369999982,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.91875,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.7083333333333334,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.2976190476190476,
+            "n_trials": 84
+          },
+          "mean_accuracy": 0.6415674603174603
+        }
+      },
+      "S12": {
+        "subject_id": "S12",
+        "task_type": "unified",
+        "model_type": "cbramod",
+        "best_val_acc": 0.49008498583569404,
+        "test_acc": 0.5888888888888889,
+        "test_acc_majority": 0.5888888888888889,
+        "epochs_trained": 25,
+        "training_time": 210.66463280000607,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.875,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.5583333333333333,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.3333333333333333,
+            "n_trials": 90
+          },
+          "mean_accuracy": 0.5888888888888889
+        }
+      },
+      "S13": {
+        "subject_id": "S13",
+        "task_type": "unified",
+        "model_type": "cbramod",
+        "best_val_acc": 0.5568445475638051,
+        "test_acc": 0.6643199233716476,
+        "test_acc_majority": 0.6643199233716476,
+        "epochs_trained": 28,
+        "training_time": 228.45796740001242,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.925,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.6541666666666667,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.41379310344827586,
+            "n_trials": 87
+          },
+          "mean_accuracy": 0.6643199233716476
+        }
+      },
+      "S14": {
+        "subject_id": "S14",
+        "task_type": "unified",
+        "model_type": "cbramod",
+        "best_val_acc": 0.5168213457076566,
+        "test_acc": 0.6782088122605364,
+        "test_acc_majority": 0.6782088122605364,
+        "epochs_trained": 21,
+        "training_time": 174.31597450000118,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.9,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.7208333333333333,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.41379310344827586,
+            "n_trials": 87
+          },
+          "mean_accuracy": 0.6782088122605364
+        }
+      },
+      "S15": {
+        "subject_id": "S15",
+        "task_type": "unified",
+        "model_type": "cbramod",
+        "best_val_acc": 0.528830313014827,
+        "test_acc": 0.6493055555555556,
+        "test_acc_majority": 0.6493055555555556,
+        "epochs_trained": 32,
+        "training_time": 272.2389950999932,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.93125,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.6166666666666667,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.4,
+            "n_trials": 95
+          },
+          "mean_accuracy": 0.6493055555555556
+        }
+      },
+      "S16": {
+        "subject_id": "S16",
+        "task_type": "unified",
+        "model_type": "cbramod",
+        "best_val_acc": 0.5187319884726225,
+        "test_acc": 0.6336988304093567,
+        "test_acc_majority": 0.6336988304093567,
+        "epochs_trained": 50,
+        "training_time": 377.25863019999815,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.875,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.7208333333333333,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.30526315789473685,
+            "n_trials": 95
+          },
+          "mean_accuracy": 0.6336988304093567
+        }
+      },
+      "S17": {
+        "subject_id": "S17",
+        "task_type": "unified",
+        "model_type": "cbramod",
+        "best_val_acc": 0.5548677546426561,
+        "test_acc": 0.7170289855072464,
+        "test_acc_majority": 0.7170289855072464,
+        "epochs_trained": 25,
+        "training_time": 209.7732157999999,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.9125,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.6625,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.5760869565217391,
+            "n_trials": 92
+          },
+          "mean_accuracy": 0.7170289855072464
+        }
+      },
+      "S18": {
+        "subject_id": "S18",
+        "task_type": "unified",
+        "model_type": "cbramod",
+        "best_val_acc": 0.5234676974047487,
+        "test_acc": 0.6646867612293145,
+        "test_acc_majority": 0.6646867612293145,
+        "epochs_trained": 25,
+        "training_time": 221.8071318000002,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.925,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.6541666666666667,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.4148936170212766,
+            "n_trials": 94
+          },
+          "mean_accuracy": 0.6646867612293145
+        }
+      },
+      "S19": {
+        "subject_id": "S19",
+        "task_type": "unified",
+        "model_type": "cbramod",
+        "best_val_acc": 0.7768996960486322,
+        "test_acc": 0.8909052878179384,
+        "test_acc_majority": 0.8909052878179384,
+        "epochs_trained": 50,
+        "training_time": 362.96065139998973,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.99375,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.8958333333333334,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.7831325301204819,
+            "n_trials": 83
+          },
+          "mean_accuracy": 0.8909052878179384
+        }
+      },
+      "S20": {
+        "subject_id": "S20",
+        "task_type": "unified",
+        "model_type": "cbramod",
+        "best_val_acc": 0.4269850083287063,
+        "test_acc": 0.4714546783625731,
+        "test_acc_majority": 0.4714546783625731,
+        "epochs_trained": 35,
+        "training_time": 281.9209089999931,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.58125,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.45416666666666666,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.37894736842105264,
+            "n_trials": 95
+          },
+          "mean_accuracy": 0.4714546783625731
+        }
+      },
+      "S21": {
+        "subject_id": "S21",
+        "task_type": "unified",
+        "model_type": "cbramod",
+        "best_val_acc": 0.49336283185840707,
+        "test_acc": 0.6267361111111112,
+        "test_acc_majority": 0.6267361111111112,
+        "epochs_trained": 22,
+        "training_time": 152.4887585999968,
+        "subtask_results": {
+          "binary": {
+            "accuracy": 0.8625,
+            "n_trials": 160
+          },
+          "ternary": {
+            "accuracy": 0.5958333333333333,
+            "n_trials": 240
+          },
+          "quaternary": {
+            "accuracy": 0.421875,
+            "n_trials": 64
+          },
+          "mean_accuracy": 0.6267361111111112
+        }
+      }
+    }
+  },
+  "summary": {
+    "eegnet": {
+      "mean": 0.6521297365359724,
+      "std": 0.08982683466877078,
+      "median": 0.6631944444444445,
+      "min": 0.49517543859649127,
+      "max": 0.8004960317460318
+    },
+    "cbramod": {
+      "mean": 0.6696413905008025,
+      "std": 0.09556712087231856,
+      "median": 0.6643199233716476,
+      "min": 0.45678897180762856,
+      "max": 0.8909052878179384
+    }
+  },
+  "comparison": {
+    "n_subjects": 21,
+    "eegnet_mean": 0.6521297365359724,
+    "eegnet_std": 0.08982683466877078,
+    "cbramod_mean": 0.6696413905008025,
+    "cbramod_std": 0.09556712087231856,
+    "difference_mean": 0.017511653964830367,
+    "difference_std": 0.06503812994387256,
+    "paired_ttest_t": 1.2041320590738644,
+    "paired_ttest_p": 0.2425963722522304,
+    "wilcoxon_stat": 87.0,
+    "wilcoxon_p": 0.3376598358154297,
+    "better_model": "cbramod",
+    "significant": false,
+    "eegnet_median": 0.6631944444444445,
+    "cbramod_median": 0.6643199233716476
+  }
+}
