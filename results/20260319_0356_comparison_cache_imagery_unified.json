@@ -1,0 +1,30 @@
+{
+  "metadata": {
+    "paradigm": "imagery",
+    "task": "unified",
+    "run_tag": "20260319_0356",
+    "timestamp": "2026-03-19T04:01:34.853999",
+    "n_subjects": null,
+    "is_complete": false,
+    "preprocessing_version": "v2.0",
+    "classifier_type": "two_layer"
+  },
+  "wandb_groups": {
+    "cbramod": "cbramod_imagery_unified_20260319_0356"
+  },
+  "last_updated": "2026-03-19T04:01:34.853999",
+  "results": {
+    "cbramod": {
+      "S01": {
+        "subject_id": "S01",
+        "task_type": "unified",
+        "model_type": "cbramod",
+        "best_val_acc": 0.49311023622047245,
+        "test_acc": 0.7340277777777778,
+        "test_acc_majority": 0.7340277777777778,
+        "epochs_trained": 22,
+        "training_time": 319.5828939000003
+      }
+    }
+  }
+}

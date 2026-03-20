@@ -62,6 +62,7 @@ from src.training.train_within_subject import (
     majority_vote_accuracy,
     create_data_loaders_from_dataset,
 )
+from src.training.evaluation import unified_model_evaluate
 from src.training.common import (
     setup_performance_optimizations,
     maybe_compile_model,
@@ -69,6 +70,7 @@ from src.training.common import (
     create_two_phase_loaders,
     apply_config_overrides,
     temporal_split_by_group,
+    temporal_split_with_offline_test,
 )
 from src.config.training import SCHEDULER_PRESETS, get_cross_subject_config
 from src.utils.device import get_device, set_seed
@@ -100,6 +102,7 @@ def load_multi_subject_data(
     elc_path: Path,
     cache_only: bool = False,
     cache_index_path: str = ".cache_index.json",
+    unified_mode: bool = False,
 ) -> Tuple[FingerEEGDataset, Dict[str, FingerEEGDataset]]:
     """
     Load data for multiple subjects.
@@ -114,11 +117,13 @@ def load_multi_subject_data(
         elc_path: Path to electrode location file
         cache_only: If True, load exclusively from cache index
         cache_index_path: Path to cache index file
+        unified_mode: If True, load all session types with relaxed n_classes filter
 
     Returns:
         Tuple of (train_dataset, test_datasets_by_subject)
         - train_dataset: Combined training data from all subjects
         - test_datasets_by_subject: Dict mapping subject_id -> test dataset
+          (empty dict for unified mode — evaluation handled separately)
     """
     # Get session folders
     train_folders = get_session_folders_for_split(paradigm, task, 'train')
@@ -137,28 +142,32 @@ def load_multi_subject_data(
         elc_path=str(elc_path),
         cache_only=cache_only,
         cache_index_path=cache_index_path,
+        unified_mode=unified_mode,
     )
     log_data.info(f"Train data: {len(subjects)} subjects, {len(train_dataset)} segs")
 
-    # Load test data for each subject separately (for per-subject evaluation)
+    # For unified mode, test data is loaded per-subtask during evaluation
     test_datasets = {}
-    for subject_id in subjects:
-        test_ds = FingerEEGDataset(
-            str(data_root),
-            [subject_id],
-            config,
-            session_folders=test_folders,
-            target_classes=target_classes,
-            elc_path=str(elc_path),
-            cache_only=cache_only,
-            cache_index_path=cache_index_path,
-            reject_trials=False,
-        )
-        if len(test_ds) > 0:
-            test_datasets[subject_id] = test_ds
+    if not unified_mode:
+        for subject_id in subjects:
+            test_ds = FingerEEGDataset(
+                str(data_root),
+                [subject_id],
+                config,
+                session_folders=test_folders,
+                target_classes=target_classes,
+                elc_path=str(elc_path),
+                cache_only=cache_only,
+                cache_index_path=cache_index_path,
+                reject_trials=False,
+            )
+            if len(test_ds) > 0:
+                test_datasets[subject_id] = test_ds
 
-    total_test_segs = sum(len(ds) for ds in test_datasets.values())
-    log_data.info(f"Test data: {len(test_datasets)} subjects, {total_test_segs} segs total")
+        total_test_segs = sum(len(ds) for ds in test_datasets.values())
+        log_data.info(f"Test data: {len(test_datasets)} subjects, {total_test_segs} segs total")
+    else:
+        log_data.info("Unified mode: test data loaded per-subtask during evaluation")
 
     return train_dataset, test_datasets
 
@@ -352,6 +361,7 @@ def train_cross_subject(
     task_config = config['tasks'][task]
     target_classes = task_config['classes']
     n_classes = task_config['n_classes']
+    is_unified = (task == 'unified')
 
     # Setup paths
     data_root_path = Path(data_root)
@@ -394,6 +404,7 @@ def train_cross_subject(
             elc_path,
             cache_only=cache_only,
             cache_index_path=cache_index_path,
+            unified_mode=is_unified,
         )
 
     if verbose >= 2:
@@ -401,15 +412,30 @@ def train_cross_subject(
         print_metric("Subjects with test data", len(test_datasets), Colors.MAGENTA)
 
     # ========== TEMPORAL SPLIT ==========
+    offline_test_indices = []
     if verbose >= 2:
-        print_section_header("Data Splitting (Temporal per Subject)")
+        split_desc = "Temporal per Subject - Offline 70/15/15 + Online 80/20" if is_unified else "Temporal per Subject"
+        print_section_header(f"Data Splitting ({split_desc})")
 
     with Timer("data_splitting", print_on_exit=(verbose >= 2)):
-        train_indices, val_indices = temporal_split_cross_subject(train_dataset)
+        if is_unified:
+            train_indices, val_indices, offline_test_indices = temporal_split_with_offline_test(
+                train_dataset, group_attr='subject_id',
+            )
+        else:
+            train_indices, val_indices = temporal_split_cross_subject(train_dataset)
+
+    # Pre-compute per-subtask val groups for unified mode
+    unified_val_groups = None
+    if is_unified:
+        from src.training.evaluation import compute_subtask_val_groups
+        unified_val_groups = compute_subtask_val_groups(train_dataset, val_indices)
 
     if verbose >= 2:
         print_metric("Train segments", len(train_indices), Colors.GREEN)
         print_metric("Val segments", len(val_indices), Colors.YELLOW)
+        if offline_test_indices:
+            print_metric("Offline test segments (quaternary)", len(offline_test_indices), Colors.MAGENTA)
 
     # ========== DATALOADER CREATION (Two-Phase) ==========
     if verbose >= 2:
@@ -503,6 +529,7 @@ def train_cross_subject(
         gradient_clip=gradient_clip,
         optimizer_type=optimizer_type,
         muon_config=muon_config,
+        unified_val_groups=unified_val_groups,
     )
 
     # ========== RESUME CHECKPOINT LOADING ==========
@@ -532,27 +559,95 @@ def train_cross_subject(
         print_section_header("Per-Subject Test Evaluation")
 
     per_subject_test_acc = {}
-    for subject_id, test_dataset in test_datasets.items():
-        test_indices = list(range(len(test_dataset)))
-        test_acc, _ = majority_vote_accuracy(
-            model, test_dataset, test_indices, device
-        )
-        per_subject_test_acc[subject_id] = test_acc
+    subtask_results_all = None
 
-        if verbose >= 1:
-            acc_color = Colors.BRIGHT_GREEN if test_acc > 0.7 else (
-                Colors.YELLOW if test_acc > 0.5 else Colors.RED
+    if is_unified:
+        # Unified mode: per-subject evaluation on each subtask with logit masking
+        per_subject_subtask = {}
+
+        for subject_id in subjects:
+            # Filter offline_test_indices for this subject
+            subj_offline_test = [
+                i for i in offline_test_indices
+                if train_dataset.trial_infos[i].subject_id == subject_id
+            ]
+
+            subj_results = unified_model_evaluate(
+                model, data_root_path, [subject_id], preprocess_config, elc_path,
+                paradigm, device, cache_only, cache_index_path,
+                train_dataset=train_dataset,
+                offline_test_indices=subj_offline_test,
             )
-            print(f"  {subject_id}: {colored(f'{test_acc:.2%}', acc_color)}")
+            per_subject_subtask[subject_id] = subj_results
+            per_subject_test_acc[subject_id] = subj_results['mean_accuracy']
 
-    # Overall test accuracy (mean across subjects)
-    if per_subject_test_acc:
-        mean_test_acc = float(np.mean(list(per_subject_test_acc.values())))
-        std_test_acc = float(np.std(list(per_subject_test_acc.values())))
+            if verbose >= 1:
+                parts = []
+                for st in ['binary', 'ternary', 'quaternary']:
+                    if st in subj_results and subj_results[st]['n_trials'] > 0:
+                        st_acc = subj_results[st]['accuracy']
+                        st_color = Colors.BRIGHT_GREEN if st_acc > 0.7 else (
+                            Colors.YELLOW if st_acc > 0.5 else Colors.RED)
+                        parts.append(f"{st[0].upper()}={colored(f'{st_acc:.2%}', st_color)}")
+                mean_acc_s = subj_results['mean_accuracy']
+                mean_color = Colors.BRIGHT_GREEN if mean_acc_s > 0.7 else (
+                    Colors.YELLOW if mean_acc_s > 0.5 else Colors.RED)
+                print(f"  {subject_id}: {' | '.join(parts)} "
+                      f"(mean={colored(f'{mean_acc_s:.2%}', mean_color)})")
+
+        # Aggregate subtask results across subjects
+        subtask_results_all = {'per_subject': per_subject_subtask}
+        for st in ['binary', 'ternary', 'quaternary']:
+            st_accs = [
+                r[st]['accuracy'] for r in per_subject_subtask.values()
+                if st in r and r[st].get('n_trials', 0) > 0
+            ]
+            subtask_results_all[st] = {
+                'accuracy': float(np.mean(st_accs)) if st_accs else 0.0,
+                'std': float(np.std(st_accs)) if st_accs else 0.0,
+                'n_subjects': len(st_accs),
+            }
+        subtask_results_all['mean_accuracy'] = float(np.mean(list(per_subject_test_acc.values()))) if per_subject_test_acc else 0.0
+
+        mean_test_acc = subtask_results_all['mean_accuracy']
+        std_test_acc = float(np.std(list(per_subject_test_acc.values()))) if per_subject_test_acc else 0.0
+
+        # Print per-subtask summary
+        if verbose >= 1:
+            print()
+            for st in ['binary', 'ternary', 'quaternary']:
+                sr = subtask_results_all[st]
+                if sr['n_subjects'] > 0:
+                    st_color = Colors.BRIGHT_GREEN if sr['accuracy'] > 0.7 else (
+                        Colors.YELLOW if sr['accuracy'] > 0.5 else Colors.RED)
+                    suffix = " (held-out offline)" if st == 'quaternary' else ""
+                    st_mean = sr['accuracy']
+                    st_std = sr['std']
+                    st_n = sr['n_subjects']
+                    print(f"  {st}: {colored(f'{st_mean:.2%} +/- {st_std:.2%}', st_color)} "
+                          f"({st_n} subjects{suffix})")
     else:
-        mean_test_acc = 0.0
-        std_test_acc = 0.0
-        log_train.warning("No test data available for any subject - mean/std set to 0")
+        for subject_id, test_dataset in test_datasets.items():
+            test_indices = list(range(len(test_dataset)))
+            test_acc, _ = majority_vote_accuracy(
+                model, test_dataset, test_indices, device
+            )
+            per_subject_test_acc[subject_id] = test_acc
+
+            if verbose >= 1:
+                acc_color = Colors.BRIGHT_GREEN if test_acc > 0.7 else (
+                    Colors.YELLOW if test_acc > 0.5 else Colors.RED
+                )
+                print(f"  {subject_id}: {colored(f'{test_acc:.2%}', acc_color)}")
+
+        # Overall test accuracy (mean across subjects)
+        if per_subject_test_acc:
+            mean_test_acc = float(np.mean(list(per_subject_test_acc.values())))
+            std_test_acc = float(np.std(list(per_subject_test_acc.values())))
+        else:
+            mean_test_acc = 0.0
+            std_test_acc = 0.0
+            log_train.warning("No test data available for any subject - mean/std set to 0")
 
     if verbose >= 1:
         print(f"\n  {colored('Mean Test Accuracy:', Colors.WHITE, bold=True)} "
@@ -641,6 +736,7 @@ def train_cross_subject(
         'training_time': total_time,
         'history': history,
         'n_channels': n_channels,
+        'subtask_results': subtask_results_all,  # Non-None only for unified mode
     }
 
 

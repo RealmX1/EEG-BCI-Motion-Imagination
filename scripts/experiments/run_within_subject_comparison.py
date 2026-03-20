@@ -71,6 +71,7 @@ from src.results import (
     load_comparison_results,
 )
 from src.visualization import generate_combined_plot, generate_comparison_plot
+from src.visualization.comparison import plot_unified_comparison
 from src.training.train_within_subject import (
     SCHEDULER_PRESETS,
     visualize_lr_schedule,
@@ -177,7 +178,7 @@ Examples:
     )
     parser.add_argument(
         '--task', type=str, default='binary',
-        choices=['binary', 'ternary', 'quaternary'],
+        choices=['binary', 'ternary', 'quaternary', 'unified'],
         help='Classification task (default: binary)'
     )
     parser.add_argument(
@@ -491,64 +492,115 @@ Examples:
 
     # Generate plots by default (unless --no-plot is specified)
     if not args.no_plot:
-        # Query DB for historical comparison data
-        subjects_set = set(
-            r.subject_id for model_results in results.values() for r in model_results
-        )
+        # Unified task: use plot_unified_comparison with per-subtask breakdown
+        if args.task == 'unified':
+            unified_plot_data = {}
+            for model_type, model_results in results.items():
+                per_subject = {}
+                for r in model_results:
+                    if r.subtask_results:
+                        per_subject[r.subject_id] = {}
+                        for st in ('binary', 'ternary', 'quaternary'):
+                            if st in r.subtask_results and isinstance(r.subtask_results[st], dict):
+                                per_subject[r.subject_id][st] = r.subtask_results[st]
 
-        channel_config_filter = args.channel_config if args.channels != FULL_N_CHANNELS else None
-        historical = db.find_historical_comparison(
-            paradigm=args.paradigm,
-            task=args.task,
-            n_channels=args.channels,
-            channel_config=channel_config_filter,
-            subjects=subjects_set if subjects_set else None,
-            exclude_run_id=db_run_id,
-        )
+                # Aggregate subtask means
+                import numpy as np
+                subtask_results = {}
+                for st in ('binary', 'ternary', 'quaternary'):
+                    accs = [
+                        per_subject[s][st]['accuracy']
+                        for s in per_subject
+                        if st in per_subject[s] and per_subject[s][st].get('n_trials', 0) > 0
+                    ]
+                    subtask_results[st] = {
+                        'accuracy': float(np.mean(accs)) if accs else 0,
+                        'std': float(np.std(accs)) if accs else 0,
+                        'n_subjects': len(accs),
+                    }
+                all_means = [r.test_acc_majority for r in model_results]
+                subtask_results['mean_accuracy'] = float(np.mean(all_means)) if all_means else 0
 
-        data_sources = []
-        if historical:
-            # Add historical data sources (hatched bars)
-            for model_type in ['eegnet', 'cbramod']:
-                hist_results = historical.get(model_type, [])
-                if hist_results:
-                    data_sources.append(PlotDataSource(
-                        model_type=model_type,
-                        results=hist_results,
-                        is_current_run=False,
-                        label=f'{model_type.upper()} (hist)',
-                    ))
+                unified_plot_data[model_type] = {
+                    'subtask_results': subtask_results,
+                    'per_subject': per_subject,
+                }
 
-        # Add current run data sources
-        for model_type in ['eegnet', 'cbramod']:
-            current = results.get(model_type, [])
-            if current:
-                filtered = [r for r in current if r.subject_id in subjects_set]
-                if filtered:
-                    data_sources.append(PlotDataSource(
-                        model_type=model_type,
-                        results=filtered,
-                        is_current_run=True,
-                        label=model_type.upper(),
-                    ))
-
-        if len(data_sources) >= 2:
-            log_io.info("Generating combined plot with historical comparison")
-            plot_filename = generate_result_filename('combined', args.paradigm, args.task, 'png', run_tag)
-            plot_path = Path(args.output_dir) / plot_filename
-            generate_combined_plot(
-                data_sources=data_sources,
-                output_path=str(plot_path),
-                task_type=args.task,
-                paradigm=args.paradigm,
-            )
-        elif comparison:
-            # No historical data but have complete two-model comparison
-            plot_filename = generate_result_filename('comparison', args.paradigm, args.task, 'png', run_tag)
-            plot_path = Path(args.output_dir) / plot_filename
-            generate_comparison_plot(results, comparison, str(plot_path), task_type=args.task)
+            if unified_plot_data:
+                plot_filename = generate_result_filename('unified_comparison', args.paradigm, args.task, 'png', run_tag)
+                plot_path = Path(args.output_dir) / plot_filename
+                n_subj = len(set(r.subject_id for mrs in results.values() for r in mrs))
+                fig = plot_unified_comparison(
+                    results=unified_plot_data,
+                    save_path=str(plot_path),
+                    title=f"Unified Model — Within-Subject Comparison ({args.paradigm.capitalize()}, {n_subj} Subjects)",
+                )
+                if fig:
+                    import matplotlib.pyplot as plt
+                    plt.close(fig)
+                    log_io.info(f"Unified comparison plot saved: {plot_path}")
+            else:
+                log_io.info("No subtask data available for unified plot")
         else:
-            log_io.info("No historical data found and insufficient models for comparison plot")
+            # Non-unified: standard combined/comparison plot
+            # Query DB for historical comparison data
+            subjects_set = set(
+                r.subject_id for model_results in results.values() for r in model_results
+            )
+
+            channel_config_filter = args.channel_config if args.channels != FULL_N_CHANNELS else None
+            historical = db.find_historical_comparison(
+                paradigm=args.paradigm,
+                task=args.task,
+                n_channels=args.channels,
+                channel_config=channel_config_filter,
+                subjects=subjects_set if subjects_set else None,
+                exclude_run_id=db_run_id,
+            )
+
+            data_sources = []
+            if historical:
+                # Add historical data sources (hatched bars)
+                for model_type in ['eegnet', 'cbramod']:
+                    hist_results = historical.get(model_type, [])
+                    if hist_results:
+                        data_sources.append(PlotDataSource(
+                            model_type=model_type,
+                            results=hist_results,
+                            is_current_run=False,
+                            label=f'{model_type.upper()} (hist)',
+                        ))
+
+            # Add current run data sources
+            for model_type in ['eegnet', 'cbramod']:
+                current = results.get(model_type, [])
+                if current:
+                    filtered = [r for r in current if r.subject_id in subjects_set]
+                    if filtered:
+                        data_sources.append(PlotDataSource(
+                            model_type=model_type,
+                            results=filtered,
+                            is_current_run=True,
+                            label=model_type.upper(),
+                        ))
+
+            if len(data_sources) >= 2:
+                log_io.info("Generating combined plot with historical comparison")
+                plot_filename = generate_result_filename('combined', args.paradigm, args.task, 'png', run_tag)
+                plot_path = Path(args.output_dir) / plot_filename
+                generate_combined_plot(
+                    data_sources=data_sources,
+                    output_path=str(plot_path),
+                    task_type=args.task,
+                    paradigm=args.paradigm,
+                )
+            elif comparison:
+                # No historical data but have complete two-model comparison
+                plot_filename = generate_result_filename('comparison', args.paradigm, args.task, 'png', run_tag)
+                plot_path = Path(args.output_dir) / plot_filename
+                generate_comparison_plot(results, comparison, str(plot_path), task_type=args.task)
+            else:
+                log_io.info("No historical data found and insufficient models for comparison plot")
 
     # Mark DB run complete
     if db_run_id:

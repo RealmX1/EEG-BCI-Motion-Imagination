@@ -15,6 +15,7 @@ CHANCE_LEVELS: Dict[str, float] = {
     'binary': 0.5,
     'ternary': 1/3,
     'quaternary': 0.25,
+    'unified': (0.5 + 1/3 + 0.25) / 3,  # Mean of subtask chance levels
 }
 
 

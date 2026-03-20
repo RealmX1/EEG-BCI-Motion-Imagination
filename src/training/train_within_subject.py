@@ -102,7 +102,7 @@ from .schedulers import (
     CosineAnnealingWarmupDecay,
     visualize_lr_schedule,
 )
-from .evaluation import majority_vote_accuracy
+from .evaluation import majority_vote_accuracy, unified_model_evaluate
 from .trainer import WithinSubjectTrainer
 from .common import (
     setup_performance_optimizations,
@@ -110,6 +110,7 @@ from .common import (
     get_scheduler_config_from_preset,
     apply_config_overrides,
     temporal_split_by_group,
+    temporal_split_with_offline_test,
 )
 
 # Re-exports from src.config.training
@@ -139,6 +140,7 @@ def load_subject_data(
     cache_only: bool = False,
     cache_index_path: str = ".cache_index.json",
     reject_trials: bool = True,
+    unified_mode: bool = False,
 ) -> FingerEEGDataset:
     """
     Load data for a single subject using session folder filtering.
@@ -154,6 +156,8 @@ def load_subject_data(
         cache_index_path: Path to cache index file (default: '.cache_index.json')
         reject_trials: If True (default), apply amplitude-based trial rejection.
             Set False for test datasets.
+        unified_mode: If True, relax n_classes filter to load 2class + 3class
+            + offline data together. (default: False)
 
     Returns:
         FingerEEGDataset instance
@@ -168,6 +172,7 @@ def load_subject_data(
         cache_only=cache_only,
         cache_index_path=cache_index_path,
         reject_trials=reject_trials,
+        unified_mode=unified_mode,
     )
     return dataset
 
@@ -352,6 +357,7 @@ def train_single_subject(
     task_config = config['tasks'][config['task']]
     target_classes = task_config['classes']
     n_classes = task_config['n_classes']
+    is_unified = (config['task'] == 'unified')
 
     # Get session folders for paper protocol
     task_patterns = get_task_type_patterns(config['task'], n_classes, paradigm)
@@ -403,6 +409,7 @@ def train_single_subject(
             elc_path=elc_path,
             cache_only=cache_only,
             cache_index_path=cache_index_path,
+            unified_mode=is_unified,
         )
 
     if len(train_dataset) == 0:
@@ -428,59 +435,81 @@ def train_single_subject(
             print_metric("Cache", "disabled", Colors.DIM)
 
     # Load TEST data (Session 2 Finetune - completely held out)
-    if verbose >= 2:
-        print(colored("\n  Loading test data (Session 2 Finetune)...", Colors.DIM))
-    with Timer("test_data_loading", print_on_exit=(verbose >= 2)):
-        test_dataset = load_subject_data(
-            data_root, subject_id,
-            session_folders=task_patterns['test'],
-            target_classes=target_classes,
-            config=preprocess_config,
-            elc_path=elc_path,
-            cache_only=cache_only,
-            cache_index_path=cache_index_path,
-            reject_trials=False,
-        )
-
-    if len(test_dataset) == 0:
+    # For unified mode, test data is loaded per-subtask during evaluation
+    test_dataset = None
+    if not is_unified:
         if verbose >= 2:
-            print(colored(f"  WARNING: No test data found for subject {subject_id}", Colors.YELLOW))
+            print(colored("\n  Loading test data (Session 2 Finetune)...", Colors.DIM))
+        with Timer("test_data_loading", print_on_exit=(verbose >= 2)):
+            test_dataset = load_subject_data(
+                data_root, subject_id,
+                session_folders=task_patterns['test'],
+                target_classes=target_classes,
+                config=preprocess_config,
+                elc_path=elc_path,
+                cache_only=cache_only,
+                cache_index_path=cache_index_path,
+                reject_trials=False,
+            )
 
-    if verbose >= 2:
-        print_metric("Test segments", len(test_dataset) if test_dataset else 0, Colors.MAGENTA)
-        # Show test data cache status
-        if test_dataset and test_dataset.cache:
-            hits = getattr(test_dataset, 'n_cache_hits', 0)
-            misses = getattr(test_dataset, 'n_cache_misses', 0)
-            if misses == 0 and hits > 0:
-                cache_status = f"hit ({hits} files)"
-            elif hits == 0 and misses > 0:
-                cache_status = f"miss ({misses} files)"
-            elif hits > 0 and misses > 0:
-                cache_status = f"partial ({hits} hit, {misses} miss)"
-            else:
-                cache_status = "enabled"
-            print_metric("Cache", cache_status, Colors.GREEN)
+        if len(test_dataset) == 0:
+            if verbose >= 2:
+                print(colored(f"  WARNING: No test data found for subject {subject_id}", Colors.YELLOW))
+
+        if verbose >= 2:
+            print_metric("Test segments", len(test_dataset) if test_dataset else 0, Colors.MAGENTA)
+            # Show test data cache status
+            if test_dataset and test_dataset.cache:
+                hits = getattr(test_dataset, 'n_cache_hits', 0)
+                misses = getattr(test_dataset, 'n_cache_misses', 0)
+                if misses == 0 and hits > 0:
+                    cache_status = f"hit ({hits} files)"
+                elif hits == 0 and misses > 0:
+                    cache_status = f"miss ({misses} files)"
+                elif hits > 0 and misses > 0:
+                    cache_status = f"partial ({hits} hit, {misses} miss)"
+                else:
+                    cache_status = "enabled"
+                print_metric("Cache", cache_status, Colors.GREEN)
+    else:
+        if verbose >= 2:
+            print(colored("\n  Test data: per-subtask evaluation (unified mode)", Colors.CYAN))
 
     # ========== DATA SPLITTING (Temporal) ==========
+    offline_test_indices = []
     if verbose >= 2:
-        print_section_header("Data Splitting (Temporal - Last 20% for Validation)")
+        split_desc = "Temporal - Offline 70/15/15 + Online 80/20" if is_unified else "Temporal - Last 20% for Validation"
+        print_section_header(f"Data Splitting ({split_desc})")
 
     with Timer("data_splitting", print_on_exit=(verbose >= 2)):
         if verbose >= 2:
             n_trials = len(train_dataset.get_unique_trials())
             print_metric("Total training trials", n_trials, Colors.CYAN)
 
-        # Stratified temporal split: split within each session to ensure
-        # similar distributions (prevents validation set from being 100%
-        # one session type).
-        train_indices, val_indices = temporal_split_by_group(
-            train_dataset, group_attr='session_type', val_ratio=0.2,
-        )
+        if is_unified:
+            # Unified: 3-way split for offline (70/15/15), 2-way for online (80/20)
+            train_indices, val_indices, offline_test_indices = temporal_split_with_offline_test(
+                train_dataset, group_attr='session_type',
+            )
+        else:
+            # Stratified temporal split: split within each session to ensure
+            # similar distributions (prevents validation set from being 100%
+            # one session type).
+            train_indices, val_indices = temporal_split_by_group(
+                train_dataset, group_attr='session_type', val_ratio=0.2,
+            )
+
+    # Pre-compute per-subtask val groups for unified mode
+    unified_val_groups = None
+    if is_unified:
+        from src.training.evaluation import compute_subtask_val_groups
+        unified_val_groups = compute_subtask_val_groups(train_dataset, val_indices)
 
     if verbose >= 2:
         print_metric("Train segments", len(train_indices), Colors.GREEN)
         print_metric("Val segments", len(val_indices), Colors.YELLOW)
+        if offline_test_indices:
+            print_metric("Offline test segments (quaternary)", len(offline_test_indices), Colors.MAGENTA)
 
     # ========== DATALOADER CREATION ==========
     if verbose >= 2:
@@ -616,6 +645,7 @@ def train_single_subject(
             gradient_clip=gradient_clip,
             optimizer_type=optimizer_type,
             muon_config=muon_config,
+            unified_val_groups=unified_val_groups,
             verbose=verbose,
         )
 
@@ -653,8 +683,33 @@ def train_single_subject(
     test_acc = 0.0
     test_results = {}
     n_test_trials = 0
+    subtask_results = None
 
-    if len(test_dataset) > 0:
+    if is_unified:
+        # Unified mode: evaluate on each subtask separately with logit masking
+        with Timer("unified_test_evaluation", print_on_exit=(verbose >= 1)):
+            subtask_results = unified_model_evaluate(
+                model, data_root, [subject_id], preprocess_config, elc_path,
+                paradigm, device, cache_only, cache_index_path,
+                train_dataset=train_dataset,
+                offline_test_indices=offline_test_indices,
+            )
+        test_acc = subtask_results['mean_accuracy']
+        test_results = subtask_results
+
+        if verbose >= 1:
+            for st in ['binary', 'ternary', 'quaternary']:
+                if st in subtask_results:
+                    st_acc = subtask_results[st]['accuracy']
+                    st_color = Colors.BRIGHT_GREEN if st_acc > 0.7 else (Colors.YELLOW if st_acc > 0.5 else Colors.RED)
+                    st_trials = subtask_results[st].get('n_trials', 0)
+                    suffix = " (held-out offline)" if st == 'quaternary' else ""
+                    print(f"  {colored(f'TEST [{st}]:', Colors.WHITE)} "
+                          f"{colored(f'{st_acc:.2%}', st_color)} ({st_trials} trials{suffix})")
+            mean_color = Colors.BRIGHT_GREEN if test_acc > 0.7 else (Colors.YELLOW if test_acc > 0.5 else Colors.RED)
+            print(f"  {colored('TEST Mean (unified):', Colors.WHITE, bold=True)} "
+                  f"{colored(f'{test_acc:.2%}', mean_color, bold=True)}")
+    elif test_dataset is not None and len(test_dataset) > 0:
         with Timer("test_evaluation", print_on_exit=(verbose >= 1)):
             # Get all test indices
             test_indices = list(range(len(test_dataset)))
@@ -676,47 +731,107 @@ def train_single_subject(
     milestone_test_results = []
     milestones = history.get('milestones', [])
 
-    if milestones and len(milestones) > 1 and len(test_dataset) > 0:
-        if verbose >= 1:
-            print_section_header(f"Milestone Evaluation ({len(milestones)} checkpoints)")
-
-        test_indices_ms = list(range(len(test_dataset)))
-
-        for ms in milestones:
-            ms_path = Path(ms['path'])
-            if not ms_path.exists():
-                log_train.warning(f"Milestone checkpoint not found: {ms_path}")
-                continue
-
-            ms_checkpoint = torch.load(ms_path, map_location=device, weights_only=True)
-            model.load_state_dict(ms_checkpoint['model_state_dict'])
-
-            ms_test_acc, _ = majority_vote_accuracy(
-                model, test_dataset, test_indices_ms, device
-            )
-
-            milestone_test_results.append({
-                'epoch': ms['epoch'],
-                'combined_score': ms['combined_score'],
-                'val_acc': ms.get('val_acc', 0),
-                'val_majority_acc': ms.get('val_majority_acc', 0),
-                'test_accuracy': ms_test_acc,
-            })
-
+    if milestones and len(milestones) > 1:
+        if is_unified:
+            # Unified milestone evaluation: per-subtask results for each checkpoint
             if verbose >= 1:
-                test_color = Colors.BRIGHT_GREEN if ms_test_acc > 0.7 else (
-                    Colors.YELLOW if ms_test_acc > 0.5 else Colors.RED
-                )
-                print(f"  Epoch {ms['epoch']:3d}: "
-                      f"val_combined={ms['combined_score']:.4f}  "
-                      f"test_acc={colored(f'{ms_test_acc:.4f}', test_color)}")
+                print_section_header(f"Milestone Evaluation ({len(milestones)} checkpoints)")
 
-        # Restore best model after milestone evaluation
-        if (subject_save_dir / 'best.pt').exists():
-            best_ckpt = torch.load(subject_save_dir / 'best.pt', map_location=device, weights_only=True)
-            model.load_state_dict(best_ckpt['model_state_dict'])
-        elif trainer.best_state is not None:
-            model.load_state_dict(trainer.best_state)
+            for ms in milestones:
+                ms_path = Path(ms['path'])
+                if not ms_path.exists():
+                    log_train.warning(f"Milestone checkpoint not found: {ms_path}")
+                    continue
+
+                ms_checkpoint = torch.load(ms_path, map_location=device, weights_only=True)
+                model.load_state_dict(ms_checkpoint['model_state_dict'])
+
+                ms_subtask_results = unified_model_evaluate(
+                    model, data_root, [subject_id], preprocess_config, elc_path,
+                    paradigm, device, cache_only, cache_index_path,
+                    train_dataset=train_dataset,
+                    offline_test_indices=offline_test_indices,
+                )
+
+                ms_result = {
+                    'epoch': ms['epoch'],
+                    'combined_score': ms['combined_score'],
+                    'val_acc': ms.get('val_acc', 0),
+                    'test_accuracy': ms_subtask_results['mean_accuracy'],
+                    'subtask_results': {
+                        st: ms_subtask_results[st]['accuracy']
+                        for st in ['binary', 'ternary', 'quaternary']
+                        if st in ms_subtask_results
+                    },
+                }
+                milestone_test_results.append(ms_result)
+
+                if verbose >= 1:
+                    subtask_strs = []
+                    for st in ['binary', 'ternary', 'quaternary']:
+                        if st in ms_subtask_results:
+                            st_acc = ms_subtask_results[st]['accuracy']
+                            st_color = Colors.BRIGHT_GREEN if st_acc > 0.7 else (
+                                Colors.YELLOW if st_acc > 0.5 else Colors.RED
+                            )
+                            subtask_strs.append(f"{st}={colored(f'{st_acc:.2%}', st_color)}")
+                    mean_acc = ms_subtask_results['mean_accuracy']
+                    mean_color = Colors.BRIGHT_GREEN if mean_acc > 0.7 else (
+                        Colors.YELLOW if mean_acc > 0.5 else Colors.RED
+                    )
+                    print(f"  Epoch {ms['epoch']:3d}: {' | '.join(subtask_strs)} "
+                          f"(mean={colored(f'{mean_acc:.2%}', mean_color)})")
+
+            # Restore best model after milestone evaluation
+            if milestones:
+                best_ms = max(milestones, key=lambda m: m['combined_score'])
+                best_path = Path(best_ms['path'])
+                if best_path.exists():
+                    best_checkpoint = torch.load(best_path, map_location=device, weights_only=True)
+                    model.load_state_dict(best_checkpoint['model_state_dict'])
+
+        elif test_dataset is not None and len(test_dataset) > 0:
+            # Non-unified milestone evaluation (existing logic)
+            if verbose >= 1:
+                print_section_header(f"Milestone Evaluation ({len(milestones)} checkpoints)")
+
+            test_indices_ms = list(range(len(test_dataset)))
+
+            for ms in milestones:
+                ms_path = Path(ms['path'])
+                if not ms_path.exists():
+                    log_train.warning(f"Milestone checkpoint not found: {ms_path}")
+                    continue
+
+                ms_checkpoint = torch.load(ms_path, map_location=device, weights_only=True)
+                model.load_state_dict(ms_checkpoint['model_state_dict'])
+
+                ms_test_acc, _ = majority_vote_accuracy(
+                    model, test_dataset, test_indices_ms, device
+                )
+
+                milestone_test_results.append({
+                    'epoch': ms['epoch'],
+                    'combined_score': ms['combined_score'],
+                    'val_acc': ms.get('val_acc', 0),
+                    'val_majority_acc': ms.get('val_majority_acc', 0),
+                    'test_accuracy': ms_test_acc,
+                })
+
+                if verbose >= 1:
+                    test_color = Colors.BRIGHT_GREEN if ms_test_acc > 0.7 else (
+                        Colors.YELLOW if ms_test_acc > 0.5 else Colors.RED
+                    )
+                    print(f"  Epoch {ms['epoch']:3d}: "
+                          f"val_combined={ms['combined_score']:.4f}  "
+                          f"test_acc={colored(f'{ms_test_acc:.4f}', test_color)}")
+
+            # Restore best model after milestone evaluation
+            if (subject_save_dir / 'best.pt').exists():
+                best_ckpt = torch.load(subject_save_dir / 'best.pt', map_location=device, weights_only=True)
+                model.load_state_dict(best_ckpt['model_state_dict'])
+            elif trainer.best_state is not None:
+                model.load_state_dict(trainer.best_state)
 
     history['milestone_test_results'] = milestone_test_results
 
@@ -753,6 +868,7 @@ def train_single_subject(
         'val_evaluation': val_results,
         'test_evaluation': test_results,
         'milestone_test_results': milestone_test_results,
+        'subtask_results': subtask_results,  # Non-None only for unified mode
     }
 
     with open(subject_save_dir / 'results.json', 'w') as f:

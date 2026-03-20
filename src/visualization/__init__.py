@@ -15,7 +15,7 @@ Usage:
     from src.visualization.electrode_map import plot_electrode_grid, plot_electrode_overlap
 """
 
-from .comparison import generate_combined_plot, generate_comparison_plot
+from .comparison import generate_combined_plot, generate_comparison_plot, plot_unified_comparison
 from .single_model import generate_single_model_plot
 from .cross_subject import generate_cross_subject_single_plot, generate_config_comparison_plot
 from .milestone import generate_milestone_plot
@@ -39,6 +39,7 @@ except ImportError:
 __all__ = [
     'generate_combined_plot',
     'generate_comparison_plot',
+    'plot_unified_comparison',
     'generate_single_model_plot',
     # Cross-subject
     'generate_cross_subject_single_plot',

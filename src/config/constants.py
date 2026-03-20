@@ -57,6 +57,7 @@ TASKS: Dict[str, Dict[str, any]] = {
     'binary': {'classes': [1, 4], 'n_classes': 2},
     'ternary': {'classes': [1, 2, 4], 'n_classes': 3},
     'quaternary': {'classes': [1, 2, 3, 4], 'n_classes': 4},
+    'unified': {'classes': [1, 2, 3, 4], 'n_classes': 4},
 }
 
 # Class labels for finger targets

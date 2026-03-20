@@ -184,6 +184,17 @@ def train_and_get_result(
     if not result_dict:
         raise ValueError(f"Training failed for {subject_id}")
 
+    # Extract subtask_results for unified mode (contains per-subtask accuracy breakdown)
+    subtask_results = result_dict.get('subtask_results')
+    # Strip heavy fields (detailed_results with per-trial predictions) for serialization
+    if subtask_results is not None:
+        subtask_results = {
+            k: ({'accuracy': v['accuracy'], 'n_trials': v.get('n_trials', 0)}
+                if isinstance(v, dict) else v)
+            for k, v in subtask_results.items()
+            if k in ('binary', 'ternary', 'quaternary', 'mean_accuracy')
+        }
+
     return TrainingResult(
         subject_id=subject_id,
         task_type=task,
@@ -193,6 +204,7 @@ def train_and_get_result(
         test_acc_majority=result_dict.get('test_accuracy_majority', result_dict.get('test_accuracy', 0.0)),
         epochs_trained=result_dict.get('epochs_trained', result_dict.get('best_epoch', 0)),
         training_time=result_dict.get('training_time', 0.0),
+        subtask_results=subtask_results,
     )
 
 

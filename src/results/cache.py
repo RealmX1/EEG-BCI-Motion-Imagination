@@ -1662,6 +1662,39 @@ def save_cross_subject_result(
         },
     }
 
+    # Unified mode: include per-subject subtask breakdown
+    subtask_results = result.get('subtask_results')
+    if subtask_results is not None:
+        # Strip heavy detailed_results, keep accuracy + n_trials + per_subject
+        lightweight = {}
+        for key in ('binary', 'ternary', 'quaternary', 'mean_accuracy'):
+            if key in subtask_results:
+                val = subtask_results[key]
+                if isinstance(val, dict):
+                    lightweight[key] = {
+                        k: v for k, v in val.items()
+                        if k != 'detailed_results'
+                    }
+                else:
+                    lightweight[key] = val
+        # per_subject subtask data
+        per_subject = subtask_results.get('per_subject', {})
+        if per_subject:
+            lightweight['per_subject'] = {}
+            for sid, subj_data in per_subject.items():
+                lightweight['per_subject'][sid] = {}
+                for st in ('binary', 'ternary', 'quaternary', 'mean_accuracy'):
+                    if st in subj_data:
+                        val = subj_data[st]
+                        if isinstance(val, dict):
+                            lightweight['per_subject'][sid][st] = {
+                                k: v for k, v in val.items()
+                                if k != 'detailed_results'
+                            }
+                        else:
+                            lightweight['per_subject'][sid][st] = val
+        output['subtask_results'] = lightweight
+
     filename = generate_result_filename(
         model_type, paradigm, task, 'json', run_tag, is_cross_subject=True
     )

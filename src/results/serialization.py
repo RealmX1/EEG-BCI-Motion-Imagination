@@ -13,7 +13,7 @@ from .dataclasses import TrainingResult
 
 def result_to_dict(result: TrainingResult) -> dict:
     """Convert TrainingResult to serializable dict."""
-    return {
+    d = {
         'subject_id': result.subject_id,
         'task_type': result.task_type,
         'model_type': result.model_type,
@@ -23,6 +23,9 @@ def result_to_dict(result: TrainingResult) -> dict:
         'epochs_trained': result.epochs_trained,
         'training_time': result.training_time,
     }
+    if result.subtask_results is not None:
+        d['subtask_results'] = result.subtask_results
+    return d
 
 
 def dict_to_result(d: dict) -> TrainingResult:
@@ -36,6 +39,7 @@ def dict_to_result(d: dict) -> TrainingResult:
         test_acc_majority=d['test_acc_majority'],
         epochs_trained=d['epochs_trained'],
         training_time=d['training_time'],
+        subtask_results=d.get('subtask_results'),
     )
 
 

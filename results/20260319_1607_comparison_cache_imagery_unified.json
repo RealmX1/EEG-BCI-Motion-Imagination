@@ -1,0 +1,73 @@
+{
+  "metadata": {
+    "paradigm": "imagery",
+    "task": "unified",
+    "run_tag": "20260319_1607",
+    "timestamp": "2026-03-19T16:24:05.748572",
+    "n_subjects": 2,
+    "is_complete": true,
+    "preprocessing_version": "v2.0",
+    "classifier_type": "two_layer"
+  },
+  "wandb_groups": {
+    "cbramod": "cbramod_imagery_unified_20260319_1607"
+  },
+  "last_updated": "2026-03-19T16:24:05.764010",
+  "results": {
+    "cbramod": {
+      "S01": {
+        "subject_id": "S01",
+        "task_type": "unified",
+        "model_type": "cbramod",
+        "best_val_acc": 0.5209988649262202,
+        "test_acc": 0.6383036828963795,
+        "test_acc_majority": 0.6383036828963795,
+        "epochs_trained": 20,
+        "training_time": 265.86861289999797
+      },
+      "S02": {
+        "subject_id": "S02",
+        "task_type": "unified",
+        "model_type": "cbramod",
+        "best_val_acc": 0.5835201793721974,
+        "test_acc": 0.7696759259259259,
+        "test_acc_majority": 0.7696759259259259,
+        "epochs_trained": 30,
+        "training_time": 351.38453960000334
+      }
+    }
+  },
+  "summary": {
+    "eegnet": {
+      "mean": 0.5851656783187682,
+      "std": 0.10881580316271325,
+      "median": 0.5851656783187682,
+      "min": 0.4763498751560549,
+      "max": 0.6939814814814814
+    },
+    "cbramod": {
+      "mean": 0.7039898044111528,
+      "std": 0.06568612151477321,
+      "median": 0.7039898044111528,
+      "min": 0.6383036828963795,
+      "max": 0.7696759259259259
+    }
+  },
+  "comparison": {
+    "n_subjects": 2,
+    "eegnet_mean": 0.5851656783187682,
+    "eegnet_std": 0.10881580316271325,
+    "cbramod_mean": 0.7039898044111528,
+    "cbramod_std": 0.06568612151477321,
+    "difference_mean": 0.11882412609238455,
+    "difference_std": 0.04312968164794004,
+    "paired_ttest_t": 2.7550429669832686,
+    "paired_ttest_p": 0.22166017988722478,
+    "wilcoxon_stat": 0.0,
+    "wilcoxon_p": 0.5,
+    "better_model": "cbramod",
+    "significant": false,
+    "eegnet_median": 0.5851656783187682,
+    "cbramod_median": 0.7039898044111528
+  }
+}

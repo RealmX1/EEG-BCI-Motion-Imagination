@@ -315,3 +315,77 @@ def temporal_split_by_group(
     val_indices = dataset.get_segment_indices_for_trials(val_trials)
 
     return train_indices, val_indices
+
+
+def temporal_split_with_offline_test(
+    dataset,
+    group_attr: str,
+    online_val_ratio: float = 0.2,
+    offline_train_ratio: float = 0.70,
+    offline_val_ratio: float = 0.15,
+) -> Tuple[List[int], List[int], List[int]]:
+    """
+    Three-way temporal split for unified training.
+
+    Online sessions get a standard 2-way split (test data is separate).
+    Offline sessions get a 3-way split because no separate test set exists:
+    first ``offline_train_ratio`` → train, next ``offline_val_ratio`` → val,
+    remainder → test.
+
+    Within each group the trials are sorted chronologically so that test
+    data always comes from the latest trials.
+
+    Args:
+        dataset: FingerEEGDataset (must have ``.trial_infos`` and
+            ``.get_segment_indices_for_trials()``).
+        group_attr: Attribute of ``trial_infos`` entries to group by
+            (``'session_type'`` for within-subject, ``'subject_id'`` for
+            cross-subject).
+        online_val_ratio: Fraction of each online group's trials for validation.
+        offline_train_ratio: Fraction of offline trials for training.
+        offline_val_ratio: Fraction of offline trials for validation.
+
+    Returns:
+        ``(train_indices, val_indices, offline_test_indices)`` — segment-level
+        index lists.  ``offline_test_indices`` contains only segments from
+        Offline sessions reserved for quaternary evaluation.
+    """
+    # Build trial → session_type lookup
+    trial_session = {}
+    for info in dataset.trial_infos:
+        trial_session[info.trial_idx] = info.session_type
+
+    group_to_trials: Dict[str, set] = defaultdict(set)
+    for info in dataset.trial_infos:
+        group_to_trials[getattr(info, group_attr)].add(info.trial_idx)
+
+    train_trials: List[int] = []
+    val_trials: List[int] = []
+    test_trials: List[int] = []
+
+    for _group_key, trials in group_to_trials.items():
+        # Separate offline and online trials within this group
+        offline = sorted(t for t in trials if 'offline' in trial_session[t].lower())
+        online = sorted(t for t in trials if 'offline' not in trial_session[t].lower())
+
+        # Offline: 3-way split (train / val / test)
+        if offline:
+            n = len(offline)
+            n_test = max(1, int(n * (1.0 - offline_train_ratio - offline_val_ratio)))
+            n_val = max(1, int(n * offline_val_ratio))
+            n_train = n - n_val - n_test
+            train_trials.extend(offline[:n_train])
+            val_trials.extend(offline[n_train:n_train + n_val])
+            test_trials.extend(offline[n_train + n_val:])
+
+        # Online: 2-way split (train / val); test data is separate
+        if online:
+            n_val = max(1, int(len(online) * online_val_ratio))
+            train_trials.extend(online[:-n_val])
+            val_trials.extend(online[-n_val:])
+
+    train_indices = dataset.get_segment_indices_for_trials(train_trials)
+    val_indices = dataset.get_segment_indices_for_trials(val_trials)
+    test_indices = dataset.get_segment_indices_for_trials(test_trials)
+
+    return train_indices, val_indices, test_indices

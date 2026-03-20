@@ -5,8 +5,8 @@ This module defines the core data structures for representing
 training results and plot data sources.
 """
 
-from dataclasses import dataclass
-from typing import List, Optional
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -20,6 +20,7 @@ class TrainingResult:
     test_acc_majority: float
     epochs_trained: int
     training_time: float
+    subtask_results: Optional[Dict] = field(default=None, repr=False)
 
 
 @dataclass

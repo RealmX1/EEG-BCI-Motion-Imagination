@@ -340,7 +340,7 @@ Examples:
     )
     parser.add_argument(
         '--task', type=str, default='binary',
-        choices=['binary', 'ternary', 'quaternary'],
+        choices=['binary', 'ternary', 'quaternary', 'unified'],
         help='Classification task (default: binary)'
     )
 

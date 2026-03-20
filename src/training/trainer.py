@@ -16,7 +16,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from .schedulers import WSDScheduler, CosineDecayRestarts, CosineAnnealingWarmupDecay
-from .evaluation import majority_vote_accuracy
+from .evaluation import majority_vote_accuracy, majority_vote_accuracy_unified
 from ..preprocessing.data_loader import FingerEEGDataset
 from ..utils.logging import SectionLogger
 from ..utils.timing import EpochTimer, print_section_header
@@ -147,6 +147,7 @@ class WithinSubjectTrainer:
         gradient_clip: float = 1.0,
         optimizer_type: str = 'adamw',
         muon_config: Optional[Dict[str, Any]] = None,
+        unified_val_groups: Optional[Dict[str, Dict]] = None,
         verbose: int = 2,
     ):
         self.model = model.to(device)
@@ -155,6 +156,7 @@ class WithinSubjectTrainer:
         self.device = device
         self.model_type = model_type
         self.scheduler_type = scheduler_type
+        self.unified_val_groups = unified_val_groups
         self.verbose = verbose
 
         if optimizer_type == 'muon' and scheduler_type == 'plateau':
@@ -253,6 +255,8 @@ class WithinSubjectTrainer:
             'val_majority_acc': [],
             'val_combined_score': [],  # (val_acc + majority_acc) / 2
         }
+        if self.unified_val_groups:
+            self.history['val_subtask_acc'] = {st: [] for st in self.unified_val_groups}
         self.best_val_loss = float('inf')
         self.best_val_acc = 0.0  # Track best validation accuracy (segment-level)
         self.best_majority_acc = 0.0  # Track best validation accuracy (trial-level majority voting)
@@ -463,6 +467,37 @@ class WithinSubjectTrainer:
             total += segments.size(0)
 
         return total_loss / total, correct / total
+
+    def validate_unified(self) -> Tuple[float, Dict[str, float]]:
+        """Per-subtask validation with logit masking for unified mode.
+
+        Calls :func:`majority_vote_accuracy_unified` on each subtask's
+        val indices using the appropriate active class indices.
+        Labels in the unified training dataset are in 4-class space
+        (e.g. Pinky = 3), so ``label_remap`` converts them to the
+        local prediction space (e.g. Pinky = 1 for binary).
+
+        Returns:
+            ``(mean_accuracy, {subtask: accuracy})``
+        """
+        subtask_accs: Dict[str, float] = {}
+        for subtask, group in self.unified_val_groups.items():
+            active = group['active_class_indices']
+            # Map unified-space labels to local argmax space
+            label_remap = {cls_idx: local_idx for local_idx, cls_idx in enumerate(active)}
+            acc, _ = majority_vote_accuracy_unified(
+                self.model,
+                self.dataset,
+                group['indices'],
+                self.device,
+                active_class_indices=active,
+                use_amp=self.use_amp,
+                label_remap=label_remap,
+            )
+            subtask_accs[subtask] = acc
+
+        mean_acc = sum(subtask_accs.values()) / len(subtask_accs) if subtask_accs else 0.0
+        return mean_acc, subtask_accs
 
     def save_resume_checkpoint(self, save_path: Path, epoch: int):
         """保存用于恢复训练的完整检查点.
@@ -801,10 +836,13 @@ class WithinSubjectTrainer:
 
             # Majority voting: compute every epoch for accurate early stopping
             with epoch_timer.phase("majority_vote"):
-                majority_acc, _ = majority_vote_accuracy(
-                    self.model, self.dataset, self.val_indices, self.device,
-                    use_amp=self.use_amp
-                )
+                if self.unified_val_groups:
+                    majority_acc, _subtask_accs = self.validate_unified()
+                else:
+                    majority_acc, _ = majority_vote_accuracy(
+                        self.model, self.dataset, self.val_indices, self.device,
+                        use_amp=self.use_amp
+                    )
 
             epoch_timer.end_epoch()
 
@@ -819,6 +857,9 @@ class WithinSubjectTrainer:
             self.history['val_acc'].append(val_acc)
             self.history['val_majority_acc'].append(majority_acc)
             self.history['val_combined_score'].append(combined_score)
+            if self.unified_val_groups and _subtask_accs:
+                for st, acc in _subtask_accs.items():
+                    self.history['val_subtask_acc'][st].append(acc)
 
             # Get current learning rate (used by WandB and table logger)
             # Muon: param_groups[0] is the Muon group; report AdamW backbone LR instead

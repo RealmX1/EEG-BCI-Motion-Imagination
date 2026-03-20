@@ -428,3 +428,397 @@ def generate_comparison_plot(
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     log_plot.info(f"Comparison plot saved: {output_path}")
     plt.close()
+
+
+def plot_unified_comparison(
+    results: Dict[str, Dict],
+    save_path: Optional[str] = None,
+    title: str = "Unified Model Comparison",
+) -> 'plt.Figure':
+    """
+    生成统一多任务模型对比图（3+1+1x3 布局，共 8 个子图）.
+
+    布局:
+    +--------------------------------------------------+
+    | Row 1: Binary 每被试准确率对比（全宽）               |
+    +--------------------------------------------------+
+    | Row 2: Ternary 每被试准确率对比（全宽）              |
+    +--------------------------------------------------+
+    | Row 3: Quaternary 每被试准确率对比（全宽）           |
+    +--------------------------------------------------+
+    | Row 4: 分组柱状图 — 三任务均值对比（全宽）           |
+    +--------------------------------------------------+
+    | Row 5: [Binary 配对] [Ternary 配对] [Quaternary 配对] |
+    +--------------------------------------------------+
+
+    Args:
+        results: 模型名 -> 统一结果字典，结构:
+            {
+                'cbramod': {
+                    'subtask_results': {
+                        'binary': {'accuracy': 0.85, ...},
+                        'ternary': {'accuracy': 0.70, ...},
+                        'quaternary': {'accuracy': 0.55, ...},
+                        'mean_accuracy': 0.70,
+                    },
+                    'per_subject': {
+                        'S01': {
+                            'binary': {'accuracy': 0.80},
+                            'ternary': {'accuracy': 0.65},
+                            'quaternary': {'accuracy': 0.50},
+                        },
+                        ...
+                    }
+                },
+                'eegnet': { ... }
+            }
+        save_path: 输出文件路径（可选）
+        title: 图表标题
+
+    Returns:
+        matplotlib Figure 对象
+    """
+    try:
+        import matplotlib.pyplot as plt
+        from matplotlib.gridspec import GridSpec
+    except ImportError:
+        log_plot.warning("matplotlib not installed, skipping unified comparison plot")
+        return None
+
+    colors = MODEL_COLORS
+    subtasks = ['binary', 'ternary', 'quaternary']
+    subtask_chance = {t: CHANCE_LEVELS.get(t, 0.5) for t in subtasks}
+
+    model_names = list(results.keys())
+    n_models = len(model_names)
+
+    # 检查是否有 per_subject 数据
+    has_per_subject = any(
+        'per_subject' in results[m] and results[m]['per_subject']
+        for m in model_names
+    )
+
+    # =========================================================================
+    # 根据数据完备性决定布局
+    # =========================================================================
+    if has_per_subject:
+        # 完整 5 行布局: 3 per-subject + 1 grouped bar + 1x3 pairwise
+        fig = plt.figure(figsize=(18, 28))
+        gs = GridSpec(
+            5, 3,
+            height_ratios=[1.0, 1.0, 1.0, 0.9, 0.9],
+            hspace=0.35, wspace=0.30,
+        )
+    else:
+        # 仅 Row 4: 只有均值柱状图
+        fig = plt.figure(figsize=(12, 5))
+        gs = GridSpec(1, 1)
+
+    # =========================================================================
+    # Row 1-3: 每被试准确率对比（每个 subtask 一行）
+    # =========================================================================
+    if has_per_subject:
+        for row_idx, subtask in enumerate(subtasks):
+            ax = fig.add_subplot(gs[row_idx, :])
+            chance = subtask_chance[subtask]
+
+            # 收集该 subtask 下所有被试（跨模型取并集，排除 0 trial 被试）
+            all_subjects = set()
+            for m in model_names:
+                per_subj = results[m].get('per_subject', {})
+                for sid, task_data in per_subj.items():
+                    if subtask in task_data:
+                        acc_val = task_data[subtask].get('accuracy')
+                        n_trials = task_data[subtask].get('n_trials')
+                        # 排除 quaternary 中 0 trial 的被试
+                        if n_trials is not None and n_trials == 0:
+                            continue
+                        if acc_val is not None:
+                            all_subjects.add(sid)
+
+            subjects = sorted(all_subjects)
+            if not subjects:
+                ax.text(
+                    0.5, 0.5,
+                    f'No per-subject data for {subtask}',
+                    ha='center', va='center', transform=ax.transAxes,
+                    fontsize=12,
+                )
+                ax.set_title(f"{subtask.capitalize()} — Per-Subject Test Accuracy")
+                continue
+
+            n_subjects = len(subjects)
+            bar_width = 0.8 / max(n_models, 1)
+            x_base = np.arange(n_subjects)
+
+            model_accs_list = []  # 用于后面计算 mean±std
+
+            for i, m in enumerate(model_names):
+                per_subj = results[m].get('per_subject', {})
+                x_positions = x_base + (i - (n_models - 1) / 2) * bar_width
+
+                accs = []
+                for sid in subjects:
+                    task_data = per_subj.get(sid, {}).get(subtask, {})
+                    acc_val = task_data.get('accuracy', 0)
+                    accs.append(acc_val if acc_val is not None else 0)
+
+                model_accs_list.append(accs)
+
+                # 确定颜色：优先用 MODEL_COLORS，否则自动分配
+                color = colors.get(m, f'C{i}')
+
+                bars = ax.bar(
+                    x_positions, accs, bar_width,
+                    label=m.upper() if m in colors else m,
+                    color=color, alpha=0.85,
+                    edgecolor='black', linewidth=0.8,
+                )
+
+                # 数值标签
+                for bar, val in zip(bars, accs):
+                    if val > 0:
+                        ax.text(
+                            bar.get_x() + bar.get_width() / 2,
+                            bar.get_height() + 0.008,
+                            f'{val * 100:.1f}',
+                            ha='center', va='bottom', fontsize=6,
+                        )
+
+            # Chance level 参考线
+            ax.axhline(
+                y=chance, color='gray', linestyle='--', alpha=0.5,
+                label=f'Chance ({chance * 100:.1f}%)',
+            )
+
+            # Mean±std 标注
+            for i, m in enumerate(model_names):
+                accs = model_accs_list[i]
+                valid_accs = [a for a in accs if a > 0]
+                if valid_accs:
+                    mean_val = np.mean(valid_accs)
+                    std_val = np.std(valid_accs)
+                    color = colors.get(m, f'C{i}')
+                    ax.text(
+                        0.98, 0.95 - i * 0.07,
+                        f'{m.upper()}: {mean_val * 100:.1f} ± {std_val * 100:.1f}%',
+                        transform=ax.transAxes,
+                        ha='right', va='top', fontsize=8,
+                        color=color, fontweight='bold',
+                        bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8),
+                    )
+
+            ax.set_xlabel('Subject')
+            ax.set_ylabel('Test Accuracy')
+            ax.set_title(f"{subtask.capitalize()} — Per-Subject Test Accuracy", fontsize=11)
+            ax.set_xticks(x_base)
+            ax.set_xticklabels(subjects, rotation=45, ha='right', fontsize=7)
+            ax.set_ylim([0, 1.08])
+            ax.legend(loc='upper left', fontsize=8)
+
+    # =========================================================================
+    # Row 4: 分组柱状图 — 三任务均值对比
+    # =========================================================================
+    if has_per_subject:
+        ax_bar = fig.add_subplot(gs[3, :])
+    else:
+        ax_bar = fig.add_subplot(gs[0, 0])
+
+    # 背景色带（pastel task group shading）
+    task_bg_colors = {
+        'binary': '#D6EAF8',      # 淡蓝
+        'ternary': '#D5F5E3',     # 淡绿
+        'quaternary': '#FDEBD0',  # 淡橙
+    }
+
+    n_tasks = len(subtasks)
+    x_tasks = np.arange(n_tasks)
+    group_width = 0.8
+    bar_width_grouped = group_width / max(n_models, 1)
+
+    # 绘制背景色带
+    for j, subtask in enumerate(subtasks):
+        ax_bar.axvspan(
+            j - 0.45, j + 0.45,
+            facecolor=task_bg_colors.get(subtask, '#F0F0F0'),
+            alpha=0.4, zorder=0,
+        )
+
+    for i, m in enumerate(model_names):
+        subtask_results = results[m].get('subtask_results', {})
+        x_positions = x_tasks + (i - (n_models - 1) / 2) * bar_width_grouped
+
+        means = []
+        stds = []
+        for subtask in subtasks:
+            task_res = subtask_results.get(subtask, {})
+            acc = task_res.get('accuracy', 0)
+            means.append(acc if acc is not None else 0)
+            # 如果有 per_subject 数据，从中计算 std
+            per_subj = results[m].get('per_subject', {})
+            task_accs = []
+            for sid_data in per_subj.values():
+                if subtask in sid_data:
+                    a = sid_data[subtask].get('accuracy')
+                    if a is not None:
+                        task_accs.append(a)
+            stds.append(np.std(task_accs) if task_accs else 0)
+
+        color = colors.get(m, f'C{i}')
+
+        bars = ax_bar.bar(
+            x_positions, means, bar_width_grouped,
+            label=m.upper() if m in colors else m,
+            color=color, alpha=0.85,
+            edgecolor='black', linewidth=1.2,
+            yerr=stds, capsize=5, error_kw={'linewidth': 1.2},
+        )
+
+        # 柱顶数值标签
+        for bar, val, std_val in zip(bars, means, stds):
+            if val > 0:
+                ax_bar.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() + std_val + 0.01,
+                    f'{val * 100:.1f}%',
+                    ha='center', va='bottom', fontsize=9,
+                    color=color, fontweight='bold',
+                )
+
+    # 各任务的 chance level 参考线
+    for j, subtask in enumerate(subtasks):
+        chance = subtask_chance[subtask]
+        ax_bar.plot(
+            [j - 0.45, j + 0.45], [chance, chance],
+            color='gray', linestyle=':', linewidth=1.2, alpha=0.7,
+        )
+        # 仅在第一个任务标注 label
+        if j == 0:
+            ax_bar.text(
+                j + 0.47, chance, 'chance', fontsize=7,
+                color='gray', va='center',
+            )
+
+    ax_bar.set_xticks(x_tasks)
+    ax_bar.set_xticklabels(
+        [t.capitalize() for t in subtasks], fontsize=11, fontweight='bold',
+    )
+    ax_bar.set_ylabel('Mean Test Accuracy', fontsize=11)
+    ax_bar.set_title('Overall Accuracy by Task', fontsize=12)
+    ax_bar.set_ylim([0, 1.15])
+    ax_bar.legend(loc='upper right', fontsize=9)
+
+    # =========================================================================
+    # Row 5: 配对对比散点图（1x3，各 subtask 一个）
+    # =========================================================================
+    if has_per_subject and n_models >= 2:
+        # 默认取前两个模型做配对
+        m1, m2 = model_names[0], model_names[1]
+
+        for col_idx, subtask in enumerate(subtasks):
+            ax_sc = fig.add_subplot(gs[4, col_idx])
+            chance = subtask_chance[subtask]
+
+            per_subj_m1 = results[m1].get('per_subject', {})
+            per_subj_m2 = results[m2].get('per_subject', {})
+
+            # 找共同被试（且该 subtask 都有数据、非 0 trial）
+            common_subjects = []
+            for sid in sorted(set(per_subj_m1.keys()) & set(per_subj_m2.keys())):
+                d1 = per_subj_m1[sid].get(subtask, {})
+                d2 = per_subj_m2[sid].get(subtask, {})
+                a1 = d1.get('accuracy')
+                a2 = d2.get('accuracy')
+                n1 = d1.get('n_trials')
+                n2 = d2.get('n_trials')
+                # 跳过 0 trial 被试
+                if (n1 is not None and n1 == 0) or (n2 is not None and n2 == 0):
+                    continue
+                if a1 is not None and a2 is not None:
+                    common_subjects.append(sid)
+
+            if not common_subjects:
+                ax_sc.text(
+                    0.5, 0.5,
+                    'No common subjects\nfor paired comparison',
+                    ha='center', va='center', transform=ax_sc.transAxes,
+                    fontsize=10,
+                )
+                ax_sc.set_title(f"{subtask.capitalize()} Pairwise", fontsize=10)
+                continue
+
+            accs_m1 = [
+                per_subj_m1[s][subtask]['accuracy'] for s in common_subjects
+            ]
+            accs_m2 = [
+                per_subj_m2[s][subtask]['accuracy'] for s in common_subjects
+            ]
+
+            # 散点
+            color_m1 = colors.get(m1, 'C0')
+            color_m2 = colors.get(m2, 'C1')
+            ax_sc.scatter(
+                accs_m1, accs_m2, s=80, alpha=0.8,
+                c=colors.get(m2, '#E94F37'),
+                edgecolors='black', linewidths=0.8,
+            )
+
+            # 被试标签
+            for k, sid in enumerate(common_subjects):
+                ax_sc.annotate(
+                    sid, (accs_m1[k], accs_m2[k]),
+                    xytext=(4, 4), textcoords='offset points', fontsize=6,
+                )
+
+            # 对角线 y=x
+            all_accs = accs_m1 + accs_m2
+            lims = [
+                max(0, min(all_accs) - 0.05),
+                min(1.0, max(all_accs) + 0.05),
+            ]
+            ax_sc.plot(lims, lims, 'k--', alpha=0.5, linewidth=1)
+            ax_sc.set_xlim(lims)
+            ax_sc.set_ylim(lims)
+
+            # 统计胜/平/负
+            wins = sum(1 for a, b in zip(accs_m2, accs_m1) if a > b)
+            ties = sum(1 for a, b in zip(accs_m2, accs_m1) if abs(a - b) < 1e-6)
+            losses = sum(1 for a, b in zip(accs_m2, accs_m1) if a < b)
+
+            m2_label = m2.upper() if m2 in colors else m2
+            m1_label = m1.upper() if m1 in colors else m1
+            ax_sc.text(
+                0.05, 0.95,
+                f'{m2_label} wins: {wins}\nTies: {ties}\n{m1_label} wins: {losses}',
+                transform=ax_sc.transAxes,
+                ha='left', va='top', fontsize=8,
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8),
+            )
+
+            ax_sc.set_xlabel(f'{m1_label} Accuracy', fontsize=9)
+            ax_sc.set_ylabel(f'{m2_label} Accuracy', fontsize=9)
+            ax_sc.set_title(f"{subtask.capitalize()} Pairwise", fontsize=10)
+            ax_sc.set_aspect('equal', adjustable='box')
+
+    elif has_per_subject and n_models < 2:
+        # 只有一个模型，无法做配对对比，跳过 Row 5
+        for col_idx in range(3):
+            ax_sc = fig.add_subplot(gs[4, col_idx])
+            ax_sc.text(
+                0.5, 0.5,
+                'Single model\n(no pairwise comparison)',
+                ha='center', va='center', transform=ax_sc.transAxes,
+                fontsize=10,
+            )
+            ax_sc.set_title(f"{subtasks[col_idx].capitalize()} Pairwise", fontsize=10)
+
+    # =========================================================================
+    # 全局标题与保存
+    # =========================================================================
+    fig.suptitle(title, fontsize=14, fontweight='bold', y=0.995)
+
+    if save_path:
+        fig.savefig(save_path, dpi=150, bbox_inches='tight')
+        log_plot.info(f"Unified comparison plot saved: {save_path}")
+
+    return fig

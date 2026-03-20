@@ -43,6 +43,24 @@ def get_session_folders_for_split(
     # Map paradigm to prefix
     paradigm_prefix = 'Imagery' if paradigm == 'imagery' else 'Movement'
     offline = f'Offline{paradigm_prefix}'
+    online_prefix = f'Online{paradigm_prefix}'
+
+    # Unified task: combine ALL available session types for training
+    # Test returns empty — per-subtask evaluation is handled separately
+    if task == 'unified':
+        if split == 'train':
+            return [
+                offline,
+                f'{online_prefix}_Sess01_2class_Base',
+                f'{online_prefix}_Sess01_2class_Finetune',
+                f'{online_prefix}_Sess02_2class_Base',
+                f'{online_prefix}_Sess01_3class_Base',
+                f'{online_prefix}_Sess01_3class_Finetune',
+                f'{online_prefix}_Sess02_3class_Base',
+            ]
+        else:
+            # Test: per-subtask evaluation loads each subtask's test set independently
+            return []
 
     # Special case: quaternary task only has Offline data
     # No Online 4class folders exist in the dataset
@@ -56,9 +74,6 @@ def get_session_folders_for_split(
         'ternary': '3class',
     }
     n_class = task_to_nclass.get(task, '2class')
-
-    # Build folder names
-    online_prefix = f'Online{paradigm_prefix}'
 
     if split == 'train':
         # Training: Offline + Sess01 Base + Sess01 Finetune + Sess02 Base
@@ -101,13 +116,22 @@ def discover_available_subjects(
     # Get required folders for test split (most restrictive)
     test_folders = get_session_folders_for_split(paradigm, task, 'test')
 
+    # Unified task: check train folders instead (test is empty, evaluated per-subtask)
+    if task == 'unified':
+        check_folders = get_session_folders_for_split(paradigm, task, 'train')
+    else:
+        check_folders = test_folders
+
     for item in sorted(data_path.iterdir()):
         if item.is_dir() and item.name.startswith('S') and item.name[1:].isdigit():
             # Check if subject has required data folders
             # For binary/ternary: Session 2 Finetune
             # For quaternary: Offline data (only source of 4-finger trials)
-            has_required_data = all(
-                (item / folder).exists() for folder in test_folders
+            # For unified: at least some train folders exist
+            has_required_data = any(
+                (item / folder).exists() for folder in check_folders
+            ) if task == 'unified' else all(
+                (item / folder).exists() for folder in check_folders
             )
             if has_required_data:
                 subjects.append(item.name)
@@ -165,6 +189,7 @@ def discover_subjects_from_cache_index(
             'binary': [2, None],      # 接受 2-class 和 offline (null)
             'ternary': [3, None],     # 接受 3-class 和 offline (null)
             'quaternary': [4, None],  # 接受 4-class 和 offline (null)
+            'unified': [2, 3, 4, None],  # 接受所有 n_classes
         }
 
         if task not in task_to_n_classes:

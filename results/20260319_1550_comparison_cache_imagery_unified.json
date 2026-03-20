@@ -1,0 +1,16 @@
+{
+  "metadata": {
+    "paradigm": "imagery",
+    "task": "unified",
+    "run_tag": "20260319_1550",
+    "timestamp": "2026-03-19T16:07:15.198133",
+    "n_subjects": 0,
+    "is_complete": true,
+    "preprocessing_version": "v2.0",
+    "classifier_type": "two_layer"
+  },
+  "wandb_groups": {},
+  "last_updated": "2026-03-19T16:07:15.198133",
+  "results": {},
+  "summary": {}
+}

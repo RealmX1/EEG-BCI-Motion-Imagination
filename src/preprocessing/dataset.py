@@ -71,6 +71,7 @@ class FingerEEGDataset(Dataset):
         cache_only: bool = False,
         cache_index_path: str = ".cache_index.json",
         reject_trials: bool = True,
+        unified_mode: bool = False,
     ):
         """
         Initialize dataset.
@@ -105,6 +106,10 @@ class FingerEEGDataset(Dataset):
             reject_trials: If True (default), apply amplitude-based trial rejection
                           during loading. Set False for test datasets to preserve
                           the original data distribution.
+            unified_mode: If True, relax n_classes filter for online data and
+                         use original cache keys per session type. This allows
+                         loading 2class + 3class + offline data together with
+                         target_classes=[1,2,3,4]. (default: False)
         """
         self.data_root = Path(data_root)
         self.subjects = subjects
@@ -117,6 +122,7 @@ class FingerEEGDataset(Dataset):
         self.cache_only = cache_only
         self.cache_index_path = cache_index_path
         self.reject_trials = reject_trials
+        self.unified_mode = unified_mode
 
         # Validate cache_only mode
         if cache_only and not use_cache:
@@ -236,10 +242,13 @@ class FingerEEGDataset(Dataset):
             entry_n_classes = entry_data.get('n_classes')
 
             if not is_offline and self.target_classes is not None:
-                # Online 数据：检查 n_classes 是否匹配
-                expected_n_classes = len(self.target_classes)
-                if entry_n_classes != expected_n_classes:
-                    continue
+                if self.unified_mode:
+                    pass  # Accept 2class, 3class entries in unified mode
+                else:
+                    # Online 数据：检查 n_classes 是否匹配
+                    expected_n_classes = len(self.target_classes)
+                    if entry_n_classes != expected_n_classes:
+                        continue
 
             # 构建唯一键
             file_key = (subject, run, session_folder)
@@ -337,7 +346,10 @@ class FingerEEGDataset(Dataset):
                     # Offline data: cache with target_classes=None (all 4 fingers)
                     # Online data: cache with actual target_classes
                     is_offline = self._is_offline_session(parent_folder)
-                    cache_target_classes = None if is_offline else self.target_classes
+                    if self.unified_mode and not is_offline:
+                        cache_target_classes = self._get_original_target_classes_for_session(parent_folder)
+                    else:
+                        cache_target_classes = None if is_offline else self.target_classes
 
                     needs_processing = True
                     if self.cache is not None and self.config.use_sliding_window:
@@ -361,7 +373,10 @@ class FingerEEGDataset(Dataset):
         for mat_path, session_info, is_offline in cached_files:
             try:
                 parent_folder = mat_path.parent.name
-                cache_target_classes = None if is_offline else self.target_classes
+                if self.unified_mode and not is_offline:
+                    cache_target_classes = self._get_original_target_classes_for_session(parent_folder)
+                else:
+                    cache_target_classes = None if is_offline else self.target_classes
 
                 # v3.0: Load trials + labels (not segments)
                 trials, labels = self.cache.load(
@@ -493,16 +508,22 @@ class FingerEEGDataset(Dataset):
                 # Submit all tasks
                 # For offline data: store_all_fingers=True, process all 4 fingers
                 # For online data: use actual target_classes
-                future_to_path = {
-                    executor.submit(
+                future_to_path = {}
+                for path in mat_paths:
+                    is_offline_file = path_to_offline[path]
+                    if self.unified_mode and not is_offline_file:
+                        tc = self._get_original_target_classes_for_session(
+                            Path(path).parent.name)
+                    else:
+                        tc = self.target_classes
+                    future_to_path[executor.submit(
                         _process_single_mat_file_to_trials,
                         path,
                         self.config,
-                        self.target_classes,
+                        tc,
                         None,  # channel_indices applied later (after cache load)
-                        path_to_offline[path]  # store_all_fingers for offline
-                    ): path for path in mat_paths
-                }
+                        is_offline_file  # store_all_fingers for offline
+                    )] = path
 
                 # Collect results as they complete
                 for future in as_completed(future_to_path):
@@ -568,8 +589,11 @@ class FingerEEGDataset(Dataset):
                     (trials, labels, session_info, path), mat_path, is_offline = args
                     parent_folder = Path(path).parent.name
                     # Offline: cache all fingers with target_classes=None
-                    # Online: cache with actual target_classes
-                    cache_target_classes = None if is_offline else self.target_classes
+                    # Online: cache with actual target_classes (or original classes in unified mode)
+                    if self.unified_mode and not is_offline:
+                        cache_target_classes = self._get_original_target_classes_for_session(parent_folder)
+                    else:
+                        cache_target_classes = None if is_offline else self.target_classes
                     self.cache.save(
                         session_info['subject'],
                         session_info['run'],
@@ -628,8 +652,14 @@ class FingerEEGDataset(Dataset):
         parent_folder = mat_path.parent.name
 
         # Offline data: store all fingers in cache, filter later
-        # Online data: store only target_classes
+        # Online data: store only target_classes (or original classes in unified mode)
         store_all_fingers = is_offline
+
+        # In unified mode, use original task-specific target_classes for online data
+        if self.unified_mode and not is_offline:
+            extract_target_classes = self._get_original_target_classes_for_session(parent_folder)
+        else:
+            extract_target_classes = self.target_classes
 
         # v3.0: Preprocess to trial level (no sliding window yet)
         trials, labels = preprocess_run_to_trials(
@@ -637,7 +667,7 @@ class FingerEEGDataset(Dataset):
             events,
             metadata,
             self.config,
-            target_classes=self.target_classes if not store_all_fingers else None,
+            target_classes=extract_target_classes if not store_all_fingers else None,
             store_all_fingers=store_all_fingers
         )
 
@@ -646,9 +676,12 @@ class FingerEEGDataset(Dataset):
 
         # Save to cache (before applying sliding window)
         # Offline: save all fingers with target_classes=None
-        # Online: save with actual target_classes
+        # Online: save with actual target_classes (or original classes in unified mode)
         if self.cache is not None:
-            cache_target_classes = None if is_offline else self.target_classes
+            if self.unified_mode and not is_offline:
+                cache_target_classes = self._get_original_target_classes_for_session(parent_folder)
+            else:
+                cache_target_classes = None if is_offline else self.target_classes
             self.cache.save(
                 subject, run_id, parent_folder, self.config,
                 trials, labels,  # v3.0: trials, not segments
@@ -817,6 +850,25 @@ class FingerEEGDataset(Dataset):
     def _is_offline_session(self, folder_name: str) -> bool:
         """Check if the session folder is an Offline session."""
         return folder_name.lower().startswith('offline')
+
+    def _get_original_target_classes_for_session(self, session_folder: str) -> Optional[List[int]]:
+        """Derive the original target_classes used when caching, based on session folder name.
+
+        In unified_mode, online data was cached with its original task-specific
+        target_classes (e.g., [1, 4] for 2class). This method recovers those
+        classes so we can compute the correct cache key.
+
+        Returns:
+            None for offline sessions (cached with target_classes=None),
+            [1, 4] for 2class, [1, 2, 4] for 3class.
+        """
+        from ..config.constants import TASKS
+        folder_lower = session_folder.lower()
+        if '2class' in folder_lower:
+            return TASKS['binary']['classes']
+        elif '3class' in folder_lower:
+            return TASKS['ternary']['classes']
+        return None  # Offline
 
     def _load_run_trial_based(
         self,

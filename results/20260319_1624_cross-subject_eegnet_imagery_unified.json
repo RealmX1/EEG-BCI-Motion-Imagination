@@ -1,0 +1,32 @@
+{
+  "metadata": {
+    "type": "cross-subject",
+    "model_type": "eegnet",
+    "paradigm": "imagery",
+    "task": "unified",
+    "subjects": [
+      "S01",
+      "S02"
+    ],
+    "n_subjects": 2,
+    "n_channels": 128,
+    "channel_config": null,
+    "run_tag": "20260319_1624",
+    "timestamp": "2026-03-19T16:29:22.216719",
+    "preprocessing_version": "v2.0"
+  },
+  "results": {
+    "per_subject_test_acc": {
+      "S01": 0.45236423220973787,
+      "S02": 0.6275462962962963
+    },
+    "mean_test_acc": 0.5399552642530171,
+    "std_test_acc": 0.08759103204327923,
+    "best_val_acc": 0.47400707825403066,
+    "best_epoch": 15
+  },
+  "training_info": {
+    "training_time": 287.5762134000033,
+    "model_path": "checkpoints\\cross_subject\\20260319_1624_eegnet_imagery_unified\\best.pt"
+  }
+}
