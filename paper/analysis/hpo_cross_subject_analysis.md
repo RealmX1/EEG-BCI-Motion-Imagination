@@ -1,6 +1,8 @@
 # Cross-Subject HPO 分析
 
 > **目的**: 记录 cross-subject 范式下所有模型的 HPO 搜索结果。当前包含 CBraMod（已完成）和 EEGNet（待执行）。
+>
+> **后续**: HPO 最优参数已于 2026-03-20 应用到 `src/config/training.py` 默认配置并完成 unified model 验证运行。完整的 "HPO 建议 → 用户 override → 最终采用" 对照表见 `docs/dev_log/experiments/hpo_final_parameters.md`。
 
 ---
 ---

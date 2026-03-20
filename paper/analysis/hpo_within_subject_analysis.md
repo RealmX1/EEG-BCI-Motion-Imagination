@@ -1,6 +1,8 @@
 # CBraMod Within-Subject HPO 分析
 
 > **目的**: 通过 Optuna TPE 搜索 CBraMod within-subject binary 训练的最优超参数组合，量化超参数调优对模型性能的影响，并识别关键参数。
+>
+> **后续**: HPO 最优参数已于 2026-03-20 应用到 `src/config/training.py` 默认配置并完成 unified model 验证运行。完整的 "HPO 建议 → 用户 override → 最终采用" 对照表见 `docs/dev_log/experiments/hpo_final_parameters.md`。
 
 ---
 

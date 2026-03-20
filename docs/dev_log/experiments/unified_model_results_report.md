@@ -177,6 +177,8 @@ CBraMod 的 gap（12-13pp）大于 EEGNet（8pp），因为 CBraMod 的表达能
 
 ## 5. HPO 优化分析
 
+> 完整的 "HPO 建议 → 用户 override → 最终采用" 参数对照表见 `docs/dev_log/experiments/hpo_final_parameters.md`
+
 ### 5.1 HPO 搜索概况
 
 | 组合 | Trials | Best Val | 状态 |
