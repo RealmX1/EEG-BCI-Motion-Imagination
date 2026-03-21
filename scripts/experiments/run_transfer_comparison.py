@@ -47,6 +47,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.config.constants import FULL_N_CHANNELS, SUPPORTED_CHANNEL_COUNTS, PARADIGM_CONFIG, TASKS
+from src.config.training import load_yaml_config
 from src.utils.device import set_seed, check_cuda_available, get_device
 from src.utils.logging import SectionLogger, setup_logging
 
@@ -174,6 +175,10 @@ def finetune_and_get_result(
     seed: int = 42,
     channels: Optional[int] = None,
     channel_config: Optional[str] = None,
+    # Model selection strategy
+    model_selection_strategy: str = 'combined',
+    ema_decay: float = 0.998,
+    soup_top_k: int = 3,
     # Cache-only mode
     cache_only: bool = False,
     cache_index_path: str = ".cache_index.json",
@@ -204,6 +209,9 @@ def finetune_and_get_result(
         data_root=data_root,
         channels=channels,
         channel_config=channel_config,
+        model_selection_strategy=model_selection_strategy,
+        ema_decay=ema_decay,
+        soup_top_k=soup_top_k,
         cache_only=cache_only,
         cache_index_path=cache_index_path,
         no_wandb=no_wandb,
@@ -244,6 +252,10 @@ def run_transfer_model(
     channels: Optional[int] = None,
     channel_config: Optional[str] = None,
     transfer_config: Optional[Dict] = None,
+    # Model selection strategy
+    model_selection_strategy: str = 'combined',
+    ema_decay: float = 0.998,
+    soup_top_k: int = 3,
     # Cache-only mode
     cache_only: bool = False,
     cache_index_path: str = ".cache_index.json",
@@ -367,6 +379,9 @@ def run_transfer_model(
                     run_tag=run_tag,
                     epochs=epochs,
                     learning_rate=learning_rate,
+                    model_selection_strategy=model_selection_strategy,
+                    ema_decay=ema_decay,
+                    soup_top_k=soup_top_k,
                     batch_size=batch_size,
                     seed=seed,
                     channels=channels,
@@ -512,6 +527,11 @@ Examples:
         '--finetune-batch-size', type=int, default=None,
         help='Fine-tuning batch size (default: model-specific)'
     )
+    parser.add_argument(
+        '--config', type=str, default=None, metavar='YAML_PATH',
+        help='YAML config file path (e.g., configs/model_selection_ema.yaml). '
+             'Overrides model defaults; CLI args take priority over YAML.'
+    )
     # Cache/resume arguments
     parser.add_argument(
         '--resume', nargs='?', const='', default=None,
@@ -607,8 +627,17 @@ Examples:
         run_tag = datetime.now().strftime("%Y%m%d_%H%M")
         log_main.info(f"Starting new transfer comparison run: {run_tag}")
 
+    # Parse YAML config for model selection strategy
+    config_overrides = load_yaml_config(args.config) if args.config else {}
+    train_config = config_overrides.get('training', {})
+    model_selection_strategy = train_config.get('model_selection_strategy', 'combined')
+    ema_decay = train_config.get('ema_decay', 0.998)
+    soup_top_k = train_config.get('soup_top_k', 3)
+
     paradigm_desc = PARADIGM_CONFIG[args.paradigm]['description']
     log_main.info(f"Paradigm: {paradigm_desc} | Task: {args.task} | Freeze: {args.freeze_strategy}")
+    if model_selection_strategy != 'combined':
+        log_main.info(f"Model selection strategy: {model_selection_strategy}")
 
     # Initialize ExperimentDB (dual-write)
     import shlex
@@ -766,6 +795,9 @@ Examples:
             channels=channels_arg,
             channel_config=channel_config_arg,
             transfer_config=transfer_config,
+            model_selection_strategy=model_selection_strategy,
+            ema_decay=ema_decay,
+            soup_top_k=soup_top_k,
             cache_only=args.cache_only,
             cache_index_path=args.cache_index_path,
             no_wandb=args.no_wandb,
