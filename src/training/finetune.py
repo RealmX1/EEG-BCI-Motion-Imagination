@@ -279,6 +279,10 @@ def finetune_subject(
     # Cache-only mode
     cache_only: bool = False,
     cache_index_path: str = ".cache_index.json",
+    # Model selection strategy
+    model_selection_strategy: str = 'combined',
+    ema_decay: float = 0.998,
+    soup_top_k: int = 3,
     # WandB (默认禁用，向后兼容)
     no_wandb: bool = True,
     upload_model: bool = False,
@@ -549,6 +553,9 @@ def finetune_subject(
         scheduler_type='plateau' if model_type == 'eegnet' else 'cosine_annealing_warmup_decay',
         use_amp=True,
         gradient_clip=1.0 if model_type == 'cbramod' else 0.0,
+        model_selection_strategy=model_selection_strategy,
+        ema_decay=ema_decay,
+        soup_top_k=soup_top_k,
         verbose=verbose,
     )
 
@@ -580,6 +587,12 @@ def finetune_subject(
     trainer.best_val_loss = baseline_val_loss
     trainer.best_epoch = 0  # Epoch 0 = pretrained model
     trainer.best_state = model.state_dict().copy()
+
+    # Initialize best_selection_score based on model selection strategy
+    if model_selection_strategy == 'val_acc':
+        trainer.best_selection_score = baseline_val_acc
+    else:
+        trainer.best_selection_score = baseline_combined
 
     # Save pretrained as initial best.pt
     torch.save({

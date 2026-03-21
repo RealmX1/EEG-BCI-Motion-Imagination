@@ -512,6 +512,11 @@ def train_cross_subject(
     optimizer_type = train_config.get('optimizer_type', 'adamw')
     muon_config = config.get('muon_config', None)
 
+    # Model selection strategy
+    model_selection_strategy = train_config.get('model_selection_strategy', 'combined')
+    ema_decay = train_config.get('ema_decay', 0.998)
+    soup_top_k = train_config.get('soup_top_k', 3)
+
     trainer = WithinSubjectTrainer(
         model,
         train_dataset,
@@ -530,6 +535,9 @@ def train_cross_subject(
         optimizer_type=optimizer_type,
         muon_config=muon_config,
         unified_val_groups=unified_val_groups,
+        model_selection_strategy=model_selection_strategy,
+        ema_decay=ema_decay,
+        soup_top_k=soup_top_k,
     )
 
     # ========== RESUME CHECKPOINT LOADING ==========
