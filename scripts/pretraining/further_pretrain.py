@@ -73,6 +73,11 @@ DEFAULT_CONFIG = {
     "lr": 5e-5,
     "weight_decay": 0.05,
     "warmup_epochs": 0.5,
+    "eta_min": 1e-6,
+    "scheduler": "warmup_constant",    # "warmup_constant" or "phased_cosine"
+    "num_phases": 5,                   # for phased_cosine: number of cosine phases
+    "phase_decay": 0.5,               # for phased_cosine: peak LR decay per phase
+    "lr_ramp_ratio": 0.1,             # for phased_cosine: fraction of phase for ramp-up
     "clip_value": 1.0,
     "mask_ratio": 0.5,
     # AMP
@@ -223,8 +228,8 @@ def generate_mask(bz, ch_num, patch_num, mask_ratio, device):
 class WarmupConstantScheduler(torch.optim.lr_scheduler._LRScheduler):
     """Linear warmup → Constant LR.
 
-    DAPT 场景下，continued pretraining 的权重已处于稳定 basin，
-    不需要 cosine 长尾衰减。短 warmup 后保持恒定 LR 即可。
+    Default for DAPT: the weights are already in a stable basin,
+    short warmup then maintain constant LR.
     """
 
     def __init__(
@@ -243,6 +248,70 @@ class WarmupConstantScheduler(torch.optim.lr_scheduler._LRScheduler):
             return [base_lr * scale for base_lr in self.base_lrs]
         else:
             return list(self.base_lrs)
+
+
+class PhasedCosineWarmupDecayScheduler(torch.optim.lr_scheduler._LRScheduler):
+    """Multi-phase cosine annealing with LR ramp-up and peak decay (step-based).
+
+    Adapted from CosineAnnealingWarmupDecay (epoch-based, src/training/schedulers.py)
+    for step-based pretraining loops.
+
+    Each phase contains:
+      - LR ramp-up (first lr_ramp_ratio fraction): linear rise to peak
+      - Cosine decay (remaining fraction): cosine fall to eta_min
+
+    Peak LR decays by phase_decay each phase.
+
+    Args:
+        optimizer: PyTorch optimizer
+        total_steps: Total training steps
+        num_phases: Number of cosine phases (default: 5)
+        phase_decay: Peak LR decay factor between phases (default: 0.5)
+        lr_ramp_ratio: Fraction of each phase for LR ramp-up (default: 0.1)
+        eta_min: Minimum learning rate (default: 1e-6)
+    """
+
+    def __init__(
+        self,
+        optimizer,
+        total_steps: int,
+        num_phases: int = 5,
+        phase_decay: float = 0.5,
+        lr_ramp_ratio: float = 0.1,
+        eta_min: float = 1e-6,
+        last_epoch: int = -1,
+    ):
+        self.total_steps = total_steps
+        self.num_phases = num_phases
+        self.phase_decay = phase_decay
+        self.lr_ramp_ratio = lr_ramp_ratio
+        self.eta_min = eta_min
+        self.steps_per_phase = total_steps // num_phases
+        super().__init__(optimizer, last_epoch)
+
+    def get_lr(self):
+        step = self.last_epoch
+        phase_idx = min(step // max(1, self.steps_per_phase), self.num_phases - 1)
+        step_in_phase = step - phase_idx * self.steps_per_phase
+        progress = step_in_phase / max(1, self.steps_per_phase)
+
+        peak_scale = self.phase_decay ** phase_idx
+
+        if progress < self.lr_ramp_ratio:
+            # LR ramp-up
+            ramp_progress = progress / self.lr_ramp_ratio
+            scale = ramp_progress * peak_scale
+        else:
+            # Cosine decay
+            decay_progress = (progress - self.lr_ramp_ratio) / (1.0 - self.lr_ramp_ratio)
+            import math
+            cosine_factor = 0.5 * (1 + math.cos(math.pi * decay_progress))
+            scale = peak_scale * cosine_factor
+
+        return [
+            self.eta_min + (base_lr - self.eta_min) * scale
+            for base_lr in self.base_lrs
+        ]
 
 
 # ─────────────────────────────────────────────
@@ -449,16 +518,33 @@ class FurtherPretrainTrainer:
         max_steps = self.steps_per_epoch * self.config["max_epochs"]
         warmup_steps = int(self.steps_per_epoch * self.config["warmup_epochs"])
 
-        self.scheduler = WarmupConstantScheduler(
-            self.optimizer,
-            warmup_steps=warmup_steps,
-        )
+        scheduler_type = self.config.get("scheduler", "warmup_constant")
+        if scheduler_type == "phased_cosine":
+            self.scheduler = PhasedCosineWarmupDecayScheduler(
+                self.optimizer,
+                total_steps=max_steps,
+                num_phases=self.config.get("num_phases", 5),
+                phase_decay=self.config.get("phase_decay", 0.5),
+                lr_ramp_ratio=self.config.get("lr_ramp_ratio", 0.1),
+                eta_min=self.config.get("eta_min", 1e-6),
+            )
+            sched_desc = (
+                f"PhasedCosine({self.config.get('num_phases', 5)} phases, "
+                f"decay={self.config.get('phase_decay', 0.5)}, "
+                f"ramp={self.config.get('lr_ramp_ratio', 0.1)})"
+            )
+        else:
+            self.scheduler = WarmupConstantScheduler(
+                self.optimizer,
+                warmup_steps=warmup_steps,
+            )
+            sched_desc = f"Warmup({warmup_steps} steps) + Constant LR"
 
         logger.info(
             f"优化器: AdamW (lr={self.config['lr']}, wd={self.config['weight_decay']})"
         )
         logger.info(
-            f"调度器: Warmup({warmup_steps} steps) + Constant LR"
+            f"调度器: {sched_desc}"
         )
         logger.info(
             f"每 epoch {self.steps_per_epoch} 优化步, 最大 {self.config['max_epochs']} epochs, "
