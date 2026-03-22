@@ -12,7 +12,7 @@ Additionally, `finetune_subject()` and `train_single_subject()` in `src/training
 
 1. **Model initialization**: pretrained checkpoint vs. scratch
 2. **Freeze strategy**: `apply_freeze_strategy()` + custom optimizer
-3. **Training phases**: `train_single_subject()` uses two-phase training (exploration + main loaders); `finetune_subject()` uses single-phase only
+3. **Training phases**: `train_single_subject()` uses two-phase training (exploration + main loaders); `finetune_subject()` happens to use single-phase (but this is not intentional — it simply was not implemented with exploration phase support)
 4. **Pretrained baseline**: `finetune_subject()` evaluates the pretrained model at epoch 0 and uses it as the initial best (trainer only saves if finetuning improves over pretrained)
 5. **Config overrides**: `finetune_subject()` does not support `config_overrides`; hyperparameters are passed as explicit arguments (`epochs`, `learning_rate`, `batch_size`)
 6. **Scheduler**: `finetune_subject()` hardcodes `scheduler_type='plateau'` for EEGNet and `'cosine_annealing_warmup_decay'` for CBraMod, without consulting `SCHEDULER_PRESETS`
@@ -56,15 +56,16 @@ When `pretrained_path` is provided (transfer/finetune mode):
 2. Validate `n_classes` matches current task.
 3. Apply `freeze_strategy` via `apply_freeze_strategy()`.
 4. Create a finetuning-aware optimizer via `get_finetune_optimizer()` and replace `trainer.optimizer`.
-5. **Skip two-phase training**: Use single-phase training only (no exploration loader). The two-phase exploration/main split is designed for from-scratch training; finetuning starts from a pretrained model that has already learned features.
-6. Evaluate pretrained baseline at epoch 0 (before training starts). Set `trainer.best_val_acc`, `trainer.best_combined_score`, `trainer.best_epoch = 0` so that the trainer only saves a new checkpoint if finetuning actually improves over the pretrained model.
-7. Apply finetune-specific default hyperparameters when not overridden by `config_overrides`:
+5. Evaluate pretrained baseline at epoch 0 (before training starts). Set `trainer.best_val_acc`, `trainer.best_combined_score`, `trainer.best_epoch = 0` so that the trainer only saves a new checkpoint if finetuning actually improves over the pretrained model.
+6. Apply finetune-specific default hyperparameters when not overridden by `config_overrides`:
    - Scheduler: `'plateau'` for EEGNet, `'cosine_annealing_warmup_decay'` for CBraMod
    - Epochs/LR/batch_size: based on freeze strategy and channel count (from `get_default_finetune_config()`)
-8. **Support `config_overrides` in finetune mode** (new behavior vs. current `finetune_subject()`). This enables YAML config and `--scheduler` to work for transfer experiments.
-9. Include `pretrained_baseline` and `milestone_test_results` in the returned dict.
+7. **Support `config_overrides` in finetune mode** (new behavior vs. current `finetune_subject()`). This enables YAML config and `--scheduler` to work for transfer experiments.
+8. Include `pretrained_baseline` and `milestone_test_results` in the returned dict.
 
-When `pretrained_path` is None (default): existing behavior, no changes. Two-phase training used as before.
+**Two-phase training (exploration phase)**: Controlled by `scheduler_config` as usual — not skipped for finetune mode. The current `finetune_subject()` happens to not use it, but the unified function makes it available via config. The finetune default scheduler config sets `exploration_epochs` per its own defaults; if 0, the trainer naturally degrades to single-phase.
+
+When `pretrained_path` is None (default): existing behavior, no changes.
 
 `train_subject_simple()` passes through the new parameters:
 
@@ -408,7 +409,7 @@ Not shared (cross-subject specific):
 
 **Channel config plumbing**: When `run_single_model()` is called in transfer mode with `--channels` / `--channel-config`, these flow through `config_overrides['data']['channels']` and `config_overrides['data']['channel_config']`. The unified `train_single_subject()` reads these from config and passes them to `preprocess_config.apply_channel_overrides()` (already supported at line 394-396 of the current code). No new plumbing needed.
 
-**Finetune-mode training phases**: Finetuning uses single-phase training (no exploration loader). The conditional in `train_single_subject()`: `if pretrained_path: skip two-phase setup; else: use two-phase as before`.
+**Two-phase training (exploration phase)**: Not conditionally skipped for finetune mode. The exploration phase is controlled by `scheduler_config['exploration_epochs']` — if the finetune default config sets it to 0, the trainer naturally uses single-phase. If config overrides specify exploration epochs, they work for finetune too. No special-casing needed in the unified function.
 
 ### Migration Safety
 
