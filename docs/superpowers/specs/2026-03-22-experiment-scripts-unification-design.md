@@ -8,7 +8,14 @@ The three experiment paradigms (within-subject, cross-subject, transfer learning
 - **Cross-subject**: `run_cross_subject_comparison.py` does NOT call `run_cross_subject.py` — it calls `train_cross_subject()` directly.
 - **Transfer learning**: `run_transfer_comparison.py` is a 987-line monolith containing helper functions, training loops, DB writes, and plotting. No corresponding single-model script exists. `run_finetune.py` exists separately but is unused by any other code.
 
-Additionally, `finetune_subject()` and `train_single_subject()` in `src/training/` are ~70% duplicated — both use the same `WithinSubjectTrainer`, the same data loading, the same temporal split, and the same evaluation. The only differences are model initialization (pretrained checkpoint vs. scratch) and freeze strategy.
+Additionally, `finetune_subject()` and `train_single_subject()` in `src/training/` are ~70% duplicated — both use the same `WithinSubjectTrainer`, the same data loading, the same temporal split, and the same evaluation. The differences are:
+
+1. **Model initialization**: pretrained checkpoint vs. scratch
+2. **Freeze strategy**: `apply_freeze_strategy()` + custom optimizer
+3. **Training phases**: `train_single_subject()` uses two-phase training (exploration + main loaders); `finetune_subject()` uses single-phase only
+4. **Pretrained baseline**: `finetune_subject()` evaluates the pretrained model at epoch 0 and uses it as the initial best (trainer only saves if finetuning improves over pretrained)
+5. **Config overrides**: `finetune_subject()` does not support `config_overrides`; hyperparameters are passed as explicit arguments (`epochs`, `learning_rate`, `batch_size`)
+6. **Scheduler**: `finetune_subject()` hardcodes `scheduler_type='plateau'` for EEGNet and `'cosine_annealing_warmup_decay'` for CBraMod, without consulting `SCHEDULER_PRESETS`
 
 ## Goals
 
@@ -44,16 +51,20 @@ def train_single_subject(
 ) -> Dict:
 ```
 
-When `pretrained_path` is provided:
+When `pretrained_path` is provided (transfer/finetune mode):
 1. Load checkpoint via `load_pretrained_model()` instead of creating a fresh model.
 2. Validate `n_classes` matches current task.
 3. Apply `freeze_strategy` via `apply_freeze_strategy()`.
 4. Create a finetuning-aware optimizer via `get_finetune_optimizer()` and replace `trainer.optimizer`.
-5. Evaluate pretrained baseline at epoch 0 (before training starts).
-6. Use finetune-specific default hyperparameters (epochs, LR) based on freeze strategy and channel count.
-7. Include `pretrained_baseline` and `milestone_test_results` in the returned dict.
+5. **Skip two-phase training**: Use single-phase training only (no exploration loader). The two-phase exploration/main split is designed for from-scratch training; finetuning starts from a pretrained model that has already learned features.
+6. Evaluate pretrained baseline at epoch 0 (before training starts). Set `trainer.best_val_acc`, `trainer.best_combined_score`, `trainer.best_epoch = 0` so that the trainer only saves a new checkpoint if finetuning actually improves over the pretrained model.
+7. Apply finetune-specific default hyperparameters when not overridden by `config_overrides`:
+   - Scheduler: `'plateau'` for EEGNet, `'cosine_annealing_warmup_decay'` for CBraMod
+   - Epochs/LR/batch_size: based on freeze strategy and channel count (from `get_default_finetune_config()`)
+8. **Support `config_overrides` in finetune mode** (new behavior vs. current `finetune_subject()`). This enables YAML config and `--scheduler` to work for transfer experiments.
+9. Include `pretrained_baseline` and `milestone_test_results` in the returned dict.
 
-When `pretrained_path` is None (default): existing behavior, no changes.
+When `pretrained_path` is None (default): existing behavior, no changes. Two-phase training used as before.
 
 `train_subject_simple()` passes through the new parameters:
 
@@ -69,23 +80,57 @@ def train_subject_simple(
 `finetune_subject()` becomes a thin backward-compatible wrapper:
 
 ```python
-def finetune_subject(pretrained_path, subject_id, freeze_strategy='none', ...) -> Dict:
-    """Backward-compatible wrapper. Delegates to train_subject_simple()."""
+def finetune_subject(pretrained_path, subject_id, freeze_strategy='none',
+                     epochs=None, learning_rate=None, batch_size=None,
+                     model_selection_strategy='combined', ema_decay=0.998, soup_top_k=3,
+                     ...) -> Dict:
+    """Backward-compatible wrapper. Delegates to train_subject_simple().
+
+    Translates finetune-specific explicit parameters (epochs, learning_rate, batch_size)
+    into config_overrides format used by the unified function.
+    """
+    # Detect model_type from checkpoint (loaded inside train_single_subject anyway)
+    model_type = _detect_model_type_from_checkpoint(pretrained_path)
+
+    # Translate explicit params → config_overrides
+    config_overrides = {'training': {}}
+    if epochs is not None:
+        config_overrides['training']['epochs'] = epochs
+    if learning_rate is not None:
+        config_overrides['training']['learning_rate'] = learning_rate
+    if batch_size is not None:
+        config_overrides['training']['batch_size'] = batch_size
+    if model_selection_strategy != 'combined':
+        config_overrides['training']['model_selection_strategy'] = model_selection_strategy
+    config_overrides['training']['ema_decay'] = ema_decay
+    config_overrides['training']['soup_top_k'] = soup_top_k
+
     return train_subject_simple(
         subject_id=subject_id,
-        model_type=_detect_model_type(pretrained_path),
+        model_type=model_type,
         pretrained_path=pretrained_path,
         freeze_strategy=freeze_strategy,
+        config_overrides=config_overrides or None,
         ...
     )
+
+def _detect_model_type_from_checkpoint(pretrained_path: str) -> str:
+    """Load checkpoint metadata to determine model_type. Lightweight: only reads model_config."""
+    import torch
+    ckpt = torch.load(pretrained_path, map_location='cpu', weights_only=False)
+    return ckpt['model_config']['model_type']
 ```
 
-Functions to relocate from `src/training/finetune.py` into `train_within_subject.py`:
+Note: `_detect_model_type_from_checkpoint()` does load the full checkpoint, but this is acceptable because `train_single_subject()` will load it again via `load_pretrained_model()`. An optimization to avoid double-loading can be added later (pass preloaded checkpoint through), but is not required for correctness.
+
+Functions to relocate from `src/training/finetune.py` into a new `src/training/finetune_utils.py`:
 - `load_pretrained_model()` — checkpoint loading + model reconstruction
 - `apply_freeze_strategy()` — parameter freezing
 - `get_finetune_optimizer()` — finetuning-aware optimizer creation
 - `get_default_finetune_config()` — finetune hyperparameter defaults (extracted from hardcoded values)
 - Finetune-specific constants (`EIGHT_CHANNEL_FINETUNE_OVERRIDES`, etc.)
+
+These stay in a separate file rather than being merged into `train_within_subject.py` to avoid bloating that already-large file (1,053 lines). `train_within_subject.py` imports from `finetune_utils.py` when `pretrained_path` is provided.
 
 `finetune_all_subjects()` is only used by `run_finetune.py` (being deprecated) and can be removed.
 
@@ -105,6 +150,9 @@ def add_channel_args(parser):
 
 def add_training_config_args(parser):
     """Shared: --config (YAML), --scheduler, --classifier-type, --no-pretrained"""
+
+def add_model_selection_args(parser):
+    """Shared: --model-selection-strategy, --ema-decay, --soup-top-k"""
 
 def add_transfer_args(parser):
     """Transfer-specific: --pretrained, --freeze-strategy, --finetune-epochs, --finetune-lr, --auto-discover-pretrained"""
@@ -332,7 +380,18 @@ def main():
 
 #### `run_cross_subject_comparison.py` (~250 lines, down from 647)
 
-Uses same shared utilities (`resolve_run_tag`, `init_db_run`, `finalize_db_run`, etc.) but keeps its own training logic since cross-subject training is fundamentally different (single model across all subjects, not per-subject loop). Refactored to use shared argparse builders and DB utilities.
+Uses same shared utilities but keeps its own training logic since cross-subject trains a single model across all subjects (fundamentally different from per-subject loops).
+
+Shared utilities adopted:
+- `add_common_args()`, `add_cache_resume_args()`, `add_channel_args()`, `add_wandb_args()` — argparse builders
+- `resolve_run_tag()` — resume/tag logic
+- `init_db_run()` / `finalize_db_run()` — DB lifecycle
+- `resolve_output_dir()` — channel directory redirect
+
+Not shared (cross-subject specific):
+- Training loop — calls `train_cross_subject()` directly (trains one model on all subjects combined, not per-subject)
+- Cache structure — flat `{model: result_dict}` not `{model: {subject: result_dict}}`
+- Result conversion — `cross_subject_result_to_training_results()` to convert for comparison
 
 ### Deprecation
 
@@ -340,7 +399,16 @@ Uses same shared utilities (`resolve_run_tag`, `init_db_run`, `finalize_db_run`,
 |------|--------|
 | `scripts/experiments/run_finetune.py` | Delete. Functionality absorbed into `run_single_model.py --pretrained`. |
 | `scripts/run_finetune.py` | Delete (thin wrapper for above). |
-| `src/training/finetune.py` | Retained as backward-compat wrapper. Core logic moved to `train_within_subject.py`. `finetune_all_subjects()` removed. |
+| `src/training/finetune.py` | Retained as backward-compat wrapper (~50 lines). Core logic moved to `src/training/finetune_utils.py` (reusable functions) and integrated into `train_within_subject.py` (unified flow). `finetune_all_subjects()` removed. |
+| `src/training/finetune_utils.py` | New file. Contains `load_pretrained_model()`, `apply_freeze_strategy()`, `get_finetune_optimizer()`, `get_default_finetune_config()`, and finetune constants. Imported by `train_within_subject.py` when `pretrained_path` is provided. |
+
+### Design Decisions
+
+**WandB strategy**: Standardize on **per-subject WandB runs** for all paradigms (within-subject and transfer). The current transfer-specific "single shared WandB run across all subjects" pattern is dropped. Rationale: per-subject runs are simpler, consistent across paradigms, and the shared-run pattern has cleanup issues on failures. Per-subject runs are grouped via `wandb_group`.
+
+**Channel config plumbing**: When `run_single_model()` is called in transfer mode with `--channels` / `--channel-config`, these flow through `config_overrides['data']['channels']` and `config_overrides['data']['channel_config']`. The unified `train_single_subject()` reads these from config and passes them to `preprocess_config.apply_channel_overrides()` (already supported at line 394-396 of the current code). No new plumbing needed.
+
+**Finetune-mode training phases**: Finetuning uses single-phase training (no exploration loader). The conditional in `train_single_subject()`: `if pretrained_path: skip two-phase setup; else: use two-phase as before`.
 
 ### Migration Safety
 
@@ -348,6 +416,20 @@ Uses same shared utilities (`resolve_run_tag`, `init_db_run`, `finalize_db_run`,
 - All existing CLI commands continue to work (top-level thin wrappers unchanged except `run_finetune.py`).
 - Cache format unchanged — existing cached results remain valid.
 - DB schema unchanged.
+
+### Migration Checklist
+
+- [ ] Update `src/training/__init__.py`: remove `finetune_all_subjects` from imports and `__all__`
+- [ ] Update `src/training/__init__.py`: re-export `finetune_subject` from new location (or keep importing from `finetune.py` wrapper)
+- [ ] Update `docs/codebase_reference.md`: remove `run_finetune.py` references, add `--pretrained` docs
+- [ ] Verify `src/hpo/objectives.py` works with the backward-compat wrapper (same args, same return format)
+- [ ] Delete `scripts/experiments/run_finetune.py` and `scripts/run_finetune.py`
+
+### Verification
+
+- **Backward compatibility**: `finetune_subject()` called from `src/hpo/objectives.py` with the same arguments produces identical behavior. Verify by running a single-subject HPO trial before and after.
+- **Cache compatibility**: Existing JSON caches from transfer runs can still be loaded by the new `run_transfer_comparison.py --resume`.
+- **Smoke test**: `run_single_model.py --model cbramod --pretrained <path> --freeze-strategy backbone --subjects S01` produces equivalent results to the old `run_transfer_comparison.py` for a single model/subject.
 
 ### Metrics
 
