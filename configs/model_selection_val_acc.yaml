@@ -1,0 +1,2 @@
+training:
+  model_selection_strategy: val_acc

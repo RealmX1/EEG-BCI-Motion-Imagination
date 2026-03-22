@@ -1,5 +1,73 @@
 # 开发变更记录
 
+## 2026-03-21
+
+### Model Selection Strategy 对比实验
+
+**背景**: 当前 `combined_score = (val_acc + majority_acc) / 2` 模型选择标准对 50% 被试选到了次优 checkpoint。majority_acc（trial-level 多数投票）epoch 间波动是 val_acc 的 1.2-2.6 倍，门控 milestone 保存导致 10/21 被试有 val_acc 新高的 epoch 未被保存。
+
+**方法**: 引入可配置 `model_selection_strategy` 参数，实现 4 种策略的系统对比：
+
+| 策略 | 配置文件 | 描述 |
+|------|---------|------|
+| `combined` (baseline) | 默认 | `(val_acc + majority_acc) / 2` |
+| `val_acc` | `configs/model_selection_val_acc.yaml` | segment-level val_acc only |
+| `ema` | `configs/model_selection_ema.yaml` | EMA shadow weights (decay=0.998) |
+| `soup` | `configs/model_selection_soup.yaml` | top-3 milestone checkpoint 权重平均 |
+
+**实验范围**: Within-subject + Cross-subject + Transfer Learning 三种范式，CBraMod 128ch binary classification，21 被试。
+
+**Within-subject 结果**:
+
+| 策略 | Mean Test Acc | vs Baseline | Run Tag |
+|------|-------------|------------|---------|
+| soup | **85.09%** | +0.24% | `20260321_0343` |
+| combined | 84.85% | baseline | `20260320_2316` |
+| val_acc | 84.73% | -0.12% | `20260321_0013` |
+| ema | 71.90% | -12.95% | `20260321_0227` |
+
+**关键发现**:
+1. **Soup 微弱领先** (+0.24%)，改善 worst-case 并降低标准差，但幅度可能统计不显著
+2. **EMA 严重失败** (-12.95%)，根因是 per-epoch 更新 + decay=0.998 导致 EMA 权重在 50 epoch 内几乎不动
+3. **Combined 是最稳健的默认策略**：三种范式中排名 #2/#1/#2，从未严重失败
+4. 所有策略共用为 combined 优化的 HPO 参数，存在偏置 caveat
+
+> **数据来源**: `results/20260320_2316_comparison_cache_imagery_binary.json` ~ `results/20260321_0343_comparison_cache_imagery_binary.json`
+> **实验计划**: `docs/model_selection_experiment_plan.md`
+> **详细分析**: `paper/analysis/model_selection_strategy_analysis.md`
+
+---
+
+## 2026-03-20
+
+### Unified 模型 Per-Subtask 验证 + Label Remap 修复
+
+**背景**: Unified 模型训练时验证指标（val_acc）使用原始 4-class argmax 计算，而测试评估使用 per-subtask logit masking。验证与测试的 metric 语义不一致，导致 checkpoint 选择和 early stopping 依据的信号与实际测试性能不对齐。
+
+**方法**: 在训练过程中引入 per-subtask 验证——将验证集按 session_type 分组为 binary/ternary/quaternary，每个子任务独立使用 logit masking 评估，取三者均值作为 majority_vote_acc。
+
+**关键 Bug 修复 (label_remap)**:
+- `majority_vote_accuracy_unified()` 的 argmax 在 masked logit 空间生成 local 预测（如 binary: [0,1]）
+- 但 unified 训练数据集标签在 4-class 空间（binary Pinky = 3，非 1）
+- 未 remap 时 `pred=1 (Pinky, local)` vs `label=3 (Pinky, unified)` → 永远判错
+- 修复：新增 `label_remap` 参数，验证时将 unified 标签映射到 local 空间
+- 示例：binary `{0:0, 3:1}`，ternary `{0:0, 1:1, 3:2}`，quaternary 为恒等映射
+
+**修改文件**:
+- `src/training/evaluation.py`:
+  - 新增 `compute_subtask_val_groups()` — 按 session_type 分组验证索引
+  - `majority_vote_accuracy_unified()` 新增 `label_remap` 可选参数
+- `src/training/trainer.py`:
+  - 新增 `unified_val_groups` 构造参数
+  - 新增 `validate_unified()` 方法（per-subtask logit masking + label remap + 均值聚合）
+  - 训练循环中 unified 模式自动使用 `validate_unified()` 替代普通 `majority_vote_accuracy()`
+- `src/training/train_within_subject.py`: 计算 `unified_val_groups` 并传入 Trainer
+- `src/training/train_cross_subject.py`: 同上
+
+**影响**: 训练时 val 指标从"4-class 原始 argmax"变为"per-subtask logit-masked 均值"，与测试评估协议完全对齐。已有 test 评估路径不受影响（`label_remap=None` 默认值保持原始行为）。
+
+---
+
 ## 2026-03-02
 
 ### 4ch 实验框架集成
