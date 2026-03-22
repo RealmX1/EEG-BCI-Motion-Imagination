@@ -8,6 +8,7 @@ EEGNet and CBraMod models on single-subject EEG data.
 import logging
 import os
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
@@ -129,6 +130,9 @@ class WithinSubjectTrainer:
     - Fine-tuning freezes early layers
     """
 
+    # Valid model selection strategies
+    VALID_SELECTION_STRATEGIES = ('combined', 'val_acc', 'ema', 'soup')
+
     def __init__(
         self,
         model: nn.Module,
@@ -148,6 +152,9 @@ class WithinSubjectTrainer:
         optimizer_type: str = 'adamw',
         muon_config: Optional[Dict[str, Any]] = None,
         unified_val_groups: Optional[Dict[str, Dict]] = None,
+        model_selection_strategy: str = 'combined',
+        ema_decay: float = 0.998,
+        soup_top_k: int = 3,
         verbose: int = 2,
     ):
         self.model = model.to(device)
@@ -158,6 +165,17 @@ class WithinSubjectTrainer:
         self.scheduler_type = scheduler_type
         self.unified_val_groups = unified_val_groups
         self.verbose = verbose
+
+        # Model selection strategy
+        if model_selection_strategy not in self.VALID_SELECTION_STRATEGIES:
+            raise ValueError(
+                f"Unknown model_selection_strategy: {model_selection_strategy}. "
+                f"Valid: {self.VALID_SELECTION_STRATEGIES}"
+            )
+        self.model_selection_strategy = model_selection_strategy
+        self.ema_decay = ema_decay
+        self.soup_top_k = soup_top_k
+        self.ema_state = None  # Initialized on first EMA update
 
         if optimizer_type == 'muon' and scheduler_type == 'plateau':
             log_train.warning(
@@ -261,6 +279,7 @@ class WithinSubjectTrainer:
         self.best_val_acc = 0.0  # Track best validation accuracy (segment-level)
         self.best_majority_acc = 0.0  # Track best validation accuracy (trial-level majority voting)
         self.best_combined_score = 0.0  # Combined score = (val_acc + majority_acc) / 2
+        self.best_selection_score = 0.0  # Score used for actual model selection (depends on strategy)
         self.best_epoch = 0
         self.best_state = None
 
@@ -499,6 +518,103 @@ class WithinSubjectTrainer:
         mean_acc = sum(subtask_accs.values()) / len(subtask_accs) if subtask_accs else 0.0
         return mean_acc, subtask_accs
 
+    # ── EMA & Soup helpers ────────────────────────────────────────────────
+
+    def _update_ema(self):
+        """Update EMA shadow weights after each epoch.
+
+        Performance: uses state_dict(keep_vars=True) to get live tensor
+        references without cloning, avoiding O(params) GPU memory copies.
+        """
+        # keep_vars=True returns live references — no clone, no CPU sync
+        live_state = self.model.state_dict(keep_vars=True)
+        if self.ema_state is None:
+            self.ema_state = {k: v.detach().clone().float()
+                              for k, v in live_state.items()}
+            return
+        decay = self.ema_decay
+        with torch.no_grad():
+            for k in self.ema_state:
+                self.ema_state[k].mul_(decay).add_(
+                    live_state[k].detach().float(), alpha=1.0 - decay
+                )
+
+    @contextmanager
+    def _ema_context(self):
+        """Temporarily swap model weights with EMA weights for validation.
+
+        Performance: directly swaps parameter/buffer .data in-place instead
+        of using state_dict() clone + load_state_dict(), avoiding two full
+        model copies and the overhead of load_state_dict key validation.
+        """
+        if self.ema_state is None:
+            yield
+            return
+        # Get live references to model's parameters and buffers
+        live_state = self.model.state_dict(keep_vars=True)
+        # Save original .data and swap in EMA weights
+        originals = {}
+        for k, live_tensor in live_state.items():
+            originals[k] = live_tensor.data
+            live_tensor.data = self.ema_state[k].to(dtype=live_tensor.dtype)
+        try:
+            yield
+        finally:
+            # Restore original weights via the same live references
+            for k, live_tensor in live_state.items():
+                live_tensor.data = originals[k]
+
+    def _make_checkpoint_soup(self, milestones, top_k=3):
+        """Average top-K milestone checkpoints by selection_score."""
+        if len(milestones) < 2:
+            return None
+        sorted_ms = sorted(
+            milestones,
+            key=lambda m: m.get('selection_score', m.get('combined_score', 0)),
+            reverse=True,
+        )[:top_k]
+        states = []
+        for ms in sorted_ms:
+            ckpt = torch.load(ms['path'], map_location=self.device, weights_only=True)
+            states.append(ckpt['model_state_dict'])
+        avg_state = {}
+        for key in states[0]:
+            avg_state[key] = torch.stack([s[key].float() for s in states]).mean(dim=0)
+        log_train.info(f"Checkpoint soup: averaged {len(states)} milestones "
+                       f"(epochs {[m['epoch'] for m in sorted_ms]})")
+        return avg_state
+
+    def _has_batchnorm(self):
+        """Check if model contains BatchNorm layers."""
+        return any(isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d))
+                   for m in self.model.modules())
+
+    def _update_bn_stats(self, dataloader, n_batches=50):
+        """Recalculate BatchNorm running statistics after weight averaging."""
+        for m in self.model.modules():
+            if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d)):
+                m.reset_running_stats()
+        self.model.train()
+        with torch.no_grad():
+            for i, (segments, _) in enumerate(dataloader):
+                if i >= n_batches:
+                    break
+                segments = segments.to(self.device)
+                if self.use_amp:
+                    with torch.amp.autocast('cuda', dtype=torch.float16):
+                        self.model(segments)
+                else:
+                    self.model(segments)
+        self.model.eval()
+
+    def _compute_selection_score(self, val_acc, majority_acc, combined_score):
+        """Compute selection score based on the chosen strategy."""
+        if self.model_selection_strategy == 'val_acc':
+            return val_acc
+        # 'combined', 'ema', 'soup' all use combined_score during training
+        # ('ema' differs in that val_acc/majority_acc come from EMA weights)
+        return combined_score
+
     def save_resume_checkpoint(self, save_path: Path, epoch: int):
         """保存用于恢复训练的完整检查点.
 
@@ -524,11 +640,14 @@ class WithinSubjectTrainer:
             'best_val_acc': self.best_val_acc,
             'best_majority_acc': self.best_majority_acc,
             'best_combined_score': self.best_combined_score,
+            'best_selection_score': self.best_selection_score,
             'best_epoch': self.best_epoch,
             'history': self.history,
             'scheduler_type': self.scheduler_type,
             'model_type': self.model_type,
             'optimizer_type': self.optimizer_type,
+            'model_selection_strategy': self.model_selection_strategy,
+            'ema_state': self.ema_state if self.model_selection_strategy == 'ema' else None,
         }
 
         temp_path = save_path / 'resume_checkpoint.pt.tmp'
@@ -591,8 +710,11 @@ class WithinSubjectTrainer:
         self.best_val_acc = checkpoint['best_val_acc']
         self.best_majority_acc = checkpoint['best_majority_acc']
         self.best_combined_score = checkpoint['best_combined_score']
+        self.best_selection_score = checkpoint.get('best_selection_score', self.best_combined_score)
         self.best_epoch = checkpoint['best_epoch']
         self.history = checkpoint.get('history', self.history)
+        if checkpoint.get('ema_state') is not None:
+            self.ema_state = checkpoint['ema_state']
 
         # Restore best_state from best.pt on disk (not stored in resume checkpoint)
         best_pt = save_path / 'best.pt'
@@ -830,25 +952,32 @@ class WithinSubjectTrainer:
                     profile=do_profile,
                 )
 
-            # Validate
-            with epoch_timer.phase("validate"):
-                val_loss, val_acc = self.validate(val_loader)
+            # EMA: update shadow weights after training step
+            if self.model_selection_strategy == 'ema':
+                self._update_ema()
 
-            # Majority voting: compute every epoch for accurate early stopping
-            with epoch_timer.phase("majority_vote"):
-                if self.unified_val_groups:
-                    majority_acc, _subtask_accs = self.validate_unified()
-                else:
-                    majority_acc, _ = majority_vote_accuracy(
-                        self.model, self.dataset, self.val_indices, self.device,
-                        use_amp=self.use_amp
-                    )
+            # Validate & majority vote (under EMA context if strategy='ema')
+            _ema_ctx = self._ema_context() if self.model_selection_strategy == 'ema' else contextmanager(lambda: (yield))()
+            with _ema_ctx:
+                with epoch_timer.phase("validate"):
+                    val_loss, val_acc = self.validate(val_loader)
+
+                # Majority voting: compute every epoch for accurate early stopping
+                with epoch_timer.phase("majority_vote"):
+                    if self.unified_val_groups:
+                        majority_acc, _subtask_accs = self.validate_unified()
+                    else:
+                        majority_acc, _ = majority_vote_accuracy(
+                            self.model, self.dataset, self.val_indices, self.device,
+                            use_amp=self.use_amp
+                        )
 
             epoch_timer.end_epoch()
 
-            # Combined score: average of segment accuracy and majority voting accuracy
-            # Early stopping and best model selection based on this combined metric
+            # Combined score (always computed for history/backward compat)
             combined_score = (val_acc + majority_acc) / 2.0
+            # Selection score depends on strategy
+            selection_score = self._compute_selection_score(val_acc, majority_acc, combined_score)
 
             # Update history
             self.history['train_loss'].append(train_loss)
@@ -887,17 +1016,22 @@ class WithinSubjectTrainer:
             # Step-based schedulers are updated per-batch in train_epoch()
             if self.scheduler is not None and self.scheduler_type in EPOCH_BASED_SCHEDULERS:
                 if self.scheduler_needs_metric:
-                    self.scheduler.step(combined_score)  # ReduceLROnPlateau uses combined score
+                    self.scheduler.step(selection_score)
                 else:
                     self.scheduler.step()
 
-            if combined_score > self.best_combined_score:
+            if selection_score > self.best_selection_score:
+                self.best_selection_score = selection_score
                 self.best_combined_score = combined_score
                 self.best_val_acc = val_acc
                 self.best_majority_acc = majority_acc
                 self.best_val_loss = val_loss
                 self.best_epoch = epoch + 1
-                self.best_state = self.model.state_dict().copy()
+                # EMA strategy: save EMA weights as best state
+                if self.model_selection_strategy == 'ema' and self.ema_state is not None:
+                    self.best_state = {k: v.clone() for k, v in self.ema_state.items()}
+                else:
+                    self.best_state = self.model.state_dict().copy()
                 no_improve = 0
                 is_best_epoch = True
 
@@ -907,12 +1041,14 @@ class WithinSubjectTrainer:
                     'val_acc': self.best_val_acc,
                     'val_majority_acc': self.best_majority_acc,
                     'combined_score': self.best_combined_score,
+                    'selection_score': self.best_selection_score,
+                    'selection_strategy': self.model_selection_strategy,
                     'val_loss': self.best_val_loss,
                 }
 
                 if save_path:
                     torch.save(checkpoint_dict, save_path / 'best.pt')
-                    log_train.debug(f"Best model saved (combined={combined_score:.4f}, val_acc={val_acc:.4f}, maj_acc={majority_acc:.4f})")
+                    log_train.debug(f"Best model saved (selection={selection_score:.4f}, val_acc={val_acc:.4f}, maj_acc={majority_acc:.4f})")
 
                 # Milestone tracking
                 if initial_streak_active:
@@ -926,11 +1062,12 @@ class WithinSubjectTrainer:
                     milestones.append({
                         'epoch': epoch + 1,
                         'combined_score': combined_score,
+                        'selection_score': selection_score,
                         'val_acc': val_acc,
                         'val_majority_acc': majority_acc,
                         'path': str(milestone_path),
                     })
-                    log_train.debug(f"Milestone saved: epoch {epoch+1} (combined={combined_score:.4f})")
+                    log_train.debug(f"Milestone saved: epoch {epoch+1} (selection={selection_score:.4f})")
             else:
                 no_improve += 1
 
@@ -943,6 +1080,7 @@ class WithinSubjectTrainer:
                         milestones.append({
                             'epoch': last_streak_epoch,
                             'combined_score': last_streak_info['combined_score'],
+                            'selection_score': last_streak_info.get('selection_score', last_streak_info['combined_score']),
                             'val_acc': last_streak_info['val_acc'],
                             'val_majority_acc': last_streak_info['val_majority_acc'],
                             'path': str(milestone_path),
@@ -993,6 +1131,7 @@ class WithinSubjectTrainer:
                 'val_acc': self.best_val_acc,
                 'val_majority_acc': self.best_majority_acc,
                 'combined_score': self.best_combined_score,
+                'selection_score': self.best_selection_score,
                 'val_loss': self.best_val_loss,
             }
             milestone_path = save_path / f'best_epoch{last_streak_epoch:03d}.pt'
@@ -1000,6 +1139,7 @@ class WithinSubjectTrainer:
             milestones.append({
                 'epoch': last_streak_epoch,
                 'combined_score': info['combined_score'],
+                'selection_score': info.get('selection_score', info['combined_score']),
                 'val_acc': info['val_acc'],
                 'val_majority_acc': info['val_majority_acc'],
                 'path': str(milestone_path),
@@ -1008,6 +1148,24 @@ class WithinSubjectTrainer:
 
         # Add milestone info to history
         self.history['milestones'] = milestones
+
+        # Soup post-processing: average top-K milestone checkpoints
+        if self.model_selection_strategy == 'soup' and len(milestones) >= 2 and save_path:
+            soup_state = self._make_checkpoint_soup(milestones, top_k=self.soup_top_k)
+            if soup_state is not None:
+                self.best_state = soup_state
+                self.model.load_state_dict(
+                    {k: v.to(dtype=next(self.model.parameters()).dtype) for k, v in soup_state.items()}
+                )
+                if self._has_batchnorm():
+                    self._update_bn_stats(main_train_loader or train_loader)
+                torch.save({
+                    'model_state_dict': soup_state,
+                    'epoch': -1,  # Indicates soup
+                    'selection_strategy': 'soup',
+                    'combined_score': self.best_combined_score,
+                    'val_loss': self.best_val_loss,
+                }, save_path / 'best.pt')
 
         # Clean up resume checkpoint (training completed successfully)
         if save_path:
@@ -1020,7 +1178,9 @@ class WithinSubjectTrainer:
         if save_path and (save_path / 'best.pt').exists():
             checkpoint = torch.load(save_path / 'best.pt', map_location=self.device, weights_only=True)
             self.model.load_state_dict(checkpoint['model_state_dict'])
-            log_train.info(f"Loaded best (combined_score={checkpoint.get('combined_score', 'N/A')})")
+            strategy = checkpoint.get('selection_strategy', 'combined')
+            score_key = 'selection_score' if 'selection_score' in checkpoint else 'combined_score'
+            log_train.info(f"Loaded best ({strategy}, {score_key}={checkpoint.get(score_key, 'N/A')})")
         elif self.best_state is not None:
             self.model.load_state_dict(self.best_state)
 
