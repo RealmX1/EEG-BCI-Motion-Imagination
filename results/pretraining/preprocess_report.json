@@ -1,0 +1,22 @@
+{
+  "preprocess_time": "2026-03-22T18:25:24.498297",
+  "config": {
+    "target_sfreq": 200,
+    "patch_duration": 30,
+    "amp_threshold": 500,
+    "skip_seconds": 5
+  },
+  "datasets": [
+    {
+      "dataset": "Schirrmeister2017",
+      "status": "ok",
+      "n_subjects_processed": 14,
+      "n_subjects_failed": 0,
+      "n_segments_total": 3420,
+      "n_segments_filtered": 3310,
+      "n_channels": 128,
+      "total_duration_hours": 27.58,
+      "lmdb_path": "D:\\data\\motion_imagination_datasets\\lmdb_pretrain\\Schirrmeister2017_pretrain"
+    }
+  ]
+}

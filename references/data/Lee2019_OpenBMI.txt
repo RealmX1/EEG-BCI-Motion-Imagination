@@ -1,0 +1,230 @@
+
+Abstractions of linear dynamic networks for input selection in
+
+                                                                                            ⋆
+                                   local module identiﬁcation
+
+
+
+
+                               a                       b                           c                                           a
+Harm H.M. Weerts                , Jonas Linder          , Martin Enqvist             and Paul M.J. Van den Hof
+
+a
+Control Systems Group, Department of Electrical Engineering, Eindhoven University of Technology, The Netherlands (email:
+                                       harmweerts@gmail.com, p.m.j.vandenhof@tue.nl)
+
+                      b
+                       ABB Corporate Research, V¨aster˚as, Sweden (e-mail: jonas.x.linder@se.abb.com)
+
+               c
+                Division of Automatic Control, Linko¨ping University, Sweden (e-mail: martin.enqvist@liu.se)
+
+
+
+Abstract
+
+In abstractions of linear dynamic networks, selected node signals are removed from the network, while keeping the remaining
+node signals invariant. The topology and link dynamics, or modules, of an abstracted network will generally be changed
+compared to the original network. Abstractions of dynamic networks can be used to select an appropriate set of node signals
+that are to be measured, on the basis of which a particular local module can be estimated. A method is introduced for network
+abstraction that generalizes previously introduced algorithms, as e.g. immersion and the method of indirect inputs. For this
+abstraction method it is shown under which conditions on the selected signals a particular module will remain invariant. This
+leads to sets of conditions on selected measured node variables that allow identiﬁcation of the target module.
+
+
+Key words: Dynamic networks, system identiﬁcation, closed-loop identiﬁcation, graph theory.
+
+
+
+1   Introduction                                                    lonetto (2012); Materassi and Salapaka (2012); Zorzi and
+                                                                    Chiuso (2017). In situations where there is prior knowl-
+                                                                    edge of the topology, the objective can be to identify all
+In current and future engineering systems, as well as in
+                                                                    dynamic modules, as is done for example in Gon¸calves
+many biological and biomedical systems, large scale in-
+                                                                    and Warnick (2008); Yuan et al. (2011); Weerts et al.
+terconnected dynamical systems become a prime mod-
+                                                                    (2018c), including addressing the aspect of network iden-
+elling target for analysis and control. The resulting dy-
+                                                                    tiﬁability, (Weerts et al., 2018b; Hendrickx et al., 2019).
+namic networks that represent these interconnected sys-
+                                                                    A third possible objective is the identiﬁcation of the
+tems, are studied from many diﬀerent perspectives. In
+                                                                    dynamics of a single local element, or module, in the
+this paper our main motivation is directed towards meth-
+                                                                    network, when the topology of the network is known.
+ods and tools for data-driven modelling of (parts of) a
+                                                                    This has been addressed in Van den Hof et al. (2013),
+dynamic network, extending identiﬁcation methods to
+                                                                    by extending classical closed-loop prediction error meth-
+be able to deal with linear dynamic networks.
+                                                                    ods, known as the direct method, two-stage method and
+                                                                    joint-io method, to the situation of dynamic networks.
+In network identiﬁcation literature, typically three main
+                                                                    The reasoning has been extended in Dankers et al. (2015)
+objectives can be distinguished. One objective is to per-
+                                                                    to deal with signal measurements that are aﬀected by
+form identiﬁcation of both the topology and dynamics,
+                                                                    sensor noise. Additional extensions concern identiﬁabil-
+see for example Sanandaji et al. (2011); Chiuso and Pil-
+                                                                    ity aspects of local modules (Bazanella et al., 2017; Hen-
+                                                                    drickx et al., 2019; Gevers et al., 2018; Weerts et al.,
+⋆
+  Paper accepted for publication in Automatica. Submit-
+                                                                    2018a), and combination of the prediction error method
+ted 2 January 2019, revised 12 September 2019, ﬁnal ver-
+                                                                    with Bayesian estimation in Everitt et al. (2018); Ra-
+sion 16 March 2020. This project has received funding from
+                                                                    maswamy et al. (2018).
+the European Research Council (ERC), Advanced Research
+Grant SYSDYNET, under the European Union’s Horizon
+                                                                    In this paper we will elaborate on this local module iden-
+2020 research and innovation programme (Grant Agreement
+No. 694504), and the Vinnova Industry Excellence Center             tiﬁcation problem, and focus on the selection of signals
+LINK-SIC project number 2007-02224.                                 to be measured in the network, to allow a particular
+
+
+
+Preprint submitted to Automatica                                                                              20 December 2024
+
+module to be identiﬁed. While in general it may be at-                               tion, the target module can be estimated on the basis of
+
+tractive to have all node signals in a network available                             the node variables that are retained in the abstraction.
+
+from measurements, in practice it may be costly or even                              While both Dankers et al. (2016) and Linder and Enqvist
+
+impossible to measure some of the nodes. Then, a rel-                                (2017b) have employed a particular way of abstracting
+
+evant question is which set of measured node signals is                              networks, e.g. through network immersion (Kron reduc-
+
+suﬃcient for single module identiﬁcation. This problem                               tion) or through the so-called indirect inputs method,
+
+has been addressed in several diﬀerent ways.                                         here we develop a more general notion of abstraction
+
+                                                                                     that generalizes the two earlier approaches, and provides
+
+• In Dankers et al. (2016) the module of interest is iden-                           a higher ﬂexibility in the selection mechanism of choos-
+
+   tiﬁed in a multi-input-single-output setting with ei-                             ing which nodes to measure/retain and which nodes to
+
+   ther a direct method or a two-stage method. Signals                               discard/abstract in a multi-input single-output identiﬁ-
+
+   are selected by removing non-selected signals from the                            cation setup for estimating the target module.
+
+   network through an elimination procedure called im-
+
+   mersion, while requiring that the target module re-
+                                                                                     In order to develop this generalized abstraction algo-
+   mains invariant. This allows a consistent identiﬁca-
+                                                                                     rithm, we use the fundamental property that the net-
+   tion of the target module dynamics under appropri-
+                                                                                     work representation is not a unique representation of
+   ate excitation and disturbance conditions. A system-                              the behavior of the network. When manipulating the
+
+   atic way of selecting the measured node signals is pro-                           network equations, diﬀerent representations can be ob-
+
+   vided. The selection method is extended in Dankers                                tained leading to diﬀerent identiﬁcation setups for esti-
+
+   et al. (2017) to handle situations of confounding vari-                           mating the target module. This freedom will be exploited
+
+   ables being caused by disturbances that are spatially                             for developing generalized conditions for selecting the
+
+   correlated over the diﬀerent node signals. This is par-                           node signals that are used as inputs in an identiﬁcation
+
+   ticularly of interest when applying the direct method,                            setup for estimating the target module.
+
+   aiming at maximum likelihood results.
+
+• The approach in Linder (2017); Linder and Enqvist
+                                                                                     The paper is organized as follows. After deﬁning the ba-
+   (2017b,a) is also in a multi-input-single-output set-
+                                                                                     sis network setup in Section 2, in Section 3 the non-
+   ting, but with an instrumental variable identiﬁcation
+                                                                                     uniqueness of the network representations is character-
+   method. It follows the same philosophy as the one in
+                                                                                     ized. This is exploited in Section 4 to arrive at a gen-
+   Dankers et al. (2016), but applies a diﬀerent elimi-
+                                                                                     eralized abstraction algorithm, which is illustrated by
+   nation procedure, referred to as the indirect inputs
+                                                                                     examples in Section 5. In Section 6 it is speciﬁed under
+   method, and thus results in a diﬀerent set of conditions
+                                                                                     which conditions the target module remains invariant,
+   on selected measured node signals.
+                                                                                     and consequences for the identiﬁcation setup and the se-
+• In Materassi and Salapaka (2015, 2019), selection of
+                                                                                     lection of node signals are presented in Section 7. The
+   node signals is being done on the basis of graphical
+                                                                                     proofs of all results are collected in the Appendix.
+   models, while Wiener ﬁlters are being used for dy-
+
+   namic model reconstruction, and no reference excita-
+   tions are present. This approach can be characterized                             2     Dynamic network deﬁnition
+
+   as an indirect approach where several dynamic objects
+
+   are identiﬁed from data, after which the target mod-
+                                                                                     In this section a dynamic network model is formulated
+   ule is reconstructed.
+                                                                                     on the basis of the setup in Van den Hof et al. (2013). A
+• The approach in Bazanella et al. (2017); Hendrickx
+                                                                                     dynamic network consists of L scalar internal variables
+   et al. (2019) is also based on indirect identiﬁcation for
+                                                                                     or nodes wj, j = 1, . . . , L, and K external variables rk,
+   the situation that all nodes are excited by external
+                                                                                     k = 1, . . . , K. Each node is a basic building block of the
+   excitations. Here an identiﬁability analysis is made in
+                                                                                     network and is described as:
+   order to verify whether the module of interest can be
+
+   recovered uniquely from a set of estimated transfer                                                        L
+                                                                                                             �
+   functions from reference signals to a set of selected                                         w   (t) =        G    (q)w   (t) + u    (t) + v    (t)        (1)
+                                                                                                    j                jl      l          j          j
+   node signals.                                                                                             l=1
+                                                                                                             l̸=j
+
+Since all algorithms provide only suﬃcient conditions
+                                                                                                −1                                      −1
+                                                                                     where q        is the delay operator, i.e. q          wj(t) = wj(t−1);
+for arriving at a set of to-be-measured node signals, it
+
+is attractive to obtain results that fully characterize the
+
+degrees of freedom that are available in selecting node                              • Gjl are proper rational transfer functions that are re-
+
+signals that allow appropriate module estimates.                                         ferred to as modules in the network;
+
+                                                                                     • There are no self-loops in the network, i.e. nodes are
+                                                                                                                                                          1
+In this paper we are going to adopt the strategy of the                                  not directly connected to themselves Gjj = 0;
+
+ﬁrst two approaches, eliminating node variables to ar-
+                                                                                     1
+rive at a so-called abstracted network, while keeping the                               Since G        are rational transfer functions, this does not
+                                                                                                   jj
+dynamics of the target module invariant. After abstrac-                              limit the dynamical description of wj(t).
+
+
+
+
+                                                                                2
+
+• uj(t) are generated by the external variables rk(t) via                                     with power spectral density
+
+
+                                        K
+                                      �                                                                                                   iω       T      −iω
+                                                                                                                  Φv¯(ω) := Twe(e            )ΛT       (e      ).             (10)
+                                                                                                                                                   we
+                          uj(t) =           Rjk(q)rk(t),                         (2)
+
+                                      k=1
+                                                                                              Some notions from graph theory will be used in the
+
+                                                                                              dynamic network. Modules form the interconnections /
+   where rk can directly be manipulated by the user, and
+
+                                                                                              links between nodes. A node w                          is said to be an in-
+   R      are proper rational transfer functions;                                                                                                k
+      jk

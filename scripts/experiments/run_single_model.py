@@ -395,6 +395,10 @@ Examples:
         '--cache-index-path', type=str, default='.cache_index.json',
         help='Path to cache index file (default: .cache_index.json)'
     )
+    parser.add_argument(
+        '--pretrained-weights', type=str, default=None,
+        help='Path to pretrained weights for CBraMod (default: auto-detect)'
+    )
 
     # Historical comparison options
     parser.add_argument(
@@ -450,6 +454,10 @@ Examples:
     config_overrides = load_yaml_config(args.config) if args.config else {}
     if args.scheduler:
         config_overrides.setdefault('training', {})['scheduler'] = args.scheduler
+    if args.pretrained_weights:
+        if args.model != 'cbramod':
+            parser.error('--pretrained-weights is only supported for CBraMod')
+        config_overrides.setdefault('model', {})['pretrained_path'] = args.pretrained_weights
     config_overrides = config_overrides or None
 
     # Show LR schedule visualization for CBraMod (non-blocking, once at start)

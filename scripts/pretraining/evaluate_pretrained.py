@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
 """
-Further Pre-trained 权重下游评估脚本
-=====================================
+[DEPRECATED] Further Pre-trained 权重下游评估脚本
+=================================================
+已废弃：请改用标准训练脚本的 --pretrained-weights flag：
+
+    uv run python scripts/run_single_model.py --model cbramod --pretrained-weights path/to/weights.pth
+    uv run python scripts/run_cross_subject.py --model cbramod --pretrained-weights path/to/weights.pth
+
+本脚本通过临时替换预训练权重文件来评估，存在文件锁/竞态条件等问题。
+
+原功能描述：
 在 finger BCI cross-subject binary 任务上对比：
   - Baseline: 原始 TUEG 权重 → fine-tune
   - Ours: MI further-pretrained 权重 → fine-tune

@@ -199,7 +199,12 @@ def create_cross_subject_model(
 
     if model_type == 'cbramod':
         n_patches = n_samples // 200  # 200 samples per patch @ 200Hz
-        pretrained_path = get_default_pretrained_path()
+        if model_config.get('no_pretrained', False):
+            pretrained_path = None
+        elif model_config.get('pretrained_path'):
+            pretrained_path = model_config['pretrained_path']
+        else:
+            pretrained_path = get_default_pretrained_path()
 
         model = CBraModForFingerBCI(
             n_channels=n_channels,

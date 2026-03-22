@@ -567,6 +567,8 @@ def train_single_subject(
             n_patches = n_samples // 200  # 200 samples per patch (1s @ 200Hz)
             if model_config.get('no_pretrained', False):
                 pretrained_path = None
+            elif model_config.get('pretrained_path'):
+                pretrained_path = model_config['pretrained_path']
             else:
                 pretrained_path = get_default_pretrained_path()
 
@@ -631,6 +633,11 @@ def train_single_subject(
         optimizer_type = train_config.get('optimizer_type', 'adamw')
         muon_config = config.get('muon_config', None)
 
+        # Model selection strategy (experimental)
+        model_selection_strategy = train_config.get('model_selection_strategy', 'combined')
+        ema_decay = train_config.get('ema_decay', 0.998)
+        soup_top_k = train_config.get('soup_top_k', 3)
+
         trainer = WithinSubjectTrainer(
             model, train_dataset, val_indices, device,
             model_type=model_type,
@@ -646,6 +653,9 @@ def train_single_subject(
             optimizer_type=optimizer_type,
             muon_config=muon_config,
             unified_val_groups=unified_val_groups,
+            model_selection_strategy=model_selection_strategy,
+            ema_decay=ema_decay,
+            soup_top_k=soup_top_k,
             verbose=verbose,
         )
 
@@ -856,6 +866,8 @@ def train_single_subject(
         'best_val_acc': trainer.best_val_acc,  # Val segment accuracy at best epoch
         'best_majority_acc': trainer.best_majority_acc,  # Val majority accuracy at best epoch
         'best_combined_score': trainer.best_combined_score,  # (val_acc + majority_acc) / 2 at best epoch
+        'best_selection_score': trainer.best_selection_score,
+        'model_selection_strategy': trainer.model_selection_strategy,
         'test_accuracy': test_acc,  # This is the main metric (Phase 3)
         'test_accuracy_majority': test_acc,  # Alias for compatibility with run_within_subject_comparison
         'final_accuracy': test_acc if test_acc > 0 else val_acc,  # For backwards compatibility

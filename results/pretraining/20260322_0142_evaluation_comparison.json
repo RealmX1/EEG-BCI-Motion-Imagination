@@ -1,0 +1,12 @@
+{
+  "baseline": {
+    "label": "Baseline (TUEG)",
+    "pretrained_path": "C:\\Users\\zhang\\Desktop\\github\\EEG-BCI\\checkpoints\\cbramod\\pretrained_weights.pth",
+    "error": "                            [--resume [TAG]] [--force-retrain]\n                                       [--no-wandb] [--upload-model]\n                                       [--wandb-project WANDB_PROJECT]\n                                       [--wandb-entity WANDB_ENTITY]\n                                       [--verbose {0,1,2}] [--quiet]\nrun_cross_subject_comparison.py: error: unrecognized arguments: --checkpoint-dir C:\\Users\\zhang\\Desktop\\github\\EEG-BCI\\checkpoints\\cross_subject\\eval_baseline\n"
+  },
+  "further_pretrained": {
+    "label": "Further Pre-trained (MI)",
+    "pretrained_path": "checkpoints\\cbramod\\further_pretrain_20260322_0042\\best_model.pth",
+    "error": "                  [--resume [TAG]] [--force-retrain]\n                                       [--no-wandb] [--upload-model]\n                                       [--wandb-project WANDB_PROJECT]\n                                       [--wandb-entity WANDB_ENTITY]\n                                       [--verbose {0,1,2}] [--quiet]\nrun_cross_subject_comparison.py: error: unrecognized arguments: --checkpoint-dir C:\\Users\\zhang\\Desktop\\github\\EEG-BCI\\checkpoints\\cross_subject\\eval_further_pretrained\n"
+  }
+}

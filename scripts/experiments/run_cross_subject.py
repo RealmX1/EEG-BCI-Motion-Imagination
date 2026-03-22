@@ -192,6 +192,10 @@ Examples:
         '--resume', action='store_true',
         help='Resume training from the latest resume checkpoint in the save directory'
     )
+    parser.add_argument(
+        '--pretrained-weights', type=str, default=None,
+        help='Path to pretrained weights for CBraMod (default: auto-detect)'
+    )
 
     # Verbosity arguments
     parser.add_argument(
@@ -244,6 +248,10 @@ Examples:
     config_overrides = load_yaml_config(args.config) if args.config else {}
     if args.scheduler:
         config_overrides.setdefault('training', {})['scheduler'] = args.scheduler
+    if args.pretrained_weights:
+        if args.model != 'cbramod':
+            parser.error('--pretrained-weights is only supported for CBraMod')
+        config_overrides.setdefault('model', {})['pretrained_path'] = args.pretrained_weights
     config_overrides = config_overrides or None
 
     # Generate run tag
