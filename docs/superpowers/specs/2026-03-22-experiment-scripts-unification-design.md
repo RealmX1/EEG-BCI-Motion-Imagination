@@ -1,73 +1,73 @@
-# Experiment Scripts Unification Design
+# 实验脚本统一重构设计
 
-## Problem
+## 问题
 
-The three experiment paradigms (within-subject, cross-subject, transfer learning) follow inconsistent organizational patterns:
+三种实验范式（被试内、跨被试、迁移学习）的脚本组织方式不一致：
 
-- **Within-subject**: Clean 2-tier design — `run_single_model.py` contains all logic, `run_within_subject_comparison.py` is a thin orchestrator calling it twice.
-- **Cross-subject**: `run_cross_subject_comparison.py` does NOT call `run_cross_subject.py` — it calls `train_cross_subject()` directly.
-- **Transfer learning**: `run_transfer_comparison.py` is a 987-line monolith containing helper functions, training loops, DB writes, and plotting. No corresponding single-model script exists. `run_finetune.py` exists separately but is unused by any other code.
+- **被试内（Within-subject）**：干净的两层设计 — `run_single_model.py` 包含全部逻辑，`run_within_subject_comparison.py` 是调用它两次的薄编排器。
+- **跨被试（Cross-subject）**：`run_cross_subject_comparison.py` **不**调用 `run_cross_subject.py` — 而是直接调用 `train_cross_subject()`。
+- **迁移学习（Transfer learning）**：`run_transfer_comparison.py` 是一个 987 行的单体文件，包含辅助函数、训练循环、DB 写入和绘图。没有对应的单模型脚本。`run_finetune.py` 独立存在但未被任何其他代码调用。
 
-Additionally, `finetune_subject()` and `train_single_subject()` in `src/training/` are ~70% duplicated — both use the same `WithinSubjectTrainer`, the same data loading, the same temporal split, and the same evaluation. The differences are:
+此外，`src/training/` 中的 `finetune_subject()` 与 `train_single_subject()` 有约 70% 的代码重复 — 两者使用相同的 `WithinSubjectTrainer`、相同的数据加载、相同的时序分割和相同的评估。差异如下：
 
-1. **Model initialization**: pretrained checkpoint vs. scratch
-2. **Freeze strategy**: `apply_freeze_strategy()` + custom optimizer
-3. **Training phases**: `train_single_subject()` uses two-phase training (exploration + main loaders); `finetune_subject()` happens to use single-phase (but this is not intentional — it simply was not implemented with exploration phase support)
-4. **Pretrained baseline**: `finetune_subject()` evaluates the pretrained model at epoch 0 and uses it as the initial best (trainer only saves if finetuning improves over pretrained)
-5. **Config overrides**: `finetune_subject()` does not support `config_overrides`; hyperparameters are passed as explicit arguments (`epochs`, `learning_rate`, `batch_size`)
-6. **Scheduler**: `finetune_subject()` hardcodes `scheduler_type='plateau'` for EEGNet and `'cosine_annealing_warmup_decay'` for CBraMod, without consulting `SCHEDULER_PRESETS`
+1. **模型初始化**：预训练 checkpoint vs. 从零开始
+2. **冻结策略**：`apply_freeze_strategy()` + 自定义 optimizer
+3. **训练阶段**：`train_single_subject()` 使用两阶段训练（exploration + main loaders）；`finetune_subject()` 碰巧使用单阶段（非有意设计 — 只是独立编写时未纳入 exploration phase 支持）
+4. **预训练 baseline**：`finetune_subject()` 在 epoch 0 评估预训练模型并将其作为初始 best（trainer 仅在 finetune 超越预训练时才保存新 checkpoint）
+5. **Config overrides**：`finetune_subject()` 不支持 `config_overrides`；超参通过显式参数传递（`epochs`, `learning_rate`, `batch_size`）
+6. **Scheduler**：`finetune_subject()` 硬编码 EEGNet 用 `'plateau'`、CBraMod 用 `'cosine_annealing_warmup_decay'`，不查询 `SCHEDULER_PRESETS`
 
-## Goals
+## 目标
 
-1. **Unify `src/training/`**: Merge `finetune_subject()` into `train_single_subject()` with optional `pretrained_path` / `freeze_strategy` parameters.
-2. **Unify script paradigm**: All three paradigms follow the same pattern — single-model script + thin comparison orchestrator.
-3. **Reduce redundancy**: Extract shared code (per-subject training loop, argparse groups, cache/resume, DB init) into `_training_utils.py`.
-4. **Deprecate `run_finetune.py`**: Its functionality is absorbed into `run_single_model.py --pretrained`.
+1. **统一 `src/training/`**：将 `finetune_subject()` 合并进 `train_single_subject()`，新增可选的 `pretrained_path` / `freeze_strategy` 参数。
+2. **统一脚本范式**：三种范式遵循相同模式 — 单模型脚本 + 薄对比编排器。
+3. **减少冗余**：将共享代码（逐被试训练循环、argparse 组、缓存/恢复、DB 初始化）提取到 `_training_utils.py`。
+4. **废弃 `run_finetune.py`**：其功能被 `run_single_model.py --pretrained` 吸收。
 
-## Non-Goals
+## 非目标
 
-- Refactoring `src/training/train_cross_subject.py` internals (cross-subject trains all subjects in a single model, fundamentally different loop).
-- Changing the `ExperimentDB` schema or cache format.
-- Adding new features beyond unification.
+- 重构 `src/training/train_cross_subject.py` 内部逻辑（跨被试训练在单一模型上训练所有被试，循环结构根本不同）。
+- 更改 `ExperimentDB` schema 或缓存格式。
+- 添加超出统一范围的新功能。
 
-## Design
+## 设计
 
-### Layer 1: `src/training/train_within_subject.py` — Unified Training
+### 第一层：`src/training/train_within_subject.py` — 统一训练
 
-`train_single_subject()` gains optional transfer learning parameters:
+`train_single_subject()` 新增可选的迁移学习参数：
 
 ```python
 def train_single_subject(
     subject_id, config, data_root, elc_path, save_dir, device,
     model_type, paradigm,
-    # Existing params unchanged...
+    # 现有参数不变...
     cbramod_channels, preprocess_config, config_overrides,
     cache_only, cache_index_path,
     no_wandb, upload_model, wandb_project, wandb_entity, wandb_group,
     verbose,
-    # ---- New: Transfer Learning ----
+    # ---- 新增：迁移学习 ----
     pretrained_path: Optional[str] = None,
     freeze_strategy: Optional[str] = None,  # 'none'/'backbone'/'partial'
 ) -> Dict:
 ```
 
-When `pretrained_path` is provided (transfer/finetune mode):
-1. Load checkpoint via `load_pretrained_model()` instead of creating a fresh model.
-2. Validate `n_classes` matches current task.
-3. Apply `freeze_strategy` via `apply_freeze_strategy()`.
-4. Create a finetuning-aware optimizer via `get_finetune_optimizer()` and replace `trainer.optimizer`.
-5. Evaluate pretrained baseline at epoch 0 (before training starts). Set `trainer.best_val_acc`, `trainer.best_combined_score`, `trainer.best_epoch = 0` so that the trainer only saves a new checkpoint if finetuning actually improves over the pretrained model.
-6. Apply finetune-specific default hyperparameters when not overridden by `config_overrides`:
-   - Scheduler: `'plateau'` for EEGNet, `'cosine_annealing_warmup_decay'` for CBraMod
-   - Epochs/LR/batch_size: based on freeze strategy and channel count (from `get_default_finetune_config()`)
-7. **Support `config_overrides` in finetune mode** (new behavior vs. current `finetune_subject()`). This enables YAML config and `--scheduler` to work for transfer experiments.
-8. Include `pretrained_baseline` and `milestone_test_results` in the returned dict.
+当 `pretrained_path` 被提供时（迁移/微调模式）：
+1. 通过 `load_pretrained_model()` 加载 checkpoint，替代从零创建模型。
+2. 验证 `n_classes` 与当前 task 匹配。
+3. 通过 `apply_freeze_strategy()` 应用冻结策略。
+4. 通过 `get_finetune_optimizer()` 创建微调感知的 optimizer 并替换 `trainer.optimizer`。
+5. 在 epoch 0 评估预训练 baseline（训练开始前）。设置 `trainer.best_val_acc`、`trainer.best_combined_score`、`trainer.best_epoch = 0`，使 trainer 仅在微调实际超越预训练模型时才保存新 checkpoint。
+6. 当 `config_overrides` 未覆盖时，应用微调专用的默认超参：
+   - Scheduler：EEGNet 用 `'plateau'`，CBraMod 用 `'cosine_annealing_warmup_decay'`
+   - Epochs/LR/batch_size：基于冻结策略和通道数（来自 `get_default_finetune_config()`）
+7. **在微调模式下支持 `config_overrides`**（相对于当前 `finetune_subject()` 的新行为）。这使 YAML 配置和 `--scheduler` 在迁移实验中也能工作。
+8. 在返回的 dict 中包含 `pretrained_baseline` 和 `milestone_test_results`。
 
-**Two-phase training (exploration phase)**: Controlled by `scheduler_config` as usual — not skipped for finetune mode. The current `finetune_subject()` happens to not use it, but the unified function makes it available via config. The finetune default scheduler config sets `exploration_epochs` per its own defaults; if 0, the trainer naturally degrades to single-phase.
+**两阶段训练（exploration phase）**：由 `scheduler_config` 照常控制 — 微调模式不跳过。当前 `finetune_subject()` 碰巧未使用它，但统一函数通过配置使其可用。微调默认的 scheduler 配置设置自己的 `exploration_epochs` 默认值；若为 0，trainer 自然退化为单阶段。
 
-When `pretrained_path` is None (default): existing behavior, no changes.
+当 `pretrained_path` 为 None（默认）时：现有行为不变。
 
-`train_subject_simple()` passes through the new parameters:
+`train_subject_simple()` 透传新参数：
 
 ```python
 def train_subject_simple(
@@ -78,22 +78,22 @@ def train_subject_simple(
     return train_single_subject(..., pretrained_path=pretrained_path, freeze_strategy=freeze_strategy)
 ```
 
-`finetune_subject()` becomes a thin backward-compatible wrapper:
+`finetune_subject()` 变为向后兼容的薄包装器：
 
 ```python
 def finetune_subject(pretrained_path, subject_id, freeze_strategy='none',
                      epochs=None, learning_rate=None, batch_size=None,
                      model_selection_strategy='combined', ema_decay=0.998, soup_top_k=3,
                      ...) -> Dict:
-    """Backward-compatible wrapper. Delegates to train_subject_simple().
+    """向后兼容包装器。委托给 train_subject_simple()。
 
-    Translates finetune-specific explicit parameters (epochs, learning_rate, batch_size)
-    into config_overrides format used by the unified function.
+    将微调专用的显式参数（epochs, learning_rate, batch_size）
+    翻译为统一函数使用的 config_overrides 格式。
     """
-    # Detect model_type from checkpoint (loaded inside train_single_subject anyway)
+    # 从 checkpoint 检测 model_type（train_single_subject 内部也会加载）
     model_type = _detect_model_type_from_checkpoint(pretrained_path)
 
-    # Translate explicit params → config_overrides
+    # 显式参数 → config_overrides 翻译
     config_overrides = {'training': {}}
     if epochs is not None:
         config_overrides['training']['epochs'] = epochs
@@ -116,52 +116,52 @@ def finetune_subject(pretrained_path, subject_id, freeze_strategy='none',
     )
 
 def _detect_model_type_from_checkpoint(pretrained_path: str) -> str:
-    """Load checkpoint metadata to determine model_type. Lightweight: only reads model_config."""
+    """加载 checkpoint 元数据以确定 model_type。"""
     import torch
     ckpt = torch.load(pretrained_path, map_location='cpu', weights_only=False)
     return ckpt['model_config']['model_type']
 ```
 
-Note: `_detect_model_type_from_checkpoint()` does load the full checkpoint, but this is acceptable because `train_single_subject()` will load it again via `load_pretrained_model()`. An optimization to avoid double-loading can be added later (pass preloaded checkpoint through), but is not required for correctness.
+注意：`_detect_model_type_from_checkpoint()` 会加载完整 checkpoint，但这可以接受，因为 `train_single_subject()` 会通过 `load_pretrained_model()` 再次加载。避免双重加载的优化（传递预加载的 checkpoint）可以后续添加，不影响正确性。
 
-Functions to relocate from `src/training/finetune.py` into a new `src/training/finetune_utils.py`:
-- `load_pretrained_model()` — checkpoint loading + model reconstruction
-- `apply_freeze_strategy()` — parameter freezing
-- `get_finetune_optimizer()` — finetuning-aware optimizer creation
-- `get_default_finetune_config()` — finetune hyperparameter defaults (extracted from hardcoded values)
-- Finetune-specific constants (`EIGHT_CHANNEL_FINETUNE_OVERRIDES`, etc.)
+从 `src/training/finetune.py` 迁移到新文件 `src/training/finetune_utils.py` 的函数：
+- `load_pretrained_model()` — checkpoint 加载 + 模型重建
+- `apply_freeze_strategy()` — 参数冻结
+- `get_finetune_optimizer()` — 微调感知的 optimizer 创建
+- `get_default_finetune_config()` — 微调超参默认值（从硬编码值提取）
+- 微调专用常量（`EIGHT_CHANNEL_FINETUNE_OVERRIDES` 等）
 
-These stay in a separate file rather than being merged into `train_within_subject.py` to avoid bloating that already-large file (1,053 lines). `train_within_subject.py` imports from `finetune_utils.py` when `pretrained_path` is provided.
+这些放在独立文件中而非合并进 `train_within_subject.py`，以避免该已经很大的文件（1,053 行）进一步膨胀。`train_within_subject.py` 在 `pretrained_path` 被提供时从 `finetune_utils.py` 导入。
 
-`finetune_all_subjects()` is only used by `run_finetune.py` (being deprecated) and can be removed.
+`finetune_all_subjects()` 仅被 `run_finetune.py`（将被废弃）使用，可以移除。
 
-### Layer 2: `scripts/_training_utils.py` — Shared Abstractions
+### 第二层：`scripts/_training_utils.py` — 共享抽象
 
-#### 2.1 Argparse Builders
+#### 2.1 Argparse 构建器
 
 ```python
 def add_common_args(parser):
-    """Shared: --data-root, --paradigm, --task, --seed, --output-dir, --no-plot"""
+    """共享：--data-root, --paradigm, --task, --seed, --output-dir, --no-plot"""
 
 def add_cache_resume_args(parser):
-    """Shared: --resume, --force-retrain, --cache-only, --cache-index-path"""
+    """共享：--resume, --force-retrain, --cache-only, --cache-index-path"""
 
 def add_channel_args(parser):
-    """Shared: --channels, --channel-config"""
+    """共享：--channels, --channel-config"""
 
 def add_training_config_args(parser):
-    """Shared: --config (YAML), --scheduler, --classifier-type, --no-pretrained"""
+    """共享：--config (YAML), --scheduler, --classifier-type, --no-pretrained"""
 
 def add_model_selection_args(parser):
-    """Shared: --model-selection-strategy, --ema-decay, --soup-top-k"""
+    """共享：--model-selection-strategy, --ema-decay, --soup-top-k"""
 
 def add_transfer_args(parser):
-    """Transfer-specific: --pretrained, --freeze-strategy, --finetune-epochs, --finetune-lr, --auto-discover-pretrained"""
+    """迁移学习专用：--pretrained, --freeze-strategy, --finetune-epochs, --finetune-lr, --auto-discover-pretrained"""
 ```
 
-#### 2.2 Per-Subject Training Orchestrator
+#### 2.2 逐被试训练编排器
 
-Extracts the per-subject training loop shared between `run_single_model()` and `run_transfer_model()`:
+提取 `run_single_model()` 和 `run_transfer_model()` 之间共享的逐被试训练循环：
 
 ```python
 def run_model_on_subjects(
@@ -169,7 +169,7 @@ def run_model_on_subjects(
     subject_ids: List[str],
     train_fn: Callable[[str, ...], TrainingResult],
     train_kwargs: Dict,
-    # Cache
+    # 缓存
     output_dir: str,
     paradigm: str,
     task: str,
@@ -183,67 +183,67 @@ def run_model_on_subjects(
     # WandB
     wandb_group: Optional[str] = None,
     no_wandb: bool = True,
-    # Display
+    # 显示
     verbose_first_only: bool = True,
 ) -> Tuple[List[TrainingResult], Dict]:
     """
-    Orchestrate training across subjects with caching, DB writes, and WandB.
+    带缓存、DB 写入和 WandB 的逐被试训练编排。
 
-    1. Load existing cache → determine which subjects need training
-    2. For each subject:
-       - Check cache → skip if exists
-       - Call train_fn(subject_id, **train_kwargs) → TrainingResult
-       - Progressive save to cache
-       - DB write (if db provided)
-       - WandB log
-    3. Compute model statistics
-    4. Return (results, stats)
+    1. 加载已有缓存 → 确定哪些被试需要训练
+    2. 对每个被试：
+       - 检查缓存 → 存在则跳过
+       - 调用 train_fn(subject_id, **train_kwargs) → TrainingResult
+       - 即时保存到缓存（progressive save）
+       - DB 写入（如果提供了 db）
+       - WandB 日志
+    3. 计算模型统计
+    4. 返回 (results, stats)
     """
 ```
 
-#### 2.3 Common Utilities
+#### 2.3 公共工具函数
 
 ```python
 def resolve_run_tag(args, paradigm, task, output_dir, cache_type=None) -> str:
-    """Handle --resume logic: find existing tag or generate new one."""
+    """处理 --resume 逻辑：查找已有 tag 或生成新的。"""
 
 def init_db_run(run_tag, experiment_type, paradigm, task, args) -> Tuple[ExperimentDB, Optional[str]]:
-    """Create or resume an ExperimentDB run. Returns (db, db_run_id)."""
+    """创建或恢复 ExperimentDB run。返回 (db, db_run_id)。"""
 
 def finalize_db_run(db, db_run_id, comparison, **extra):
-    """Save comparison, mark complete, close DB."""
+    """保存对比结果、标记完成、关闭 DB。"""
 
 def resolve_output_dir(args) -> str:
-    """Auto-redirect to results/{n}_channel/{config}/ for reduced channel mode."""
+    """通道缩减模式下自动重定向到 results/{n}_channel/{config}/。"""
 
 def find_best_checkpoint_path(model_type, paradigm, task, subjects, results_dir, n_channels=None) -> Optional[str]:
-    """Auto-discover best cross-subject pretrained checkpoint. Relocated from run_transfer_comparison.py."""
+    """自动发现最佳跨被试预训练 checkpoint。从 run_transfer_comparison.py 迁移。"""
 
 def validate_checkpoint_compatibility(pretrained_paths, task) -> Dict[str, str]:
-    """Validate n_classes match and extract classifier_types. Relocated from run_transfer_comparison.py."""
+    """验证 n_classes 匹配并提取 classifier_types。从 run_transfer_comparison.py 迁移。"""
 ```
 
-### Layer 3: Script Restructuring
+### 第三层：脚本重构
 
-#### `run_single_model.py` (~250 lines, down from 602)
+#### `run_single_model.py`（约 250 行，从 602 缩减）
 
 ```python
 def run_single_model(
     model_type, subject_ids,
-    # Common
+    # 公共
     data_root, task, paradigm, output_dir,
-    # Cache/resume
+    # 缓存/恢复
     force_retrain, run_tag, cache_type=CacheType.WITHIN,
-    # Transfer (optional)
+    # 迁移学习（可选）
     pretrained_path=None, freeze_strategy=None,
-    # DB injection
+    # DB 注入
     db=None, db_run_id=None,
-    # Config
+    # 配置
     config_overrides=None,
-    # WandB, cache-only, etc.
+    # WandB、cache-only 等
     **kwargs,
 ) -> Tuple[List[TrainingResult], Dict]:
-    """Single model training on all subjects. Supports both within-subject and transfer."""
+    """所有被试的单模型训练。同时支持被试内和迁移学习。"""
 
     def train_fn(subject_id, verbose):
         return train_and_get_result(
@@ -290,11 +290,11 @@ def main():
         ...
     )
 
-    # Plot (single model)
+    # 单模型绘图
     generate_single_model_plot(results, ...)
 ```
 
-#### `run_within_subject_comparison.py` (~200 lines, down from 632)
+#### `run_within_subject_comparison.py`（约 200 行，从 632 缩减）
 
 ```python
 def main():
@@ -313,7 +313,7 @@ def main():
     db, db_run_id = init_db_run(run_tag, 'within_subject', ...)
     config_overrides = build_config_overrides(args)
 
-    # Train each model
+    # 训练每个模型
     results = {}
     for model_type in args.models:
         model_results, stats = run_single_model(
@@ -325,14 +325,14 @@ def main():
         results[model_type] = model_results
         db.save_summary(db_run_id, model_type, stats)
 
-    # Compare + plot
+    # 对比 + 绘图
     comparison = compare_models(results.get('eegnet'), results.get('cbramod'))
     finalize_db_run(db, db_run_id, comparison)
     save_cache(..., is_complete=True)
     generate_combined_plot(...)
 ```
 
-#### `run_transfer_comparison.py` (~250 lines, down from 987)
+#### `run_transfer_comparison.py`（约 250 行，从 987 缩减）
 
 ```python
 def main():
@@ -352,11 +352,11 @@ def main():
     run_tag = resolve_run_tag(args, ..., cache_type=CacheType.TRANSFER)
     db, db_run_id = init_db_run(run_tag, 'transfer', ...)
 
-    # Discover/validate checkpoints
+    # 发现/验证 checkpoint
     pretrained_paths = discover_or_validate_checkpoints(args, subjects)
     classifier_types = validate_checkpoint_compatibility(pretrained_paths, args.task)
 
-    # Train each model (transfer mode)
+    # 训练每个模型（迁移模式）
     results = {}
     for model_type in args.models:
         if model_type not in pretrained_paths:
@@ -372,73 +372,73 @@ def main():
         results[model_type] = model_results
         db.save_summary(db_run_id, model_type, stats)
 
-    # Compare + plot with baselines
+    # 对比 + 含 baseline 的绘图
     comparison = compare_models(results.get('eegnet'), results.get('cbramod'))
     finalize_db_run(db, db_run_id, comparison, transfer_config=...)
     save_cache(..., cache_type=CacheType.TRANSFER, is_complete=True)
     generate_transfer_plot(results, db, ...)  # 6-way with baselines
 ```
 
-#### `run_cross_subject_comparison.py` (~250 lines, down from 647)
+#### `run_cross_subject_comparison.py`（约 250 行，从 647 缩减）
 
-Uses same shared utilities but keeps its own training logic since cross-subject trains a single model across all subjects (fundamentally different from per-subject loops).
+使用相同的共享工具，但保留自己的训练逻辑，因为跨被试训练在所有被试上训练单一模型（与逐被试循环根本不同）。
 
-Shared utilities adopted:
-- `add_common_args()`, `add_cache_resume_args()`, `add_channel_args()`, `add_wandb_args()` — argparse builders
-- `resolve_run_tag()` — resume/tag logic
-- `init_db_run()` / `finalize_db_run()` — DB lifecycle
-- `resolve_output_dir()` — channel directory redirect
+采用的共享工具：
+- `add_common_args()`, `add_cache_resume_args()`, `add_channel_args()`, `add_wandb_args()` — argparse 构建器
+- `resolve_run_tag()` — 恢复/tag 逻辑
+- `init_db_run()` / `finalize_db_run()` — DB 生命周期
+- `resolve_output_dir()` — 通道目录重定向
 
-Not shared (cross-subject specific):
-- Training loop — calls `train_cross_subject()` directly (trains one model on all subjects combined, not per-subject)
-- Cache structure — flat `{model: result_dict}` not `{model: {subject: result_dict}}`
-- Result conversion — `cross_subject_result_to_training_results()` to convert for comparison
+不共享（跨被试专用）：
+- 训练循环 — 直接调用 `train_cross_subject()`（在所有被试合并数据上训练单一模型，非逐被试）
+- 缓存结构 — 扁平的 `{model: result_dict}` 而非 `{model: {subject: result_dict}}`
+- 结果转换 — `cross_subject_result_to_training_results()` 用于对比
 
-### Deprecation
+### 废弃计划
 
-| File | Action |
-|------|--------|
-| `scripts/experiments/run_finetune.py` | Delete. Functionality absorbed into `run_single_model.py --pretrained`. |
-| `scripts/run_finetune.py` | Delete (thin wrapper for above). |
-| `src/training/finetune.py` | Retained as backward-compat wrapper (~50 lines). Core logic moved to `src/training/finetune_utils.py` (reusable functions) and integrated into `train_within_subject.py` (unified flow). `finetune_all_subjects()` removed. |
-| `src/training/finetune_utils.py` | New file. Contains `load_pretrained_model()`, `apply_freeze_strategy()`, `get_finetune_optimizer()`, `get_default_finetune_config()`, and finetune constants. Imported by `train_within_subject.py` when `pretrained_path` is provided. |
+| 文件 | 操作 |
+|------|------|
+| `scripts/experiments/run_finetune.py` | 删除。功能被 `run_single_model.py --pretrained` 吸收。 |
+| `scripts/run_finetune.py` | 删除（上述文件的薄包装器）。 |
+| `src/training/finetune.py` | 保留为向后兼容包装器（约 50 行）。核心逻辑迁移到 `src/training/finetune_utils.py`（可复用函数）并集成进 `train_within_subject.py`（统一流程）。`finetune_all_subjects()` 移除。 |
+| `src/training/finetune_utils.py` | 新文件。包含 `load_pretrained_model()`、`apply_freeze_strategy()`、`get_finetune_optimizer()`、`get_default_finetune_config()` 和微调常量。在 `pretrained_path` 被提供时由 `train_within_subject.py` 导入。 |
 
-### Design Decisions
+### 设计决策
 
-**WandB strategy**: Standardize on **per-subject WandB runs** for all paradigms (within-subject and transfer). The current transfer-specific "single shared WandB run across all subjects" pattern is dropped. Rationale: per-subject runs are simpler, consistent across paradigms, and the shared-run pattern has cleanup issues on failures. Per-subject runs are grouped via `wandb_group`.
+**WandB 策略**：所有范式（被试内和迁移学习）统一使用 **per-subject WandB runs**。放弃当前迁移学习专用的"所有被试共享单个 WandB run"模式。理由：per-subject runs 更简单、跨范式一致，且共享 run 模式在失败时有清理问题。Per-subject runs 通过 `wandb_group` 分组。
 
-**Channel config plumbing**: When `run_single_model()` is called in transfer mode with `--channels` / `--channel-config`, these flow through `config_overrides['data']['channels']` and `config_overrides['data']['channel_config']`. The unified `train_single_subject()` reads these from config and passes them to `preprocess_config.apply_channel_overrides()` (already supported at line 394-396 of the current code). No new plumbing needed.
+**通道配置传递**：当 `run_single_model()` 以迁移模式和 `--channels` / `--channel-config` 被调用时，这些通过 `config_overrides['data']['channels']` 和 `config_overrides['data']['channel_config']` 传递。统一的 `train_single_subject()` 从 config 读取并传给 `preprocess_config.apply_channel_overrides()`（当前代码第 394-396 行已支持）。无需新的管道。
 
-**Two-phase training (exploration phase)**: Not conditionally skipped for finetune mode. The exploration phase is controlled by `scheduler_config['exploration_epochs']` — if the finetune default config sets it to 0, the trainer naturally uses single-phase. If config overrides specify exploration epochs, they work for finetune too. No special-casing needed in the unified function.
+**两阶段训练（exploration phase）**：微调模式不条件性跳过。exploration phase 由 `scheduler_config['exploration_epochs']` 控制 — 如果微调默认配置设为 0，trainer 自然使用单阶段。如果 config overrides 指定了 exploration epochs，微调同样可用。统一函数中无需特殊处理。
 
-### Migration Safety
+### 迁移安全
 
-- `finetune_subject()` remains importable with identical signature — `src/hpo/objectives.py` and `src/training/__init__.py` continue to work.
-- All existing CLI commands continue to work (top-level thin wrappers unchanged except `run_finetune.py`).
-- Cache format unchanged — existing cached results remain valid.
-- DB schema unchanged.
+- `finetune_subject()` 保持可导入且签名不变 — `src/hpo/objectives.py` 和 `src/training/__init__.py` 继续工作。
+- 所有现有 CLI 命令继续工作（顶层薄包装器不变，除 `run_finetune.py` 外）。
+- 缓存格式不变 — 已有缓存结果仍然有效。
+- DB schema 不变。
 
-### Migration Checklist
+### 迁移清单
 
-- [ ] Update `src/training/__init__.py`: remove `finetune_all_subjects` from imports and `__all__`
-- [ ] Update `src/training/__init__.py`: re-export `finetune_subject` from new location (or keep importing from `finetune.py` wrapper)
-- [ ] Update `docs/codebase_reference.md`: remove `run_finetune.py` references, add `--pretrained` docs
-- [ ] Verify `src/hpo/objectives.py` works with the backward-compat wrapper (same args, same return format)
-- [ ] Delete `scripts/experiments/run_finetune.py` and `scripts/run_finetune.py`
+- [ ] 更新 `src/training/__init__.py`：从 imports 和 `__all__` 中移除 `finetune_all_subjects`
+- [ ] 更新 `src/training/__init__.py`：从新位置重新导出 `finetune_subject`（或继续从 `finetune.py` 包装器导入）
+- [ ] 更新 `docs/codebase_reference.md`：移除 `run_finetune.py` 引用，添加 `--pretrained` 文档
+- [ ] 验证 `src/hpo/objectives.py` 与向后兼容包装器正常工作（相同参数、相同返回格式）
+- [ ] 删除 `scripts/experiments/run_finetune.py` 和 `scripts/run_finetune.py`
 
-### Verification
+### 验证
 
-- **Backward compatibility**: `finetune_subject()` called from `src/hpo/objectives.py` with the same arguments produces identical behavior. Verify by running a single-subject HPO trial before and after.
-- **Cache compatibility**: Existing JSON caches from transfer runs can still be loaded by the new `run_transfer_comparison.py --resume`.
-- **Smoke test**: `run_single_model.py --model cbramod --pretrained <path> --freeze-strategy backbone --subjects S01` produces equivalent results to the old `run_transfer_comparison.py` for a single model/subject.
+- **向后兼容**：`finetune_subject()` 从 `src/hpo/objectives.py` 以相同参数调用时产生相同行为。通过在修改前后运行单被试 HPO trial 验证。
+- **缓存兼容**：来自迁移运行的现有 JSON 缓存仍可被新的 `run_transfer_comparison.py --resume` 加载。
+- **冒烟测试**：`run_single_model.py --model cbramod --pretrained <path> --freeze-strategy backbone --subjects S01` 产生与旧的 `run_transfer_comparison.py` 对单模型/单被试等效的结果。
 
-### Metrics
+### 指标
 
-| Metric | Before | After | Change |
-|--------|--------|-------|--------|
-| Experiment scripts total LOC | ~3,500 | ~1,200 | -65% |
-| `_training_utils.py` | 233 | ~400 | +170 (absorbs shared logic) |
-| `src/training/finetune.py` | 840 | ~50 (wrapper) | -94% |
-| `src/training/train_within_subject.py` | 1,053 | ~1,150 | +~100 (absorbs finetune logic) |
-| Net total | ~5,600 | ~2,800 | -50% |
-| Cross-script duplication | ~1,500 lines | ~0 | Eliminated |
+| 指标 | 重构前 | 重构后 | 变化 |
+|------|--------|--------|------|
+| 实验脚本总代码量 | ~3,500 行 | ~1,200 行 | -65% |
+| `_training_utils.py` | 233 行 | ~400 行 | +170（吸收共享逻辑） |
+| `src/training/finetune.py` | 840 行 | ~50 行（包装器） | -94% |
+| `src/training/train_within_subject.py` | 1,053 行 | ~1,150 行 | +~100（吸收微调逻辑） |
+| 净总量 | ~5,600 行 | ~2,800 行 | -50% |
+| 跨脚本重复代码 | ~1,500 行 | ~0 | 消除 |
