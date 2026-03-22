@@ -702,50 +702,75 @@ def visualize_lr_schedule(
         saved_path = output_path
         log_train.info(f"LR schedule visualization saved to: {output_path}")
 
-    # Show in non-blocking window
+    # Show in a separate subprocess so closing the window never kills the main process
     if show:
-        # Switch to interactive backend for display
-        plt.switch_backend('TkAgg')
-        fig_show, ax_show = plt.subplots(figsize=(14, 6))
+        import os, sys
+        if os.environ.get('DISPLAY') or (os.name == 'nt' and sys.stdout.isatty()):
+            import subprocess, json
 
-        # Re-plot on the new figure
-        ax_show.plot(epochs, lrs, 'b-', linewidth=1.5, label='Learning Rate')
-        for i, boundary in enumerate(phase_boundaries):
-            peak_lr = base_lr * (phase_decay ** i)
-            ax_show.axvline(x=boundary, color='gray', linestyle='--', alpha=0.5, linewidth=0.8)
-            if i < 8:
-                ax_show.annotate(
-                    f'P{i}\n{peak_lr:.1e}',
-                    xy=(boundary + 0.5, peak_lr * 0.95),
-                    fontsize=7,
-                    color='gray',
-                    ha='left',
-                    va='top',
+            plot_data_json = json.dumps({
+                'epochs': epochs, 'lrs': lrs,
+                'phase_boundaries': phase_boundaries,
+                'base_lr': base_lr, 'phase_decay': phase_decay, 'eta_min': eta_min,
+                'total_epochs': total_epochs, 'phase_epochs': phase_epochs,
+                'lr_ramp_ratio': lr_ramp_ratio, 'exploration_epochs': exploration_epochs,
+                'num_phases': scheduler.num_phases, 'info_text': info_text,
+            })
+
+            display_script = (
+                "import sys, json, matplotlib; matplotlib.use('TkAgg')\n"
+                "import matplotlib.pyplot as plt\n"
+                "d = json.loads(sys.stdin.read())\n"
+                "fig, ax = plt.subplots(figsize=(14, 6))\n"
+                "ax.plot(d['epochs'], d['lrs'], 'b-', linewidth=1.5, label='Learning Rate')\n"
+                "for i, b in enumerate(d['phase_boundaries']):\n"
+                "    plr = d['base_lr'] * (d['phase_decay'] ** i)\n"
+                "    ax.axvline(x=b, color='gray', linestyle='--', alpha=0.5, linewidth=0.8)\n"
+                "    if i < 8:\n"
+                "        ax.annotate(f'P{i}\\n{plr:.1e}', xy=(b+0.5, plr*0.95),\n"
+                "                    fontsize=7, color='gray', ha='left', va='top')\n"
+                "ax.axvspan(0, d['exploration_epochs'], alpha=0.15, color='green',\n"
+                "           label=f\"Exploration ({d['exploration_epochs']} epochs)\")\n"
+                "ax.set_xlabel('Epoch', fontsize=11)\n"
+                "ax.set_ylabel('Learning Rate', fontsize=11)\n"
+                "ax.set_title(f\"CosineAnnealingWarmupDecay Schedule\\n\"\n"
+                "    f\"Total: {d['total_epochs']} epochs | Phase: {d['phase_epochs']} epochs | \"\n"
+                "    f\"Decay: {d['phase_decay']} | LR Ramp: {d['lr_ramp_ratio']:.0%}\", fontsize=12)\n"
+                "ax.set_xlim(0, d['total_epochs'])\n"
+                "ax.set_ylim(0, d['base_lr'] * 1.1)\n"
+                "ax.grid(True, alpha=0.3)\n"
+                "ax.legend(loc='upper right')\n"
+                "ax.text(0.02, 0.98, d['info_text'], transform=ax.transAxes, fontsize=9,\n"
+                "        verticalalignment='top', fontfamily='monospace',\n"
+                "        bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))\n"
+                "plt.tight_layout()\n"
+                "plt.show()\n"
+            )
+
+            try:
+                proc = subprocess.Popen(
+                    [sys.executable, '-c', display_script],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
                 )
-        ax_show.axvspan(0, exploration_epochs, alpha=0.15, color='green', label=f'Exploration ({exploration_epochs} epochs)')
-        ax_show.set_xlabel('Epoch', fontsize=11)
-        ax_show.set_ylabel('Learning Rate', fontsize=11)
-        ax_show.set_title(
-            f'CosineAnnealingWarmupDecay Schedule\n'
-            f'Total: {total_epochs} epochs | Phase: {phase_epochs} epochs | '
-            f'Decay: {phase_decay} | LR Ramp: {lr_ramp_ratio:.0%}',
-            fontsize=12,
-        )
-        ax_show.set_xlim(0, total_epochs)
-        ax_show.set_ylim(0, base_lr * 1.1)
-        ax_show.grid(True, alpha=0.3)
-        ax_show.legend(loc='upper right')
-        ax_show.text(
-            0.02, 0.98, info_text,
-            transform=ax_show.transAxes,
-            fontsize=9,
-            verticalalignment='top',
-            fontfamily='monospace',
-            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5),
-        )
-        plt.tight_layout()
-        plt.show(block=False)
-        plt.pause(0.1)  # Brief pause to ensure window appears
+                proc.stdin.write(plot_data_json.encode())
+                proc.stdin.close()
+
+                # Auto-close the plot window when the main process exits
+                import atexit
+
+                def _cleanup_plot_proc(p=proc):
+                    if p.poll() is None:
+                        p.kill()
+                    else:
+                        err = p.stderr.read()
+                        if p.returncode != 0 and err:
+                            log_train.warning(f"LR plot subprocess failed: {err.decode(errors='replace').strip()}")
+
+                atexit.register(_cleanup_plot_proc)
+            except Exception:
+                pass  # Display unavailable — silently ignore
 
     plt.close(fig)
 
