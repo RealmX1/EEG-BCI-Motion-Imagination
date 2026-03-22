@@ -1,0 +1,122 @@
+{
+  "_description": "MI 数据集元数据：记录 MOABB 加载后 raw.get_data() 的实际单位和到 µV 的转换因子",
+  "_methodology": "通过 MOABB 源码分析、原始文件检查、论文比对确定",
+  "_date": "2026-03-21",
+  "datasets": {
+    "PhysionetMI": {
+      "file_format": "EDF",
+      "file_unit": "µV (EDF header physical dimension)",
+      "moabb_conversion": "MNE read_raw_edf auto µV→V",
+      "get_data_unit": "V",
+      "to_uV_factor": 1e6,
+      "expected_mean_abs_uV": [20, 80],
+      "verified": true,
+      "empirical_mean_abs_uV": 40.6,
+      "risk": "low",
+      "notes": "MNE EDF reader 根据 header 自动转换，无额外缩放"
+    },
+    "Cho2017": {
+      "file_format": "MAT (GigaDB)",
+      "file_unit": "nV (纳伏，非 MOABB 假设的 µV)",
+      "moabb_conversion": "*1e-6 (MOABB 误以为是 µV→V，实际 nV→mV)",
+      "get_data_unit": "mV (因 MOABB 缩放错误)",
+      "to_uV_factor": 1e3,
+      "expected_mean_abs_uV": [20, 80],
+      "verified": true,
+      "empirical_mean_abs_uV_wrong": 20175,
+      "empirical_mean_abs_uV_corrected": 20.9,
+      "risk": "high",
+      "notes": "MOABB 的 *1e-6 假设数据是 µV，但原始 .mat 数据实际约为 nV 量级。demeaned mean_abs=20854，解释为 nV 得到 20.9 µV（合理），解释为 µV 得到 20175 µV（不合理）。需要额外 /1000 修正。"
+    },
+    "BNCI2014_001": {
+      "file_format": "MAT (BNCI Horizon)",
+      "file_unit": "µV",
+      "moabb_conversion": "*1e-6 (bnci.py:667, µV→V)",
+      "get_data_unit": "V",
+      "to_uV_factor": 1e6,
+      "expected_mean_abs_uV": [5, 50],
+      "verified": true,
+      "empirical_mean_abs_uV": 8.6,
+      "risk": "low",
+      "notes": "标准 BNCI 数据格式，转换正确"
+    },
+    "BNCI2015_004": {
+      "file_format": "MAT (BNCI Horizon)",
+      "file_unit": "µV",
+      "moabb_conversion": "*1e-6 (bnci.py:667, µV→V)",
+      "get_data_unit": "V",
+      "to_uV_factor": 1e6,
+      "expected_mean_abs_uV": [5, 50],
+      "verified": false,
+      "risk": "low",
+      "notes": "与 BNCI2014_001 相同代码路径，g.tec g.USBamp 放大器"
+    },
+    "Shin2017A": {
+      "file_format": "MAT (BBCI toolbox)",
+      "file_unit": "µV (BBCI 惯例: INT16*0.1=µV, 存为 DOUBLE)",
+      "moabb_conversion": "*1e-6 (bbci_eeg_fnirs.py:150, µV→V)",
+      "get_data_unit": "V",
+      "to_uV_factor": 1e6,
+      "expected_mean_abs_uV": [5, 50],
+      "verified": false,
+      "risk": "low",
+      "notes": "BBCI 格式已验证。EEG/fNIRS 在文件层面已分离，Shin2017A 只加载 EEG"
+    },
+    "Ofner2017": {
+      "file_format": "GDF",
+      "file_unit": "µV (GDF header)",
+      "moabb_conversion": "MNE read_raw_gdf + *1e-6 (upper_limb.py:110, PR#700)",
+      "get_data_unit": "V",
+      "to_uV_factor": 1e6,
+      "expected_mean_abs_uV": [50, 300],
+      "verified": true,
+      "empirical_mean_abs_uV": 166.6,
+      "risk": "medium",
+      "notes": "MOABB PR#700 添加了额外 *1e-6。经验验证 166.6 µV 在合理范围（运动想象+上肢运动数据偏高是正常的）。源码有 FIXME 注释。无双重缩放。"
+    },
+    "GrosseWentrup2009": {
+      "file_format": "EEGLAB .set",
+      "file_unit": "µV (BrainAmp 导出惯例)",
+      "moabb_conversion": "MNE EEGLAB reader 硬编码 CAL=1e-6",
+      "get_data_unit": "V",
+      "to_uV_factor": 1e6,
+      "expected_mean_abs_uV": [10, 100],
+      "verified": false,
+      "risk": "medium",
+      "notes": "MNE EEGLAB reader 硬编码假设数据为 µV。BrainAmp 标准导出确实是 µV，但未从文件 header 验证。"
+    },
+    "Schirrmeister2017": {
+      "file_format": "EDF",
+      "file_unit": "µV (EDF header)",
+      "moabb_conversion": "MNE read_raw_edf auto µV→V",
+      "get_data_unit": "V",
+      "to_uV_factor": 1e6,
+      "expected_mean_abs_uV": [10, 100],
+      "verified": false,
+      "risk": "low",
+      "notes": "EDF header 驱动，BCI2000 录制，MNE 自动处理"
+    },
+    "Lee2019_MI": {
+      "file_format": "MAT",
+      "file_unit": "µV",
+      "moabb_conversion": "*1e-6 (Lee2019.py:116, 显式 _scalings + 注释)",
+      "get_data_unit": "V",
+      "to_uV_factor": 1e6,
+      "expected_mean_abs_uV": [10, 100],
+      "verified": false,
+      "risk": "low",
+      "notes": "与 Cho2017 同一研究组但有显式注释。代码可读性好。需经验验证是否有同样的 nV 问题。"
+    },
+    "Stieger2021": {
+      "file_format": "MAT",
+      "file_unit": "µV",
+      "moabb_conversion": "*1e-6 (stieger2021.py:254, 显式)",
+      "get_data_unit": "V",
+      "to_uV_factor": 1e6,
+      "expected_mean_abs_uV": [10, 100],
+      "verified": false,
+      "risk": "low",
+      "notes": "论文确认录制单位为 µV"
+    }
+  }
+}
