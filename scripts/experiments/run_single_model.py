@@ -41,7 +41,7 @@ from typing import Dict, List, Optional, Tuple
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.config.constants import PARADIGM_CONFIG
+from src.config.constants import PARADIGM_CONFIG, CacheType
 from src.utils.device import set_seed, check_cuda_available, get_device
 from src.utils.logging import SectionLogger, setup_logging
 
@@ -110,6 +110,11 @@ def run_single_model(
     verbose_first_only: bool = True,
     db: Optional[ExperimentDB] = None,
     db_run_id: Optional[str] = None,
+    # Transfer learning (optional)
+    pretrained_path: Optional[str] = None,
+    freeze_strategy: Optional[str] = None,
+    # Cache type
+    cache_type = None,  # CacheType enum, None defaults to within-subject
 ) -> Tuple[List[TrainingResult], Dict]:
     """
     Train a single model on all specified subjects.
@@ -144,6 +149,10 @@ def run_single_model(
     paradigm_config = PARADIGM_CONFIG[paradigm]
     log_train.info(f"Model: {model_type.upper()} | Paradigm: {paradigm_config['description']}")
 
+    # Default cache_type
+    if cache_type is None:
+        cache_type = CacheType.WITHIN_SUBJECT
+
     # Resolve effective classifier_type for cache metadata
     effective_config = get_default_config(model_type, task)
     if config_overrides and 'model' in config_overrides:
@@ -160,7 +169,7 @@ def run_single_model(
         cache = {}
         log_train.info("Force retrain - ignoring cache")
     elif run_tag:
-        cache, metadata = load_cache(output_dir, paradigm, task, run_tag)
+        cache, metadata = load_cache(output_dir, paradigm, task, run_tag, cache_type=cache_type)
         cache_wandb_groups = metadata.get('wandb_groups', {})
         if cache:
             log_train.info(f"Resuming '{run_tag}'")
@@ -169,7 +178,7 @@ def run_single_model(
         else:
             log_train.info(f"New run '{run_tag}'")
     else:
-        cache, metadata = load_cache(output_dir, paradigm, task, find_latest=True)
+        cache, metadata = load_cache(output_dir, paradigm, task, find_latest=True, cache_type=cache_type)
         cache_wandb_groups = metadata.get('wandb_groups', {})
         # Restore wandb_group from latest cache if available
         wandb_group = cache_wandb_groups.get(model_type)
@@ -246,6 +255,8 @@ def run_single_model(
                 cache_index_path=cache_index_path,
                 config_overrides=config_overrides,
                 verbose=verbose,
+                pretrained_path=pretrained_path,
+                freeze_strategy=freeze_strategy,
             )
 
             # Mark first subject as trained (for subsequent verbose control)
@@ -257,7 +268,8 @@ def run_single_model(
             cache[model_type][subject_id] = result_to_dict(result)
             save_cache(output_dir, paradigm, task, cache, run_tag,
                        wandb_groups=cache_wandb_groups,
-                       extra_metadata=cache_extra_metadata)
+                       extra_metadata=cache_extra_metadata,
+                       cache_type=cache_type)
 
             # Dual-write: save to SQLite DB if available
             if db and db_run_id:
@@ -400,6 +412,13 @@ Examples:
         help='Path to pretrained weights for CBraMod (default: auto-detect)'
     )
 
+    # Transfer learning (optional)
+    parser.add_argument('--pretrained', type=str, default=None,
+                        help='Path to pretrained checkpoint for transfer learning')
+    parser.add_argument('--freeze-strategy', type=str, default=None,
+                        choices=['none', 'backbone', 'partial'],
+                        help='Freeze strategy for fine-tuning (default: none)')
+
     # Historical comparison options
     parser.add_argument(
         '--no-historical', action='store_true',
@@ -420,12 +439,16 @@ Examples:
     set_seed(args.seed)
     log_main.info(f"Seed: {args.seed}")
 
+    # Determine cache_type based on --pretrained flag
+    cache_type = CacheType.TRANSFER if args.pretrained else None
+
     # Handle --resume vs new run (default)
     if args.resume is not None:
         # --resume was used
         if args.resume == '':
             # --resume without TAG: resume most recent
-            found = find_cache_by_tag(args.output_dir, args.paradigm, args.task)
+            found = find_cache_by_tag(args.output_dir, args.paradigm, args.task,
+                                      cache_type=cache_type or CacheType.WITHIN_SUBJECT)
             if found:
                 _, run_tag = found
                 log_main.info(f"Resuming most recent run: {run_tag or '(untagged)'}")
@@ -434,7 +457,8 @@ Examples:
                 sys.exit(1)
         else:
             # --resume TAG: resume matching run
-            found = find_cache_by_tag(args.output_dir, args.paradigm, args.task, args.resume)
+            found = find_cache_by_tag(args.output_dir, args.paradigm, args.task, args.resume,
+                                      cache_type=cache_type or CacheType.WITHIN_SUBJECT)
             if found:
                 _, run_tag = found
                 log_main.info(f"Resuming run matching '{args.resume}': {run_tag}")
@@ -533,6 +557,9 @@ Examples:
             cache_only=args.cache_only,
             cache_index_path=args.cache_index_path,
             config_overrides=config_overrides,
+            pretrained_path=args.pretrained,
+            freeze_strategy=args.freeze_strategy,
+            cache_type=CacheType.TRANSFER if args.pretrained else None,
         )
 
     # Print summary
