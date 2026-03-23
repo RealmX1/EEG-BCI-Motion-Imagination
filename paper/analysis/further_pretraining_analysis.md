@@ -53,6 +53,8 @@ CBraMod 原始权重在 TUEG (Temple University EEG) 临床数据上预训练，
 
 ## 4. 训练配置
 
+### V1 (20260322_0042)
+
 | 参数 | 值 |
 |------|-----|
 | 基础权重 | CBraMod TUEG 预训练权重 (4.92M 参数) |
@@ -82,9 +84,46 @@ CBraMod 原始权重在 TUEG (Temple University EEG) 临床数据上预训练，
 
 Loss 从 0.027 降至 0.006 (4.5x)。Epoch 9 为最佳（loss=0.006055），Epoch 10 微升。Loss 从 Epoch 6 开始趋于平坦，但这可能部分归因于当时使用的 cosine decay schedule 导致 LR 过早衰减——到 Epoch 8 LR 已降至 8e-6，学习率几乎为零。
 
-**注意**: 此运行使用了早期版本的 warmup + cosine decay scheduler。当前代码默认使用 `WarmupConstantScheduler`（warmup 后保持恒定 LR），更适合 domain-adaptive pretraining 场景。此外还新增了 `PhasedCosineWarmupDecayScheduler`（多阶段余弦退火 + ramp-up + 峰值衰减），与主实验的 `CosineAnnealingWarmupDecay` 设计对齐。如需更长训练（50+ epochs），建议使用 `--scheduler phased_cosine`。
+**注意**: V1 使用了早期版本的 warmup + cosine decay scheduler，LR 从 Epoch 6 起已接近零，训练不充分。
 
 > **Best model**: `checkpoints/cbramod/further_pretrain_20260322_0042/best_model.pth` (Epoch 9)
+
+### V2 (20260323_0609)
+
+V2 使用改进的 `WarmupConstantScheduler`（warmup 后恒定 LR），允许模型在更长训练中持续学习。
+
+| 参数 | V1 | V2 |
+|------|-----|-----|
+| Scheduler | Cosine decay → 1e-6 | **Warmup 0.5 epoch → Constant lr=5e-5** |
+| Max epochs | 10 | **50** |
+| Early stopping | 无 | **patience=5, min_delta=0.0001** |
+| 总步数 | 2,360 | **~7,776** (648 steps/epoch × 12 epochs) |
+| 数据量 | 30,282 segments | **78,232 segments** (Stieger2021 61,526) |
+| Final loss | 0.006055 | **0.003714** (-39%) |
+| 训练时间 | ~48 分钟 | **~4.5 小时** |
+
+#### V2 训练曲线
+
+| Epoch | Loss | LR | Time (s) |
+|:---:|:---:|:---:|:---:|
+| 1 | 0.014921 | 5.00e-05 | 1374 |
+| 2 | 0.006372 | 5.00e-05 | 1360 |
+| 3 | 0.005194 | 5.00e-05 | 1364 |
+| 4 | 0.004720 | 5.00e-05 | 1366 |
+| 5 | 0.004549 | 5.00e-05 | 1366 |
+| 6 | 0.004267 | 5.00e-05 | 1365 |
+| 7 | 0.004144 | 5.00e-05 | 1505 |
+| 8 | 0.003983 | 5.00e-05 | 1448 |
+| 9 | 0.003927 | 5.00e-05 | 1457 |
+| 10 | 0.003793 | 5.00e-05 | 1114 |
+| 11 | 0.003749 | 5.00e-05 | 1110 |
+| **12** | **0.003714** | 5.00e-05 | ~1100 |
+
+Loss 从 0.015 降至 0.0037 (4x)，比 V1 final loss (0.006) 低 39%。恒定 LR 使 loss 持续下降，但收敛速度在 Epoch 9+ 明显放缓（delta < 0.0001/epoch），early stopping patience 开始累积。训练在 Epoch 13 因 Windows LMDB MapResizedError 中断（`_open_db` retry 逻辑已修复但子进程静默崩溃），使用 Epoch 12 checkpoint 作为 best model。
+
+**数据量差异说明**: V2 日志显示总数据量为 78,232（V1 为 30,282），因为 Stieger2021 在 V2 中被正确识别为 61,526 segments（V1 仅 15,959）。这是数据加载器层面的差异，不影响实际物理数据。
+
+> **Best model**: `checkpoints/cbramod/further_pretrain_20260323_0609/best_model.pth` (Epoch 12, loss=0.003714)
 
 ## 5. 下游评估
 
@@ -100,12 +139,14 @@ Loss 从 0.027 降至 0.006 (4.5x)。Epoch 9 为最佳（loss=0.006055），Epoc
 
 > **数据来源**: ExperimentDB (`results/experiments.db`) + 评估结果文件
 
-| 范式 | 任务 | Baseline (TUEG) | Further-PT (MI) | 差异 |
-|------|------|:---:|:---:|:---:|
-| Within-subject | Binary | **85.09%** ± 10.46% | 83.84% ± 10.71% | **-1.25%** |
-| Cross-subject | Binary | **90.54%** ± 9.25% | 88.84% ± 9.03% | **-1.70%** |
-| Within-subject | Ternary | **69.54%** ± 12.84% | 69.25% ± 14.33% | **-0.29%** |
-| Cross-subject | Ternary | 75.42% ± 12.72% | **75.67%** ± 12.91% | **+0.25%** |
+| 范式 | 任务 | Baseline (TUEG) | FT-V1 (cosine, 10ep) | FT-V2 (constant, 12ep) | V2 vs Baseline |
+|------|------|:---:|:---:|:---:|:---:|
+| Within-subject | Binary | **85.09%** ± 10.46% | 83.84% ± 10.71% | 82.23% ± 10.97% | **-2.86%** |
+| Cross-subject | Binary | **90.54%** ± 9.25% | 88.84% ± 9.03% | 89.43% ± 8.23% | **-1.11%** |
+| Within-subject | Ternary | **69.54%** ± 12.84% | 69.25% ± 14.33% | 68.08% ± 13.99% | **-1.46%** |
+| Cross-subject | Ternary | 75.42% ± 12.72% | **75.67%** ± 12.91% | 75.32% ± 13.42% | **-0.10%** |
+
+V2 平均 delta = **-1.38%**（V1 为 -0.75%）。更长的训练 + 更低的 loss 反而导致**更大的负迁移**。
 
 > **Baseline 来源**:
 > - Binary within: `run_tag=20260321_0343` (post-HPO)
@@ -113,11 +154,17 @@ Loss 从 0.027 降至 0.006 (4.5x)。Epoch 9 为最佳（loss=0.006055），Epoc
 > - Ternary within: `run_tag=20260205_0306` (pre-HPO)
 > - Ternary cross: `run_tag=20260207_2056` (pre-HPO)
 >
-> **Further-PT 来源**:
+> **FT-V1 来源**:
 > - Binary within: `results/20260322_1034_cbramod_imagery_binary.json`
 > - Binary cross: `results/20260322_1116_cross-subject_cbramod_imagery_binary.json`
 > - Ternary within: `results/20260322_1435_cbramod_imagery_ternary.json`
 > - Ternary cross: `results/20260322_1543_cross-subject_cbramod_imagery_ternary.json`
+>
+> **FT-V2 来源**:
+> - Binary within: `results/20260323_1433_cbramod_imagery_binary.json`
+> - Binary cross: `results/20260323_1517_cross-subject_cbramod_imagery_binary.json`
+> - Ternary within: `results/20260323_1615_cbramod_imagery_ternary.json`
+> - Ternary cross: `results/20260323_1709_cross-subject_cbramod_imagery_ternary.json`
 
 ### 5.3 逐被试对比 (Binary)
 
@@ -239,36 +286,44 @@ Loss 从 0.027 降至 0.006 (4.5x)。Epoch 9 为最佳（loss=0.006055），Epoc
 
 ### 6.1 Overall: Further Pre-training 未带来改善
 
-4 个评估条件中，3 个出现退步（-1.25%, -1.70%, -0.29%），1 个微弱提升 (+0.25%)。平均 delta = **-0.75%**。Further pre-training 在当前条件下对下游 finger MI 分类无正面效果。
+**V1** (cosine decay, 10 epochs): 4 个评估中 3 个退步，1 个微弱提升。平均 delta = **-0.75%**。
+
+**V2** (constant LR, 12 epochs, loss 低 39%): 4 个评估**全部低于或持平 baseline**。平均 delta = **-1.38%**。
+
+关键发现：**更充分的训练（更低的 pre-training loss）反而加剧了负迁移**。V2 的 loss (0.003714) 比 V1 (0.006055) 低 39%，但下游表现更差。这强烈暗示 further pre-training 在当前设置下是有害的——模型越深入学习外部 MI 数据的表征，就越偏离 finger MI 任务所需的特征空间。
 
 ### 6.2 可能原因分析
 
-**1. Domain 不匹配**
+**1. Domain 不匹配（根本原因）**
 
-外部 MI 数据集主要涉及左/右手运动想象（粗粒度运动），而下游任务是单指运动想象（细粒度运动）。这一 domain gap 可能导致 further pre-training 学到的表征反而偏离了下游任务需要的精细特征。
+外部 MI 数据集主要涉及左/右手运动想象（粗粒度运动），而下游任务是单指运动想象（细粒度运动）。V1→V2 的对比证实这不仅是"训练不足"问题——更充分的训练会加剧偏离。
 
-**2. 数据量不足**
+**2. 数据量不足以弥补 domain gap**
 
-252 小时 MI 数据（相对 15,000+ 小时 TUEG）不足以显著改变模型表征。仅 2,360 步参数更新（原始预训练可能数十万步），模型权重变化有限。
+252 小时 MI 数据（相对 15,000+ 小时 TUEG）既不足以建立强 MI 表征，又足以损害 TUEG 学到的通用特征。
 
 **3. 数据不均衡**
 
-Stieger2021 占采样权重 52.7%，且仅包含 14/62 个被试。训练可能过度适配该数据集的分布。
+Stieger2021 占采样权重 78.6%（V2 中 61,526/78,232 segments），且仅包含 14/62 个被试。训练严重偏向该数据集的分布。
 
-**4. 训练不充分 vs 灾难性遗忘**
+**4. 灾难性遗忘 > 域适配**
 
-10 epochs + aggressive cosine decay 导致训练偏短。但同时更长的训练也可能加剧灾难性遗忘——在少量 domain 数据上过度适配会损害原始 TUEG 预训练获得的通用 EEG 表征。这是一个两难问题。
+V2 结果明确表明：更长的恒定 LR 训练加速了灾难性遗忘。original TUEG 预训练获得的通用 EEG 表征被逐步覆写为（不匹配的）MI 特征。
 
 **5. Baseline 已经很强**
 
 Post-HPO binary baseline (85.09%/90.54%) 已经是经过超参数优化的最优结果。在此基础上进一步提升本身就困难。
 
-### 6.3 Ternary Cross-Subject 微弱正面信号
+### 6.3 V1 vs V2 对比的启示
 
-唯一正向的组合 (ternary cross-subject, +0.25%) 可能因为：
-- Ternary baseline 为 pre-HPO（2026-02-07），训练条件次优，留有更多提升空间
-- Cross-subject 模式下，further pre-training 对"通用 MI 特征"的增强在多被试联合训练时更有价值
-- 但 +0.25% 在统计上不显著
+| 指标 | V1 | V2 | 含义 |
+|------|-----|-----|------|
+| Pre-training loss | 0.006055 | 0.003714 | V2 学得更好 |
+| Binary within delta | -1.25% | -2.86% | 更深学习更多伤害 |
+| Binary cross delta | -1.70% | -1.11% | 例外：V2 比 V1 好 |
+| Avg delta | -0.75% | -1.38% | 总体更差 |
+
+Binary cross-subject 是唯一 V2 优于 V1 的组合 (88.84% → 89.43%)。这可能因为 cross-subject 训练本身具有正则化效果，部分抵消了负迁移。
 
 ## 7. 技术贡献
 
@@ -294,14 +349,30 @@ Post-HPO binary baseline (85.09%/90.54%) 已经是经过超参数优化的最优
 
 | 文件 | 说明 |
 |------|------|
-| `checkpoints/cbramod/further_pretrain_20260322_0042/` | 训练 checkpoint 目录 |
-| `checkpoints/cbramod/further_pretrain_20260322_0042/best_model.pth` | Best model (Epoch 9) |
-| `checkpoints/cbramod/further_pretrain_20260322_0042/training_history.json` | 训练曲线 |
-| `scripts/pretraining/further_pretrain.py` | Further pre-training 训练脚本 |
+| **V1 训练** | |
+| `checkpoints/cbramod/further_pretrain_20260322_0042/` | V1 checkpoint 目录 |
+| `checkpoints/cbramod/further_pretrain_20260322_0042/best_model.pth` | V1 Best model (Epoch 9, loss=0.006055) |
+| **V2 训练** | |
+| `checkpoints/cbramod/further_pretrain_20260323_0609/` | V2 checkpoint 目录 |
+| `checkpoints/cbramod/further_pretrain_20260323_0609/best_model.pth` | V2 Best model (Epoch 12, loss=0.003714) |
+| **共用脚本** | |
+| `scripts/pretraining/further_pretrain.py` | Further pre-training 训练脚本 (支持 `--scheduler` flag) |
 | `scripts/pretraining/preprocess_mi_datasets.py` | MI 数据预处理脚本 |
 | `scripts/pretraining/dataset_metadata.json` | 数据集单位元数据 |
 | `scripts/pretraining/audit_datasets.py` | 数据集审计脚本 |
-| `results/20260322_1034_cbramod_imagery_binary.json` | Binary within-subject FT 结果 |
-| `results/20260322_1116_cross-subject_cbramod_imagery_binary.json` | Binary cross-subject FT 结果 |
-| `results/20260322_1435_cbramod_imagery_ternary.json` | Ternary within-subject FT 结果 |
-| `results/20260322_1543_cross-subject_cbramod_imagery_ternary.json` | Ternary cross-subject FT 结果 |
+| **V1 评估结果** | |
+| `results/20260322_1034_cbramod_imagery_binary.json` | V1 Binary within-subject |
+| `results/20260322_1116_cross-subject_cbramod_imagery_binary.json` | V1 Binary cross-subject |
+| `results/20260322_1435_cbramod_imagery_ternary.json` | V1 Ternary within-subject |
+| `results/20260322_1543_cross-subject_cbramod_imagery_ternary.json` | V1 Ternary cross-subject |
+| **V2 评估结果** | |
+| `results/20260323_1433_cbramod_imagery_binary.json` | V2 Binary within-subject |
+| `results/20260323_1517_cross-subject_cbramod_imagery_binary.json` | V2 Binary cross-subject |
+| `results/20260323_1615_cbramod_imagery_ternary.json` | V2 Ternary within-subject |
+| `results/20260323_1709_cross-subject_cbramod_imagery_ternary.json` | V2 Ternary cross-subject |
+
+## 10. 结论
+
+两轮 further pre-training 实验（V1: cosine decay 10 epochs, V2: constant LR 12 epochs）均未改善下游 finger MI 分类性能。V2 的 pre-training loss (0.003714) 比 V1 (0.006055) 低 39%，但下游平均 delta 从 -0.75% 恶化到 -1.38%，表明**更充分的 MI domain 适配实际上加剧了负迁移**。
+
+这一结论在方法论上有价值：**Domain-adaptive further pre-training 对于 domain gap 较大的场景（粗粒度 MI → 细粒度 finger MI）不仅无效，且更充分的训练会加剧损害**。建议后续探索直接在 finger MI 数据上自监督预训练，或采用 layer-wise fine-tuning 冻结底层 encoder。

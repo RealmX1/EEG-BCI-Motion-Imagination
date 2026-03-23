@@ -1,0 +1,5 @@
+Further Pre-training V2 complete.
+Training: 12 epochs, warmup_constant, loss 0.003714
+Evaluation: 4 combinations (binary/ternary x within/cross)
+Result: Negative transfer confirmed (-1.38% avg vs baseline)
+Date: 2026-03-23

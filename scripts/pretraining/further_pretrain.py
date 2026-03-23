@@ -109,19 +109,17 @@ class LMDBPretrainingDataset(Dataset):
     Windows 上 LMDB 的 mmap 会持续占用物理内存（OS 积极 page-in），
     10 个数据库同时打开会导致 RAM 溢出。因此每次读取后关闭 LMDB 环境，
     仅保持一个短暂的 mmap 窗口。
+
+    注意：必须显式设置 map_size >= data.mdb 文件大小，否则 Windows 上
+    多次 open/close 可能触发 MDB_MAP_RESIZED 错误。
     """
 
     def __init__(self, lmdb_path: str | Path):
         self.lmdb_path = str(lmdb_path)
+        self._map_size = self._calc_map_size()
 
         # 临时打开获取 keys 和元数据，然后关闭
-        db = lmdb.open(
-            self.lmdb_path,
-            readonly=True,
-            lock=False,
-            readahead=False,
-            meminit=False,
-        )
+        db = self._open_db()
         with db.begin(write=False) as txn:
             self.keys = pickle.loads(txn.get("__keys__".encode()))
             sample = pickle.loads(txn.get(self.keys[0].encode()))
@@ -131,18 +129,42 @@ class LMDBPretrainingDataset(Dataset):
         self.n_patches = sample.shape[1]
         self.patch_size = sample.shape[2]
 
+    def _calc_map_size(self) -> int:
+        """根据 data.mdb 实际文件大小计算 map_size（向上取整到 1 GB 边界）。"""
+        data_mdb = Path(self.lmdb_path) / "data.mdb"
+        if data_mdb.exists():
+            file_size = data_mdb.stat().st_size
+            # 向上取整到下一个 1 GB 边界，至少 1 GB
+            gb = 1 << 30
+            map_size = max(gb, ((file_size // gb) + 1) * gb)
+            return map_size
+        # 默认 1 GB
+        return 1 << 30
+
+    def _open_db(self, retries: int = 3):
+        """打开 LMDB 环境，自动处理 MapResizedError。"""
+        for attempt in range(retries):
+            try:
+                return lmdb.open(
+                    self.lmdb_path,
+                    readonly=True,
+                    lock=False,
+                    readahead=False,
+                    meminit=False,
+                    map_size=self._map_size,
+                )
+            except lmdb.MapResizedError:
+                # 重新计算 map_size 后重试
+                self._map_size = self._calc_map_size()
+                if attempt == retries - 1:
+                    raise
+
     def __len__(self):
         return len(self.keys)
 
     def __getitem__(self, idx):
         key = self.keys[idx]
-        db = lmdb.open(
-            self.lmdb_path,
-            readonly=True,
-            lock=False,
-            readahead=False,
-            meminit=False,
-        )
+        db = self._open_db()
         with db.begin(write=False) as txn:
             patch = pickle.loads(txn.get(key.encode()))
         db.close()
@@ -737,6 +759,9 @@ def main():
     parser.add_argument("--warmup-epochs", type=float, default=DEFAULT_CONFIG["warmup_epochs"])
     parser.add_argument("--clip-value", type=float, default=DEFAULT_CONFIG["clip_value"])
     parser.add_argument("--mask-ratio", type=float, default=DEFAULT_CONFIG["mask_ratio"])
+    parser.add_argument("--scheduler", type=str, default=DEFAULT_CONFIG["scheduler"],
+                        choices=["warmup_constant", "phased_cosine"],
+                        help="LR scheduler 类型 (default: warmup_constant)")
 
     # AMP
     parser.add_argument("--no-amp", action="store_true", help="禁用混合精度")
@@ -775,6 +800,7 @@ def main():
     config["warmup_epochs"] = args.warmup_epochs
     config["clip_value"] = args.clip_value
     config["mask_ratio"] = args.mask_ratio
+    config["scheduler"] = args.scheduler
     config["amp_enabled"] = not args.no_amp
     config["num_workers"] = args.num_workers
     config["pretrained_weights"] = args.pretrained_weights
