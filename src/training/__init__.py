@@ -29,7 +29,7 @@ Usage:
 
 from .train_within_subject import WithinSubjectTrainer, train_subject_simple
 from .train_cross_subject import train_cross_subject
-from .finetune import finetune_subject, finetune_all_subjects
+from .finetune import finetune_subject
 
 # Re-exports from new modules for convenience
 from .schedulers import (
@@ -56,7 +56,6 @@ __all__ = [
     'train_subject_simple',
     'train_cross_subject',
     'finetune_subject',
-    'finetune_all_subjects',
     # Schedulers
     'WSDScheduler',
     'CosineDecayRestarts',
