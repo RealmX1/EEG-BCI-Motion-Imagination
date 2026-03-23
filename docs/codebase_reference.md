@@ -47,13 +47,13 @@ uv run python scripts/run_transfer_comparison.py \
     --pretrained-eegnet checkpoints/cross_subject/.../best.pt \
     --pretrained-cbramod checkpoints/cross_subject/.../best.pt             # 手动指定检查点
 
-# 个体微调 (单模型)
-uv run python scripts/run_finetune.py \
+# 迁移学习 (单模型, 通过 run_single_model --pretrained)
+uv run python scripts/run_single_model.py --model eegnet \
     --pretrained checkpoints/cross_subject/eegnet_imagery_binary/best.pt \
-    --subject S01
-uv run python scripts/run_finetune.py \
+    --freeze-strategy backbone --subjects S01
+uv run python scripts/run_single_model.py --model cbramod \
     --pretrained checkpoints/cross_subject/cbramod_imagery_binary/best.pt \
-    --all-subjects --freeze-strategy backbone
+    --freeze-strategy none --cache-only
 
 # 实验结果数据库
 uv run python scripts/tools/migrate_results_to_db.py              # 预览迁移
@@ -102,7 +102,7 @@ scripts/
 │   ├── run_8ch_experiment.py           # 8ch 全量实验
 │   ├── run_single_model.py     # 单模型训练 (被试内)
 │   ├── run_cross_subject.py    # 单模型跨被试预训练
-│   └── run_finetune.py         # 个体微调
+│   └── (run_finetune.py 已废弃, 功能由 run_single_model.py --pretrained 吸收)
 ├── preprocessing/              # 数据预处理脚本
 │   ├── preprocess_zip.py       # ZIP 解压和预处理
 │   ├── cache_helper.py         # 缓存管理
