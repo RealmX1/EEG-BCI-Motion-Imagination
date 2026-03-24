@@ -767,7 +767,7 @@ def find_best_within_subject_for_model(
     .. deprecated::
         使用 ``ExperimentDB.find_best_within_subject_results()`` 替代。
 
-    在所有 comparison_cache 文件中查找该模型的数据，条件:
+    在所有 within_subject_cache / comparison_cache 文件中查找该模型的数据，条件:
     - is_complete: true
     - 该模型的被试集合覆盖 subjects_set
     - 选择平均测试准确率最高的运行
