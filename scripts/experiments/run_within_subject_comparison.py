@@ -412,14 +412,21 @@ Examples:
             )
 
             channel_config_filter = args.channel_config if args.channels != FULL_N_CHANNELS else None
-            historical = db.find_historical_comparison(
+            hist_result = db.find_historical_comparison(
                 paradigm=args.paradigm,
                 task=args.task,
                 n_channels=args.channels,
                 channel_config=channel_config_filter,
                 subjects=subjects_set if subjects_set else None,
                 exclude_run_id=db_run_id,
+                return_run_id=True,
             )
+            historical = None
+            hist_run_id = None
+            if hist_result is not None:
+                historical, hist_run_id = hist_result
+                if db_run_id and hist_run_id:
+                    db.add_baseline_ref(db_run_id, hist_run_id, 'historical_comparison')
 
             data_sources = []
             if historical:

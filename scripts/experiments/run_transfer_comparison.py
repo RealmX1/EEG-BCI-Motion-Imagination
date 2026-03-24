@@ -335,15 +335,19 @@ Examples:
 
         # 1 & 2: Within-subject baselines (per model, from DB, hatch='///')
         for mt in ['eegnet', 'cbramod']:
-            ws_results = db.find_best_within_subject_results(
+            ws_result = db.find_best_within_subject_results(
                 paradigm=args.paradigm,
                 task=args.task,
                 model_type=mt,
                 n_channels=args.channels,
                 channel_config=channel_config_filter,
                 subjects=subjects_set,
+                return_run_id=True,
             )
-            if ws_results:
+            if ws_result is not None:
+                ws_results, ws_run_id = ws_result
+                if db_run_id and ws_run_id:
+                    db.add_baseline_ref(db_run_id, ws_run_id, 'within_subject_baseline', mt)
                 mean_acc = sum(r.test_acc_majority for r in ws_results) / len(ws_results)
                 log_io.info(f"Within-subject baseline for {mt}: mean={mean_acc:.1%}")
                 data_sources.append(PlotDataSource(
@@ -357,15 +361,19 @@ Examples:
         # 3 & 4: Cross-subject baselines (per model, from DB, hatch='...')
         if not args.no_cross_subject_baseline:
             for mt in ['eegnet', 'cbramod']:
-                cross_results = db.find_best_cross_subject_results(
+                cs_result = db.find_best_cross_subject_results(
                     paradigm=args.paradigm,
                     task=args.task,
                     model_type=mt,
                     n_channels=args.channels,
                     channel_config=channel_config_filter,
                     subjects=subjects_set,
+                    return_run_id=True,
                 )
-                if cross_results:
+                if cs_result is not None:
+                    cross_results, cs_run_id = cs_result
+                    if db_run_id and cs_run_id:
+                        db.add_baseline_ref(db_run_id, cs_run_id, 'cross_subject_baseline', mt)
                     mean_acc = sum(r.test_acc_majority for r in cross_results) / len(cross_results)
                     log_io.info(f"Cross-subject baseline for {mt}: mean={mean_acc:.1%}")
                     data_sources.append(PlotDataSource(

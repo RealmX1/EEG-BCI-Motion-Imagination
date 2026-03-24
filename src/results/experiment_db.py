@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_DB_PATH = 'results/experiments.db'
 
 # Schema version for future migrations
-_SCHEMA_VERSION = 6
+_SCHEMA_VERSION = 7
 
 _SCHEMA_SQL = """
 -- Schema version tracking
@@ -151,6 +151,19 @@ CREATE INDEX IF NOT EXISTS idx_summaries_run
 -- NOTE: idx_runs_baseline is created in _migrate_to_v6(), not here,
 -- because existing v5 databases lack the is_baseline column when
 -- _SCHEMA_SQL runs (before migrations).
+
+-- Baseline reference tracking (which baseline(s) each run compared against)
+CREATE TABLE IF NOT EXISTS run_baseline_refs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id          TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+    baseline_run_id TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+    ref_type        TEXT NOT NULL,
+    model_type      TEXT,
+    resolved_at     TEXT NOT NULL
+);
+-- COALESCE handles SQLite NULL!=NULL in UNIQUE constraints
+CREATE UNIQUE INDEX IF NOT EXISTS uq_baseline_refs
+    ON run_baseline_refs(run_id, baseline_run_id, ref_type, COALESCE(model_type, ''));
 """
 
 
@@ -242,6 +255,8 @@ class ExperimentDB:
                 self._migrate_to_v5(conn)
             if current_version < 6:
                 self._migrate_to_v6(conn)
+            if current_version < 7:
+                self._migrate_to_v7(conn)
 
             conn.execute(
                 "INSERT OR REPLACE INTO schema_info (key, value) VALUES (?, ?)",
@@ -352,6 +367,23 @@ class ExperimentDB:
         if n_marked:
             logger.info(f"Schema migration v6: marked {n_marked} runs as baseline"
             )
+
+    def _migrate_to_v7(self, conn: sqlite3.Connection):
+        """v6 -> v7: Add run_baseline_refs table for tracking baseline references."""
+        # Table creation is handled by _SCHEMA_SQL (CREATE TABLE IF NOT EXISTS)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_baseline_refs_run "
+            "ON run_baseline_refs(run_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_baseline_refs_baseline "
+            "ON run_baseline_refs(baseline_run_id)"
+        )
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_baseline_refs "
+            "ON run_baseline_refs(run_id, baseline_run_id, ref_type, COALESCE(model_type, ''))"
+        )
+        logger.info("Schema migration v7: created run_baseline_refs table + indexes")
 
     def close(self):
         """Close the database connection."""
@@ -687,6 +719,94 @@ class ExperimentDB:
                 raise ValueError(f"Run not found: {run_id}")
         action = "marked as baseline" if is_baseline else "baseline flag cleared"
         logger.info(f"Run {action}: {run_id}")
+
+    def add_baseline_ref(
+        self,
+        run_id: str,
+        baseline_run_id: str,
+        ref_type: str,
+        model_type: Optional[str] = None,
+    ) -> None:
+        """Record that run_id references baseline_run_id.
+
+        Idempotent: duplicate inserts are silently ignored (UNIQUE constraint).
+
+        Args:
+            run_id: The experiment run that references a baseline
+            baseline_run_id: The run being used as baseline
+            ref_type: 'within_subject_baseline' | 'cross_subject_baseline' | 'historical_comparison'
+            model_type: 'eegnet' | 'cbramod' | None (both)
+        """
+        now = datetime.now().isoformat()
+        with self._connection() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO run_baseline_refs "
+                "(run_id, baseline_run_id, ref_type, model_type, resolved_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (run_id, baseline_run_id, ref_type, model_type, now),
+            )
+
+    def add_baseline_refs_batch(
+        self,
+        run_id: str,
+        refs: List[Dict[str, Any]],
+    ) -> None:
+        """Record multiple baseline references in one transaction.
+
+        Args:
+            run_id: The experiment run
+            refs: List of dicts with keys: baseline_run_id, ref_type, model_type (optional)
+        """
+        now = datetime.now().isoformat()
+        with self._connection() as conn:
+            conn.executemany(
+                "INSERT OR IGNORE INTO run_baseline_refs "
+                "(run_id, baseline_run_id, ref_type, model_type, resolved_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                [
+                    (run_id, r['baseline_run_id'], r['ref_type'],
+                     r.get('model_type'), now)
+                    for r in refs
+                ],
+            )
+
+    def get_baseline_refs(
+        self,
+        run_id: str,
+        ref_type: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Get all baseline references for a run.
+
+        Returns list of dicts with keys:
+            baseline_run_id, ref_type, model_type, resolved_at
+        """
+        with self._connection() as conn:
+            if ref_type:
+                rows = conn.execute(
+                    "SELECT baseline_run_id, ref_type, model_type, resolved_at "
+                    "FROM run_baseline_refs WHERE run_id = ? AND ref_type = ?",
+                    (run_id, ref_type),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT baseline_run_id, ref_type, model_type, resolved_at "
+                    "FROM run_baseline_refs WHERE run_id = ?",
+                    (run_id,),
+                ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_runs_referencing_baseline(
+        self,
+        baseline_run_id: str,
+    ) -> List[Dict[str, Any]]:
+        """Find all runs that reference a given baseline (impact analysis)."""
+        with self._connection() as conn:
+            rows = conn.execute(
+                "SELECT run_id, ref_type, model_type, resolved_at "
+                "FROM run_baseline_refs WHERE baseline_run_id = ?",
+                (baseline_run_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
 
     # ========================================================================
     # Read / Query operations
@@ -1226,7 +1346,8 @@ class ExperimentDB:
         channel_config: Optional[str] = None,
         subjects: Optional[set] = None,
         exclude_run_id: Optional[str] = None,
-    ) -> Optional[List['TrainingResult']]:
+        return_run_id: bool = False,
+    ):
         """Find the best completed within-subject run for a model and return results.
 
         Replaces find_best_within_subject_for_model() from cache.py.
@@ -1242,9 +1363,10 @@ class ExperimentDB:
             channel_config: Channel config filter (None for 128ch)
             subjects: If provided, only return runs that cover all these subjects
             exclude_run_id: Exclude this run_id from results
+            return_run_id: If True, return (results, run_id) tuple instead of results
 
         Returns:
-            List of TrainingResult for the best run, filtered to subjects if given.
+            List of TrainingResult (or (List, run_id) if return_run_id=True).
             None if no compatible run found.
         """
         clauses = [
@@ -1290,7 +1412,7 @@ class ExperimentDB:
                 # Filter to requested subjects
                 results = [r for r in results if r.subject_id in subjects]
 
-            return results
+            return (results, run_id) if return_run_id else results
 
         return None
 
@@ -1302,7 +1424,8 @@ class ExperimentDB:
         channel_config: Optional[str] = None,
         subjects: Optional[set] = None,
         exclude_run_id: Optional[str] = None,
-    ) -> Optional[Dict[str, List['TrainingResult']]]:
+        return_run_id: bool = False,
+    ):
         """Find best completed within-subject run with BOTH models for comparison plots.
 
         Replaces find_compatible_historical_results() from cache.py.
@@ -1318,9 +1441,11 @@ class ExperimentDB:
             channel_config: Channel config filter
             subjects: If provided, both models must cover these subjects
             exclude_run_id: Exclude this run_id
+            return_run_id: If True, return (grouped, run_id) tuple
 
         Returns:
-            Dict mapping model_type -> List[TrainingResult], or None.
+            Dict mapping model_type -> List[TrainingResult] (or (Dict, run_id)
+            if return_run_id=True). None if no compatible run found.
         """
         clauses = [
             "r.paradigm = ?",
@@ -1372,7 +1497,7 @@ class ExperimentDB:
                 grouped['eegnet'] = [r for r in grouped['eegnet'] if r.subject_id in subjects]
                 grouped['cbramod'] = [r for r in grouped['cbramod'] if r.subject_id in subjects]
 
-            return grouped
+            return (grouped, run_id) if return_run_id else grouped
 
         return None
 
@@ -1385,7 +1510,8 @@ class ExperimentDB:
         channel_config: Optional[str] = None,
         subjects: Optional[set] = None,
         exclude_run_id: Optional[str] = None,
-    ) -> Optional[List['TrainingResult']]:
+        return_run_id: bool = False,
+    ):
         """Find best completed cross-subject run for a model and return per-subject results.
 
         Replaces find_compatible_cross_subject_results() for plotting purposes.
@@ -1398,9 +1524,10 @@ class ExperimentDB:
             channel_config: Channel config filter
             subjects: If provided, only match runs covering all these subjects
             exclude_run_id: Exclude this run_id
+            return_run_id: If True, return (results, run_id) tuple
 
         Returns:
-            List of TrainingResult for the best cross-subject run, or None.
+            List of TrainingResult (or (List, run_id) if return_run_id=True), or None.
         """
         clauses = [
             "r.paradigm = ?",
@@ -1443,7 +1570,7 @@ class ExperimentDB:
                     continue
                 results = [r for r in results if r.subject_id in subjects]
 
-            return results
+            return (results, run_id) if return_run_id else results
 
         return None
 

@@ -234,17 +234,15 @@ def get_default_finetune_config(
     is_32ch_cbramod = (n_channels == 32 and model_type == 'cbramod')
     is_61ch_cbramod = (n_channels == 61 and model_type == 'cbramod')
 
-    # --- epochs ---
+    # --- epochs (safety ceiling; early stopping controls actual duration) ---
     if is_8ch_cbramod:
         epochs = EIGHT_CHANNEL_FINETUNE_OVERRIDES['epochs']
     elif is_32ch_cbramod:
         epochs = THIRTYTWO_CHANNEL_FINETUNE_OVERRIDES['epochs']
     elif is_61ch_cbramod:
         epochs = SIXTYONE_CHANNEL_FINETUNE_OVERRIDES['epochs']
-    elif freeze_strategy == 'backbone':
-        epochs = 20 if model_type == 'eegnet' else 10
     else:
-        epochs = 30 if model_type == 'eegnet' else 15
+        epochs = 500
 
     # --- learning_rate ---
     if is_8ch_cbramod:
