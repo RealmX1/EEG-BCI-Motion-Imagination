@@ -51,7 +51,6 @@ from src.results import (
     ExperimentDB,
     load_cache,
     save_cache,
-    find_cache_by_tag,
     prepare_combined_plot_data,
     generate_result_filename,
     result_to_dict,
@@ -75,6 +74,14 @@ from _training_utils import (
     print_subject_result,
     train_and_get_result,
     add_wandb_args,
+    add_common_args,
+    add_cache_resume_args,
+    add_channel_args,
+    add_training_config_args,
+    add_transfer_args,
+    resolve_output_dir,
+    resolve_run_tag,
+    build_config_overrides,
 )
 
 
@@ -327,97 +334,28 @@ Examples:
 '''
     )
 
-    # Required
+    # Script-specific args
     parser.add_argument(
         '--model', type=str, required=True,
         choices=['eegnet', 'cbramod'],
         help='Model type to train'
     )
-
-    # Data parameters
-    parser.add_argument(
-        '--data-root', type=str, default='data',
-        help='Path to data directory (default: data)'
-    )
-    parser.add_argument(
-        '--subjects', nargs='+', default=None,
-        help='Specific subjects to run (default: all available)'
-    )
-    parser.add_argument(
-        '--paradigm', type=str, default='imagery',
-        choices=['imagery', 'movement'],
-        help='Experiment paradigm (default: imagery)'
-    )
-    parser.add_argument(
-        '--task', type=str, default='binary',
-        choices=['binary', 'ternary', 'quaternary', 'unified'],
-        help='Classification task (default: binary)'
-    )
-
-    # Cache/output parameters
-    parser.add_argument(
-        '--output-dir', type=str, default='results',
-        help='Directory to save results (default: results)'
-    )
-    parser.add_argument(
-        '--resume', nargs='?', const='', default=None,
-        metavar='TAG',
-        help='Resume a previous run. Without TAG: resume most recent. '
-             'With TAG: resume run matching the datetime substring (e.g., "20260205")'
-    )
-    parser.add_argument(
-        '--force-retrain', action='store_true',
-        help='Force retraining, ignore cache'
-    )
-    parser.add_argument(
-        '--skip-training', action='store_true',
-        help='Skip training, load existing results'
-    )
-
-    # Output control
-    parser.add_argument(
-        '--no-plot', action='store_true',
-        help='Suppress plot generation'
-    )
-    add_wandb_args(parser)
-    parser.add_argument(
-        '--seed', type=int, default=42,
-        help='Random seed (default: 42)'
-    )
-    parser.add_argument(
-        '--scheduler', type=str, default=None,
-        choices=['plateau', 'cosine', 'wsd', 'cosine_decay', 'cosine_annealing_warmup_decay'],
-        help='Learning rate scheduler (default: model-specific)'
-    )
-    parser.add_argument(
-        '--config', type=str, default=None, metavar='YAML_PATH',
-        help='YAML 配置文件路径 (覆盖模型默认配置，被 CLI 参数覆盖)'
-    )
-    parser.add_argument(
-        '--cache-only', action='store_true',
-        help='Load data exclusively from cache index (no filesystem scan)'
-    )
-    parser.add_argument(
-        '--cache-index-path', type=str, default='.cache_index.json',
-        help='Path to cache index file (default: .cache_index.json)'
-    )
     parser.add_argument(
         '--pretrained-weights', type=str, default=None,
-        help='Path to pretrained weights for CBraMod (default: auto-detect)'
+        help='Path to pretrained weights for CBraMod backbone (default: auto-detect)'
     )
-
-    # Transfer learning (optional)
-    parser.add_argument('--pretrained', type=str, default=None,
-                        help='Path to pretrained checkpoint for transfer learning')
-    parser.add_argument('--freeze-strategy', type=str, default=None,
-                        choices=['none', 'backbone', 'partial'],
-                        help='Freeze strategy for fine-tuning (default: none)')
-
-    # Historical comparison options
     parser.add_argument(
         '--no-historical', action='store_true',
         help='禁用历史数据检索，仅生成单模型图（不检索另一个模型的历史结果）'
     )
+
+    # Shared args
+    add_common_args(parser)
+    add_cache_resume_args(parser)
+    add_channel_args(parser)
+    add_training_config_args(parser)
+    add_transfer_args(parser)
+    add_wandb_args(parser)
 
     args = parser.parse_args()
 
@@ -433,45 +371,22 @@ Examples:
     set_seed(args.seed)
     log_main.info(f"Seed: {args.seed}")
 
+    # Auto-redirect output to results/{n}_channel/{config}/ when using reduced channel mode
+    args.output_dir = resolve_output_dir(args)
+
     # Determine cache_type based on --pretrained flag
     cache_type = CacheType.TRANSFER if args.pretrained else None
 
     # Handle --resume vs new run (default)
-    if args.resume is not None:
-        # --resume was used
-        if args.resume == '':
-            # --resume without TAG: resume most recent
-            found = find_cache_by_tag(args.output_dir, args.paradigm, args.task,
-                                      cache_type=cache_type or CacheType.WITHIN_SUBJECT)
-            if found:
-                _, run_tag = found
-                log_main.info(f"Resuming most recent run: {run_tag or '(untagged)'}")
-            else:
-                log_main.error("No previous run found to resume")
-                sys.exit(1)
-        else:
-            # --resume TAG: resume matching run
-            found = find_cache_by_tag(args.output_dir, args.paradigm, args.task, args.resume,
-                                      cache_type=cache_type or CacheType.WITHIN_SUBJECT)
-            if found:
-                _, run_tag = found
-                log_main.info(f"Resuming run matching '{args.resume}': {run_tag}")
-            else:
-                log_main.error(f"No run found matching '{args.resume}'")
-                sys.exit(1)
-    else:
-        # Default: start new run
-        run_tag = datetime.now().strftime("%Y%m%d_%H%M")
-        log_main.info(f"Starting new run: {run_tag}")
+    output_dir = args.output_dir
+    run_tag = resolve_run_tag(args, args.paradigm, args.task, output_dir,
+                              cache_type=cache_type or CacheType.WITHIN_SUBJECT)
 
     paradigm_desc = PARADIGM_CONFIG[args.paradigm]['description']
     log_main.info(f"Model: {args.model.upper()} | Paradigm: {paradigm_desc} | Task: {args.task}")
 
-    # Build merged config_overrides: YAML → CLI scheduler override
-    from src.config.training import load_yaml_config
-    config_overrides = load_yaml_config(args.config) if args.config else {}
-    if args.scheduler:
-        config_overrides.setdefault('training', {})['scheduler'] = args.scheduler
+    # Build merged config_overrides: YAML → CLI scheduler/channel/classifier override
+    config_overrides = build_config_overrides(args) or {}
     if args.pretrained_weights:
         if args.model != 'cbramod':
             parser.error('--pretrained-weights is only supported for CBraMod')
@@ -549,7 +464,7 @@ Examples:
             config_overrides=config_overrides,
             pretrained_path=args.pretrained,
             freeze_strategy=args.freeze_strategy,
-            cache_type=CacheType.TRANSFER if args.pretrained else None,
+            cache_type=cache_type,
         )
 
     # Print summary

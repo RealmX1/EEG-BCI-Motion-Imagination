@@ -214,7 +214,7 @@ def get_finetune_optimizer(
 def get_default_finetune_config(
     model_type: str,
     freeze_strategy: FreezeStrategy,
-    n_channels: int,
+    n_channels: Optional[int] = None,
 ) -> dict:
     """
     Consolidate scattered default hyperparameter logic from finetune_subject().
@@ -225,11 +225,15 @@ def get_default_finetune_config(
     Args:
         model_type: 'eegnet' or 'cbramod'
         freeze_strategy: One of 'none', 'backbone', 'partial'
-        n_channels: Number of EEG channels in use
+        n_channels: Number of EEG channels in use. None means "use 128ch defaults"
+            (i.e. no channel-specific overrides are applied).
 
     Returns:
         Dict with keys epochs, learning_rate, batch_size, scheduler_type
     """
+    if n_channels is None:
+        n_channels = 128
+
     is_8ch_cbramod = (n_channels == 8 and model_type == 'cbramod')
     is_32ch_cbramod = (n_channels == 32 and model_type == 'cbramod')
     is_61ch_cbramod = (n_channels == 61 and model_type == 'cbramod')
@@ -256,7 +260,7 @@ def get_default_finetune_config(
     elif freeze_strategy == 'partial':
         learning_rate = 1e-4
     else:
-        learning_rate = 1e-4 if model_type == 'cbramod' else 1e-4
+        learning_rate = 1e-4
 
     # --- batch_size ---
     batch_size = 64 if model_type == 'eegnet' else 128

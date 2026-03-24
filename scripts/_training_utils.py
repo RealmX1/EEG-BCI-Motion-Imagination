@@ -27,8 +27,6 @@ from src.utils.logging import SectionLogger, setup_logging
 from src.config.constants import (
     MODEL_COLORS,
     PARADIGM_CONFIG,
-    CACHE_FILENAME,
-    CACHE_FILENAME_WITH_TAG,
 )
 
 # ============================================================================

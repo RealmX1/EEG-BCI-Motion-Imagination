@@ -43,13 +43,6 @@ class CacheType:
     CROSS_SUBJECT = 'cross_subject_cache'
 
 # ============================================================================
-# Cache Filename Patterns
-# ============================================================================
-
-CACHE_FILENAME = 'comparison_cache_{paradigm}_{task}.json'
-CACHE_FILENAME_WITH_TAG = '{tag}_comparison_cache_{paradigm}_{task}.json'
-
-# ============================================================================
 # Task Definitions
 # ============================================================================
 

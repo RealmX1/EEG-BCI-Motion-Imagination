@@ -124,7 +124,7 @@ def compute_summary(results):
         if not model_results:
             continue
 
-        test_accs = [r.test_acc for r in model_results]
+        test_accs = [r.test_acc_majority for r in model_results]
         summary[model_type] = {
             'mean': float(np.mean(test_accs)),
             'std': float(np.std(test_accs)),

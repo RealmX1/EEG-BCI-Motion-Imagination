@@ -22,7 +22,7 @@ class SelectionStrategy(Enum):
     NEWEST = "newest"           # 最新时间戳（用于训练恢复）
     BEST_ACCURACY = "best_acc"  # 最高准确率（用于图表生成）
 
-from ..config.constants import CACHE_FILENAME, CACHE_FILENAME_WITH_TAG, CacheType, FULL_N_CHANNELS, PARADIGM_CONFIG
+from ..config.constants import CacheType, FULL_N_CHANNELS, PARADIGM_CONFIG
 from ..utils.logging import SectionLogger
 from .dataclasses import ComparisonResult, TrainingResult, PlotDataSource
 from .serialization import (
@@ -97,10 +97,11 @@ def _cache_glob_patterns(cache_type: str, paradigm: str, task: str) -> List[str]
 
 
 def _filter_cache_type(files: List[Path], cache_type: str) -> List[Path]:
-    """过滤 glob 结果，排除子串误匹配.
+    """Filter glob results to exclude substring false matches.
 
-    向后兼容场景：旧文件 comparison_cache 会被 transfer_comparison_cache 的 glob 误匹配，
-    同理 within_subject_cache 不应匹配 transfer_cache 相关文件。
+    Needed for backward compat: old 'comparison_cache' pattern could match
+    'transfer_comparison_cache' files. With new naming this is less likely
+    but retained for safety when searching old-format files.
     """
     if cache_type == CacheType.WITHIN_SUBJECT:
         return [f for f in files if 'transfer_' not in f.name]
@@ -767,7 +768,7 @@ def find_best_within_subject_for_model(
     .. deprecated::
         使用 ``ExperimentDB.find_best_within_subject_results()`` 替代。
 
-    在所有 comparison_cache 文件中查找该模型的数据，条件:
+    在所有 within_subject_cache / comparison_cache 文件中查找该模型的数据，条件:
     - is_complete: true
     - 该模型的被试集合覆盖 subjects_set
     - 选择平均测试准确率最高的运行
