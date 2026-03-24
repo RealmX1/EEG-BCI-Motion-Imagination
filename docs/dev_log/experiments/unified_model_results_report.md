@@ -160,6 +160,8 @@
 
 CBraMod 的 gap（12-13pp）大于 EEGNet（8pp），因为 CBraMod 的表达能力更强，对分布差异更敏感。
 
+> **注意 (2026-03-20)**: 上述 val acc 数据基于旧版验证方法——对 unified 混合验证集直接做 4-class argmax。此方法与测试评估协议（per-subtask logit masking）语义不一致。已实现 per-subtask 验证（`validate_unified()`），新训练运行的 val acc 将基于 binary/ternary/quaternary 各自 logit-masked 准确率的均值，与测试评估完全对齐。因此，后续实验的 val-test gap 预计会缩小。
+
 ---
 
 ## 4. 训练时间

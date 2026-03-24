@@ -21,6 +21,13 @@ uv run python scripts/run_cross_subject_comparison.py      # 跨被试对比
 uv run python scripts/run_transfer_comparison.py           # 迁移学习对比
 ```
 
+运行 `scripts/experiments/` 下的脚本时，默认加 `--cache-only` 避免触发耗时的文件系统扫描：
+
+```bash
+uv run python scripts/run_single_model.py --model cbramod --cache-only        # 被试内单模型
+uv run python scripts/run_cross_subject.py --model cbramod --cache-only        # 跨被试
+```
+
 完整命令参考见 `docs/codebase_reference.md`。
 
 ## 数据划分协议
@@ -95,6 +102,20 @@ cross-subject 准确率 88.10% (来源: `results/32_channel/fdr/20260221_0445_tr
 ### 命名约定
 
 结果文件遵循格式：`{timestamp}_{experiment_type}_{paradigm}_{task}.json`，其中 timestamp 为 `YYYYMMDD_HHMM`，是唯一标识一次运行的关键字段。
+
+## Baseline 管理规范
+
+Baseline 是每个类别 (model + task + experiment_type) 的标准参考运行，通过 ExperimentDB `is_baseline` 列标记。当前 baseline 注册表见 `docs/dev_log/experiments/baseline_registry.md`。
+
+### 变更记录要求
+
+任何 baseline 的新增、替换或移除都必须记录在 `docs/dev_log/experiments/baseline_registry.md` 的"更新历史"中。
+
+### 替换流程
+
+1. **替换必须由开发者明确提出**——Agent 不得自行决定替换某类别的 baseline
+2. **执行替换前，Agent 必须与开发者二次确认类别**：明确列出将被替换的 (model, task, experiment_type) 组合及新旧 run_tag
+3. **长时间运行任务期间**：如果新 baseline 的标记状态不会直接影响当前正在执行的 run，应等待所有任务完成后再向开发者提出替换确认，避免干扰运行中的实验
 
 ## 参考资料
 
