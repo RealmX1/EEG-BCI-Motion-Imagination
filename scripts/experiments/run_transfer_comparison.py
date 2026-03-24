@@ -7,76 +7,78 @@ on individual subjects and compares the transfer learning performance of EEGNet 
 
 Workflow:
 1. Auto-discovers (or accepts manual) best cross-subject pretrained checkpoints
-2. Fine-tunes each model on each individual subject
+2. Fine-tunes each model on each individual subject via run_single_model()
 3. Compares fine-tuned EEGNet vs CBraMod (statistical tests)
-4. Generates combined plot: cross-subject baseline + transfer learning results
+4. Generates 6-way combined plot: within baseline + cross baseline + transfer results
 
 Usage:
     # Auto-discover best pretrained models and fine-tune
-    uv run python scripts/run_transfer_comparison.py
+    uv run python scripts/experiments/run_transfer_comparison.py --cache-only
 
     # Specify freeze strategy
-    uv run python scripts/run_transfer_comparison.py --freeze-strategy partial
+    uv run python scripts/experiments/run_transfer_comparison.py --freeze-strategy partial --cache-only
 
     # Manual pretrained model paths
-    uv run python scripts/run_transfer_comparison.py \\
+    uv run python scripts/experiments/run_transfer_comparison.py \\
         --pretrained-eegnet checkpoints/cross_subject/.../best.pt \\
-        --pretrained-cbramod chec kpoints/cross_subject/.../best.pt
+        --pretrained-cbramod checkpoints/cross_subject/.../best.pt --cache-only
 
     # Resume a previous run
-    uv run python scripts/run_transfer_comparison.py --resume
-    uv run python scripts/run_transfer_comparison.py --resume 20260208
+    uv run python scripts/experiments/run_transfer_comparison.py --resume --cache-only
 
     # Motor Execution paradigm, ternary task
-    uv run python scripts/run_transfer_comparison.py --paradigm movement --task ternary
+    uv run python scripts/experiments/run_transfer_comparison.py --paradigm movement --task ternary --cache-only
 """
 
 import argparse
-import json
 import logging
 import sys
 import time
-import traceback
-import torch
-from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict
 
 # Add project root to path (scripts/experiments/ -> scripts/ -> project root)
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.config.constants import FULL_N_CHANNELS, SUPPORTED_CHANNEL_COUNTS, PARADIGM_CONFIG, TASKS
-from src.config.training import load_yaml_config
+from src.config.constants import FULL_N_CHANNELS, PARADIGM_CONFIG, CacheType
 from src.utils.device import set_seed, check_cuda_available, get_device
 from src.utils.logging import SectionLogger, setup_logging
 
 from src.results import (
-    CacheType,
-    ExperimentDB,
     PlotDataSource,
-    TrainingResult,
     compare_models,
     print_comparison_report,
-    find_compatible_cross_subject_results,
-    generate_result_filename,
-    result_to_dict,
-    dict_to_result,
     compute_model_statistics,
-    print_model_summary,
-    cross_subject_result_to_training_results,
-    get_cache_path,
-    find_cache_by_tag,
+    generate_result_filename,
     load_cache,
     save_cache,
 )
 from src.visualization import generate_combined_plot
-from src.training.finetune import finetune_subject
 
+# Import from scripts directory
 SCRIPTS_DIR = Path(__file__).parent.parent
+EXPERIMENTS_DIR = Path(__file__).parent
 sys.path.insert(0, str(SCRIPTS_DIR))
+sys.path.insert(0, str(EXPERIMENTS_DIR))
 
-from _training_utils import discover_subjects, print_subject_result, add_wandb_args
+from _training_utils import (
+    discover_subjects,
+    add_wandb_args,
+    add_common_args,
+    add_cache_resume_args,
+    add_channel_args,
+    add_training_config_args,
+    add_transfer_args,
+    resolve_output_dir,
+    resolve_run_tag,
+    init_db_run,
+    finalize_db_run,
+    build_config_overrides,
+    find_best_checkpoint_path,
+    validate_checkpoint_compatibility,
+)
+from run_single_model import run_single_model
 
 
 setup_logging('transfer_comparison')
@@ -85,369 +87,6 @@ logger = logging.getLogger(__name__)
 log_main = SectionLogger(logger, 'main')
 log_train = SectionLogger(logger, 'train')
 log_io = SectionLogger(logger, 'io')
-
-
-
-
-# ============================================================================
-# Checkpoint Discovery
-# ============================================================================
-
-def find_best_checkpoint_path(
-    model_type: str,
-    paradigm: str,
-    task: str,
-    subjects: List[str],
-    results_dir: str = 'results',
-    n_channels: Optional[int] = None,
-) -> Optional[str]:
-    """
-    Auto-discover the best cross-subject pretrained checkpoint for a model.
-
-    Searches results/ for compatible cross-subject result JSONs, then extracts
-    the checkpoint path from training_info.model_path.
-
-    Args:
-        n_channels: If specified, only match results with this channel count.
-    """
-    cross_result = find_compatible_cross_subject_results(
-        output_dir=results_dir,
-        paradigm=paradigm,
-        task=task,
-        subjects=subjects,
-        model_type=model_type,
-        n_channels=n_channels,
-    )
-    if not cross_result:
-        return None
-
-    # Read source JSON to extract model_path
-    source_file = cross_result['source_file']
-    try:
-        with open(source_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        model_path = data.get('training_info', {}).get('model_path', '')
-        if model_path and Path(model_path).exists():
-            log_io.info(f"Found {model_type} checkpoint: {model_path}")
-            return model_path
-    except (json.JSONDecodeError, OSError) as e:
-        log_io.debug(f"Failed to read source file: {e}")
-
-    # Fallback: search checkpoints directory by pattern
-    checkpoint_dir = Path('checkpoints/cross_subject')
-    if checkpoint_dir.exists():
-        # Match patterns like *_{model}_{paradigm}_{task}/best.pt
-        for subdir in sorted(checkpoint_dir.iterdir(), reverse=True):
-            if subdir.is_dir() and model_type in subdir.name and paradigm in subdir.name and task in subdir.name:
-                best_pt = subdir / 'best.pt'
-                if best_pt.exists():
-                    # Verify n_channels if specified
-                    if n_channels is not None:
-                        try:
-                            ckpt = torch.load(best_pt, map_location='cpu', weights_only=False)
-                            ckpt_channels = ckpt.get('model_config', {}).get('n_channels')
-                            if ckpt_channels is not None and ckpt_channels != n_channels:
-                                continue
-                        except Exception:
-                            continue
-                    log_io.info(f"Found {model_type} checkpoint (fallback): {best_pt}")
-                    return str(best_pt)
-
-    return None
-
-
-# ============================================================================
-# Training Helpers
-# ============================================================================
-
-def finetune_and_get_result(
-    subject_id: str,
-    model_type: str,
-    pretrained_path: str,
-    freeze_strategy: str,
-    task: str,
-    paradigm: str,
-    data_root: str,
-    run_tag: Optional[str] = None,
-    epochs: Optional[int] = None,
-    learning_rate: Optional[float] = None,
-    batch_size: Optional[int] = None,
-    seed: int = 42,
-    channels: Optional[int] = None,
-    channel_config: Optional[str] = None,
-    # Model selection strategy
-    model_selection_strategy: str = 'combined',
-    ema_decay: float = 0.998,
-    soup_top_k: int = 3,
-    # Cache-only mode
-    cache_only: bool = False,
-    cache_index_path: str = ".cache_index.json",
-    # WandB
-    no_wandb: bool = True,
-    upload_model: bool = False,
-    wandb_project: str = 'eeg-bci',
-    wandb_entity: Optional[str] = None,
-    wandb_group: Optional[str] = None,
-    verbose: int = 2,
-) -> TrainingResult:
-    """
-    Fine-tune a pretrained model on a single subject and return TrainingResult.
-
-    Wraps finetune_subject() and converts the result dict to TrainingResult.
-    """
-    result_dict = finetune_subject(
-        pretrained_path=pretrained_path,
-        subject_id=subject_id,
-        freeze_strategy=freeze_strategy,
-        run_tag=run_tag,
-        epochs=epochs,
-        learning_rate=learning_rate,
-        batch_size=batch_size,
-        paradigm=paradigm,
-        task=task,
-        seed=seed,
-        data_root=data_root,
-        channels=channels,
-        channel_config=channel_config,
-        model_selection_strategy=model_selection_strategy,
-        ema_decay=ema_decay,
-        soup_top_k=soup_top_k,
-        cache_only=cache_only,
-        cache_index_path=cache_index_path,
-        no_wandb=no_wandb,
-        upload_model=upload_model,
-        wandb_project=wandb_project,
-        wandb_entity=wandb_entity,
-        wandb_group=wandb_group,
-        verbose=verbose,
-    )
-
-    return TrainingResult(
-        subject_id=subject_id,
-        task_type=task,
-        model_type=model_type,
-        best_val_acc=result_dict.get('val_acc', 0.0),
-        test_acc=result_dict['test_acc'],
-        test_acc_majority=result_dict['test_acc'],  # finetune already uses majority voting
-        epochs_trained=result_dict.get('best_epoch', 0),
-        training_time=result_dict.get('training_time', 0.0),
-    )
-
-
-def run_transfer_model(
-    model_type: str,
-    pretrained_path: str,
-    subject_ids: List[str],
-    freeze_strategy: str,
-    task: str,
-    paradigm: str,
-    data_root: str,
-    output_dir: str,
-    run_tag: Optional[str] = None,
-    force_retrain: bool = False,
-    epochs: Optional[int] = None,
-    learning_rate: Optional[float] = None,
-    batch_size: Optional[int] = None,
-    seed: int = 42,
-    channels: Optional[int] = None,
-    channel_config: Optional[str] = None,
-    transfer_config: Optional[Dict] = None,
-    # Model selection strategy
-    model_selection_strategy: str = 'combined',
-    ema_decay: float = 0.998,
-    soup_top_k: int = 3,
-    # Cache-only mode
-    cache_only: bool = False,
-    cache_index_path: str = ".cache_index.json",
-    # WandB
-    no_wandb: bool = True,
-    upload_model: bool = False,
-    wandb_project: str = 'eeg-bci',
-    wandb_entity: Optional[str] = None,
-    wandb_group: Optional[str] = None,
-) -> Tuple[List[TrainingResult], Dict]:
-    """
-    Fine-tune a pretrained model on all specified subjects with cache support.
-
-    Follows the same cache-per-subject pattern as run_single_model().
-    """
-    log_train.info(f"Transfer Learning: {model_type.upper()} | freeze={freeze_strategy}")
-    log_train.info(f"Pretrained: {pretrained_path}")
-
-    # Load existing cache
-    if force_retrain:
-        cache = {}
-    else:
-        cache, _ = load_cache(output_dir, paradigm, task, run_tag, cache_type=CacheType.TRANSFER)
-
-    if model_type not in cache:
-        cache[model_type] = {}
-
-    # Determine subjects to train
-    cached_subjects = set(cache[model_type].keys())
-    requested_subjects = set(subject_ids)
-    subjects_to_train = requested_subjects - cached_subjects if not force_retrain else requested_subjects
-
-    if cached_subjects & requested_subjects:
-        already = len(cached_subjects & requested_subjects)
-        to_train = len(subjects_to_train)
-        if subjects_to_train:
-            log_train.info(f"{already} cached, {to_train} to train ({', '.join(sorted(subjects_to_train))})")
-        else:
-            log_train.info(f"All {already} subjects cached (no training needed)")
-
-    # ===== Create a single shared WandB run for all subjects =====
-    _wandb_run = None
-    if not no_wandb:
-        try:
-            from src.utils.wandb_logger import is_wandb_available
-            if is_wandb_available():
-                import wandb
-                paradigm_short = "MI" if paradigm == "imagery" else "ME"
-                _wandb_run = wandb.init(
-                    project=wandb_project,
-                    entity=wandb_entity,
-                    name=f"transfer_{model_type}_{freeze_strategy}_{task}_{paradigm_short}",
-                    config={
-                        "model_type": model_type,
-                        "task": task,
-                        "paradigm": paradigm,
-                        "training_type": "transfer",
-                        "freeze_strategy": freeze_strategy,
-                        "pretrained_path": pretrained_path,
-                        "n_subjects": len(subject_ids),
-                        "subjects": subject_ids,
-                        **(transfer_config or {}),
-                    },
-                    tags=[
-                        f"model:{model_type}",
-                        f"task:{task}",
-                        f"paradigm:{paradigm}",
-                        "transfer",
-                        f"freeze:{freeze_strategy}",
-                    ],
-                    group=wandb_group,
-                    job_type="transfer",
-                    settings=wandb.Settings(console="off"),
-                )
-                log_train.info(f"WandB run: {_wandb_run.url}")
-        except Exception as e:
-            log_train.warning(f"WandB init failed: {e}")
-            _wandb_run = None
-
-    results: List[TrainingResult] = []
-    total_subjects = len(subject_ids)
-    first_subject_trained = False
-
-    try:
-        for idx, subject_id in enumerate(subject_ids, 1):
-            progress = f"[{idx}/{total_subjects}]"
-
-            # Check cache
-            if subject_id in cache[model_type] and not force_retrain:
-                log_train.info(f"{progress} {subject_id}: cached")
-                cached_result = dict_to_result(cache[model_type][subject_id])
-                results.append(cached_result)
-                print_subject_result(subject_id, model_type, cached_result)
-
-                # Log cached result to shared WandB run
-                if _wandb_run is not None:
-                    import wandb
-                    wandb.log({
-                        "subject_index": idx,
-                        f"test_acc/{subject_id}": cached_result.test_acc,
-                    })
-                continue
-
-            # Fine-tune
-            log_train.info(f"{progress} {subject_id}: fine-tuning {model_type}...")
-
-            try:
-                set_seed(seed)
-
-                # Full verbose for first subject, minimal for subsequent (shared config already shown)
-                verbose = 2 if not first_subject_trained else 1
-
-                result = finetune_and_get_result(
-                    subject_id=subject_id,
-                    model_type=model_type,
-                    pretrained_path=pretrained_path,
-                    freeze_strategy=freeze_strategy,
-                    task=task,
-                    paradigm=paradigm,
-                    data_root=data_root,
-                    run_tag=run_tag,
-                    epochs=epochs,
-                    learning_rate=learning_rate,
-                    model_selection_strategy=model_selection_strategy,
-                    ema_decay=ema_decay,
-                    soup_top_k=soup_top_k,
-                    batch_size=batch_size,
-                    seed=seed,
-                    channels=channels,
-                    channel_config=channel_config,
-                    cache_only=cache_only,
-                    cache_index_path=cache_index_path,
-                    no_wandb=True,  # Per-subject WandB disabled; use shared run
-                    upload_model=upload_model,
-                    wandb_project=wandb_project,
-                    wandb_entity=wandb_entity,
-                    wandb_group=wandb_group,
-                    verbose=verbose,
-                )
-
-                first_subject_trained = True
-                results.append(result)
-
-                # Save to cache immediately
-                cache[model_type][subject_id] = result_to_dict(result)
-                save_cache(
-                    output_dir, paradigm, task, cache, run_tag,
-                    cache_type=CacheType.TRANSFER,
-                    extra_metadata={'type': 'transfer-comparison', 'transfer_config': transfer_config or {}},
-                )
-
-                print_subject_result(subject_id, model_type, result)
-
-                # Log result to shared WandB run
-                if _wandb_run is not None:
-                    import wandb
-                    wandb.log({
-                        "subject_index": idx,
-                        f"test_acc/{subject_id}": result.test_acc,
-                    })
-
-            except Exception as e:
-                log_train.error(f"{progress} {subject_id}: FAILED - {e}")
-                traceback.print_exc()
-                continue
-
-    finally:
-        # Finalize shared WandB run
-        if _wandb_run is not None:
-            import wandb
-            stats = compute_model_statistics(results)
-            # Log per-subject summary
-            for r in results:
-                _wandb_run.summary[f"test_acc/{r.subject_id}"] = r.test_acc
-            # Log aggregate summary
-            if stats['n_subjects'] > 0:
-                _wandb_run.summary["mean_test_acc"] = stats['mean']
-                _wandb_run.summary["std_test_acc"] = stats['std']
-                _wandb_run.summary["max_test_acc"] = stats['max']
-                _wandb_run.summary["min_test_acc"] = stats['min']
-                _wandb_run.summary["n_subjects"] = stats['n_subjects']
-            wandb.finish()
-
-    stats = compute_model_statistics(results)
-
-    if results:
-        log_train.info(
-            f"{model_type.upper()} transfer done: {stats['mean']:.1%}+/-{stats['std']:.1%} "
-            f"(n={stats['n_subjects']}, best={stats['max']:.1%})"
-        )
-
-    return results, stats
 
 
 # ============================================================================
@@ -461,237 +100,105 @@ def main():
         epilog='''
 Examples:
   # Auto-discover best pretrained models and fine-tune
-  uv run python scripts/run_transfer_comparison.py
+  uv run python scripts/experiments/run_transfer_comparison.py --cache-only
 
   # Specify freeze strategy
-  uv run python scripts/run_transfer_comparison.py --freeze-strategy partial
+  uv run python scripts/experiments/run_transfer_comparison.py --freeze-strategy partial --cache-only
 
   # Manual pretrained model paths
-  uv run python scripts/run_transfer_comparison.py \\
+  uv run python scripts/experiments/run_transfer_comparison.py \\
       --pretrained-eegnet checkpoints/cross_subject/.../best.pt \\
-      --pretrained-cbramod checkpoints/cross_subject/.../best.pt
+      --pretrained-cbramod checkpoints/cross_subject/.../best.pt --cache-only
 
   # Resume a previous run
-  uv run python scripts/run_transfer_comparison.py --resume
+  uv run python scripts/experiments/run_transfer_comparison.py --resume --cache-only
 '''
     )
 
-    # Data arguments
-    parser.add_argument(
-        '--data-root', type=str, default='data',
-        help='Path to data directory (default: data)'
-    )
-    parser.add_argument(
-        '--subjects', nargs='+', default=None,
-        help='Specific subjects to run (default: all available)'
-    )
-    parser.add_argument(
-        '--models', nargs='+', default=['eegnet', 'cbramod'],
-        choices=['eegnet', 'cbramod'],
-        help='Models to fine-tune (default: both)'
-    )
-    parser.add_argument(
-        '--paradigm', type=str, default='imagery',
-        choices=['imagery', 'movement'],
-        help='Experiment paradigm (default: imagery)'
-    )
-    parser.add_argument(
-        '--task', type=str, default='binary',
-        choices=['binary', 'ternary', 'quaternary'],
-        help='Classification task (default: binary)'
-    )
-
-    # Transfer learning arguments
-    parser.add_argument(
-        '--freeze-strategy', type=str, default='backbone',
-        choices=['none', 'backbone', 'partial'],
-        help='Freeze strategy for fine-tuning (default: backbone)'
-    )
-    parser.add_argument(
-        '--pretrained-eegnet', type=str, default=None,
-        help='Manual path to pretrained EEGNet checkpoint (.pt)'
-    )
-    parser.add_argument(
-        '--pretrained-cbramod', type=str, default=None,
-        help='Manual path to pretrained CBraMod checkpoint (.pt)'
-    )
-    parser.add_argument(
-        '--finetune-epochs', type=int, default=None,
-        help='Number of fine-tuning epochs (default: strategy/model-specific)'
-    )
-    parser.add_argument(
-        '--finetune-lr', type=float, default=None,
-        help='Fine-tuning learning rate (default: strategy-specific)'
-    )
-    parser.add_argument(
-        '--finetune-batch-size', type=int, default=None,
-        help='Fine-tuning batch size (default: model-specific)'
-    )
-    parser.add_argument(
-        '--config', type=str, default=None, metavar='YAML_PATH',
-        help='YAML config file path (e.g., configs/model_selection_ema.yaml). '
-             'Overrides model defaults; CLI args take priority over YAML.'
-    )
-    # Cache/resume arguments
-    parser.add_argument(
-        '--resume', nargs='?', const='', default=None,
-        metavar='TAG',
-        help='Resume a previous run. Without TAG: resume most recent. '
-             'With TAG: resume run matching the datetime substring (e.g., "20260205")'
-    )
-    parser.add_argument(
-        '--force-retrain', action='store_true',
-        help='Force retraining, ignore cache'
-    )
-    parser.add_argument(
-        '--results-dir', type=str, default='results',
-        help='Directory to save results and plots (default: results)'
-    )
-
-    # Output control
-    parser.add_argument(
-        '--no-plot', action='store_true',
-        help='Suppress plot generation'
-    )
-    parser.add_argument(
-        '--no-cross-subject-baseline', action='store_true',
-        help='Do not include cross-subject baseline in the plot'
-    )
-    parser.add_argument(
-        '--seed', type=int, default=42,
-        help='Random seed (default: 42)'
-    )
-
+    add_common_args(parser)
+    add_cache_resume_args(parser)
+    add_channel_args(parser)
+    add_training_config_args(parser)
+    add_transfer_args(parser)
     add_wandb_args(parser)
 
-    # Channel selection
-    parser.add_argument(
-        '--channels', type=int, default=FULL_N_CHANNELS,
-        choices=SUPPORTED_CHANNEL_COUNTS,
-        help=f'Number of EEG channels to use: {"/".join(str(c) for c in SUPPORTED_CHANNEL_COUNTS)} (default: {FULL_N_CHANNELS})'
-    )
-    parser.add_argument(
-        '--channel-config', type=str, default='motor_cortex',
-        help='Channel configuration name (default: motor_cortex). '
-             '32ch: motor_cortex, commercial, fdr, csp, attention, band_power; '
-             '61ch: standard_1010'
-    )
+    # Transfer-specific args (beyond shared builders)
+    parser.add_argument('--models', nargs='+', default=['eegnet', 'cbramod'],
+                        choices=['eegnet', 'cbramod'], help='Models to fine-tune (default: both)')
+    parser.add_argument('--pretrained-eegnet', type=str, default=None,
+                        help='Manual path to pretrained EEGNet checkpoint (.pt)')
+    parser.add_argument('--pretrained-cbramod', type=str, default=None,
+                        help='Manual path to pretrained CBraMod checkpoint (.pt)')
+    parser.add_argument('--finetune-epochs', type=int, default=None,
+                        help='Number of fine-tuning epochs (default: strategy/model-specific)')
+    parser.add_argument('--finetune-lr', type=float, default=None,
+                        help='Fine-tuning learning rate (default: strategy-specific)')
+    parser.add_argument('--finetune-batch-size', type=int, default=None,
+                        help='Fine-tuning batch size (default: model-specific)')
+    parser.add_argument('--no-cross-subject-baseline', action='store_true',
+                        help='Do not include cross-subject baseline in the plot')
+    parser.add_argument('--baseline', action='store_true',
+                        help='Mark this run as a designated baseline in ExperimentDB')
 
-    # Cache index arguments
-    parser.add_argument(
-        '--cache-only', action='store_true',
-        help='Load data exclusively from cache index (no filesystem scan)'
-    )
-    parser.add_argument(
-        '--cache-index-path', type=str, default='.cache_index.json',
-        help='Path to cache index file (default: .cache_index.json)'
-    )
+    # Override --task choices: transfer does NOT support 'unified'
+    for action in parser._actions:
+        if hasattr(action, 'dest') and action.dest == 'task':
+            action.choices = ['binary', 'ternary', 'quaternary']
+            break
 
     args = parser.parse_args()
 
-    # Auto-redirect results to results/{n}_channel/{config}/ when using reduced channel mode
-    if args.channels != FULL_N_CHANNELS and args.results_dir == 'results':
-        args.results_dir = f'results/{args.channels}_channel/{args.channel_config}'
+    # Resolve output directory (auto-redirect for reduced channel mode)
+    output_dir = resolve_output_dir(args)
 
-    # Start timer
+    # Resolve run tag (handle --resume or start new)
+    run_tag = resolve_run_tag(args, args.paradigm, args.task, output_dir,
+                              cache_type=CacheType.TRANSFER)
+
+    # Standard init
     start_time = time.time()
-
-    # Check GPU
     check_cuda_available(required=True)
-    device = get_device()
-    log_main.info(f"Device: {device}")
-
-    # Set seed
     set_seed(args.seed)
-    log_main.info(f"Seed: {args.seed}")
-
-    # Handle --resume vs new run
-    if args.resume is not None:
-        if args.resume == '':
-            found = find_cache_by_tag(args.results_dir, args.paradigm, args.task, cache_type=CacheType.TRANSFER)
-            if found:
-                _, run_tag = found
-                log_main.info(f"Resuming most recent transfer run: {run_tag or '(untagged)'}")
-            else:
-                log_main.error("No previous transfer run found to resume")
-                sys.exit(1)
-        else:
-            found = find_cache_by_tag(args.results_dir, args.paradigm, args.task, args.resume, cache_type=CacheType.TRANSFER)
-            if found:
-                _, run_tag = found
-                log_main.info(f"Resuming transfer run matching '{args.resume}': {run_tag}")
-            else:
-                log_main.error(f"No transfer run found matching '{args.resume}'")
-                sys.exit(1)
-    else:
-        run_tag = datetime.now().strftime("%Y%m%d_%H%M")
-        log_main.info(f"Starting new transfer comparison run: {run_tag}")
-
-    # Parse YAML config for model selection strategy
-    config_overrides = load_yaml_config(args.config) if args.config else {}
-    train_config = config_overrides.get('training', {})
-    model_selection_strategy = train_config.get('model_selection_strategy', 'combined')
-    ema_decay = train_config.get('ema_decay', 0.998)
-    soup_top_k = train_config.get('soup_top_k', 3)
+    log_main.info(f"Device: {get_device()}")
 
     paradigm_desc = PARADIGM_CONFIG[args.paradigm]['description']
     log_main.info(f"Paradigm: {paradigm_desc} | Task: {args.task} | Freeze: {args.freeze_strategy}")
-    if model_selection_strategy != 'combined':
-        log_main.info(f"Model selection strategy: {model_selection_strategy}")
 
-    # Initialize ExperimentDB (dual-write)
-    import shlex
-    import sqlite3
-    db = ExperimentDB()
-    db_run_id = None
-    try:
-        db_run_id = db.create_run(
-            run_tag=run_tag,
-            experiment_type='transfer',
-            paradigm=args.paradigm,
-            task=args.task,
-            n_channels=args.channels,
-            channel_config=args.channel_config if args.channels != FULL_N_CHANNELS else None,
-            command=" ".join(shlex.quote(a) for a in sys.argv),
-        )
-        log_main.info(f"DB run created: {db_run_id}")
-    except sqlite3.IntegrityError:
-        existing = db.find_run_by_tag(run_tag, args.paradigm, args.task, experiment_type='transfer')
-        if existing:
-            db_run_id = existing['run_id']
-            log_main.info(f"DB run resumed: {db_run_id}")
-        else:
-            log_main.warning(f"DB run creation failed: duplicate run_id but tag not found")
-    except Exception as e:
-        log_main.warning(f"DB run creation failed: {e}")
+    # DB init
+    db, db_run_id = init_db_run(run_tag, 'transfer', args.paradigm, args.task, args)
 
     # Discover subjects
-    if args.subjects:
-        subjects = args.subjects
-    else:
-        subjects = discover_subjects(
-            args.data_root, args.paradigm, args.task,
-            cache_only=args.cache_only,
-            cache_index_path=args.cache_index_path,
-        )
-
+    subjects = args.subjects or discover_subjects(
+        args.data_root, args.paradigm, args.task,
+        cache_only=args.cache_only, cache_index_path=args.cache_index_path)
     if not subjects:
         log_main.error(f"No subjects found in {args.data_root}")
         sys.exit(1)
-
     log_main.info(f"Subjects: {subjects} ({len(subjects)} total)")
+
+    # Build config overrides (YAML + CLI channels/classifier)
+    config_overrides = build_config_overrides(args) or {}
+
+    # Add transfer-specific overrides
+    if args.finetune_epochs:
+        config_overrides.setdefault('training', {})['epochs'] = args.finetune_epochs
+    if args.finetune_lr:
+        config_overrides.setdefault('training', {})['learning_rate'] = args.finetune_lr
+    if args.finetune_batch_size:
+        config_overrides.setdefault('training', {})['batch_size'] = args.finetune_batch_size
+    config_overrides = config_overrides or None
 
     # ======================================================================
     # Discover pretrained checkpoints
     # ======================================================================
-    pretrained_paths = {}
+    pretrained_paths: Dict[str, str] = {}
     manual_overrides = {
         'eegnet': args.pretrained_eegnet,
         'cbramod': args.pretrained_cbramod,
     }
+    n_channels_filter = args.channels if args.channels != FULL_N_CHANNELS else None
 
     for model_type in args.models:
-        # Manual override takes priority
         if manual_overrides.get(model_type):
             path = manual_overrides[model_type]
             if not Path(path).exists():
@@ -700,16 +207,9 @@ Examples:
             pretrained_paths[model_type] = path
             log_main.info(f"{model_type.upper()} pretrained (manual): {path}")
         else:
-            # Auto-discover best checkpoint
-            n_channels_filter = args.channels if args.channels != FULL_N_CHANNELS else None
             path = find_best_checkpoint_path(
-                model_type=model_type,
-                paradigm=args.paradigm,
-                task=args.task,
-                subjects=subjects,
-                results_dir=args.results_dir,
-                n_channels=n_channels_filter,
-            )
+                model_type=model_type, paradigm=args.paradigm, task=args.task,
+                subjects=subjects, results_dir=output_dir, n_channels=n_channels_filter)
             if path:
                 pretrained_paths[model_type] = path
                 log_main.info(f"{model_type.upper()} pretrained (auto): {path}")
@@ -717,57 +217,24 @@ Examples:
                 log_main.warning(
                     f"No pretrained {model_type} checkpoint found for "
                     f"{args.paradigm}/{args.task}. Skipping this model. "
-                    f"Run 'scripts/run_cross_subject_comparison.py' first to create one."
+                    f"Run 'scripts/experiments/run_cross_subject_comparison.py' first."
                 )
 
     if not pretrained_paths:
         log_main.error(
             "No pretrained checkpoints found for any requested model. "
             "Run cross-subject training first:\n"
-            "  uv run python scripts/run_cross_subject_comparison.py"
+            "  uv run python scripts/experiments/run_cross_subject_comparison.py"
         )
         sys.exit(1)
 
-    # Resolve classifier_type from pretrained checkpoints
-    # Also validate n_classes matches current task to catch binary/ternary mismatches early
-    classifier_types = {}
-    expected_n_classes = TASKS[args.task]['n_classes']
-    for model_type, path in pretrained_paths.items():
-        try:
-            ckpt = torch.load(path, map_location='cpu', weights_only=False)
-            ct = ckpt.get('model_config', {}).get('classifier_type', 'two_layer')
-            classifier_types[model_type] = ct
-            ckpt_n_classes = ckpt.get('model_config', {}).get('n_classes')
-            ckpt_task = ckpt.get('training_config', {}).get('task', 'unknown')
-            if ckpt_n_classes is not None and ckpt_n_classes != expected_n_classes:
-                log_main.error(
-                    f"Checkpoint/task mismatch for {model_type.upper()}:\n"
-                    f"  Pretrained checkpoint: n_classes={ckpt_n_classes}"
-                    f" (trained on task='{ckpt_task}')\n"
-                    f"  Current task '{args.task}' expects n_classes={expected_n_classes}\n"
-                    f"  Checkpoint: {path}\n"
-                    f"  Fix: use a pretrained model trained on task='{args.task}',"
-                    f" or change --task to '{ckpt_task}'."
-                )
-                sys.exit(1)
-        except Exception:
-            classifier_types[model_type] = 'unknown'
-
-    # Build transfer config metadata
-    transfer_config = {
-        'freeze_strategy': args.freeze_strategy,
-        'finetune_epochs': args.finetune_epochs,
-        'finetune_lr': args.finetune_lr,
-        'finetune_batch_size': args.finetune_batch_size,
-        'pretrained_paths': {k: str(v) for k, v in pretrained_paths.items()},
-        'classifier_types': classifier_types,
-    }
+    # Validate checkpoint compatibility (n_classes match)
+    classifier_types = validate_checkpoint_compatibility(pretrained_paths, args.task)
 
     # ======================================================================
-    # Fine-tune each model
+    # Fine-tune each model via run_single_model()
     # ======================================================================
     results = {}
-    all_stats = {}
 
     for model_type in args.models:
         if model_type not in pretrained_paths:
@@ -775,48 +242,36 @@ Examples:
 
         log_main.info(f"{'='*50} {model_type.upper()} TRANSFER {'='*50}")
 
-        channels_arg = args.channels if args.channels != FULL_N_CHANNELS else None
-        channel_config_arg = args.channel_config if channels_arg is not None else None
-        model_results, model_stats = run_transfer_model(
+        model_results, stats = run_single_model(
             model_type=model_type,
-            pretrained_path=pretrained_paths[model_type],
+            data_root=args.data_root,
             subject_ids=subjects,
-            freeze_strategy=args.freeze_strategy,
             task=args.task,
             paradigm=args.paradigm,
-            data_root=args.data_root,
-            output_dir=args.results_dir,
-            run_tag=run_tag,
+            output_dir=output_dir,
             force_retrain=args.force_retrain,
-            epochs=args.finetune_epochs,
-            learning_rate=args.finetune_lr,
-            batch_size=args.finetune_batch_size,
-            seed=args.seed,
-            channels=channels_arg,
-            channel_config=channel_config_arg,
-            transfer_config=transfer_config,
-            model_selection_strategy=model_selection_strategy,
-            ema_decay=ema_decay,
-            soup_top_k=soup_top_k,
-            cache_only=args.cache_only,
-            cache_index_path=args.cache_index_path,
+            run_tag=run_tag,
             no_wandb=args.no_wandb,
             upload_model=args.upload_model,
             wandb_project=args.wandb_project,
             wandb_entity=args.wandb_entity,
-            wandb_group=f"transfer_{model_type}_{args.freeze_strategy}_{run_tag}",
+            cache_only=args.cache_only,
+            cache_index_path=args.cache_index_path,
+            config_overrides=config_overrides,
+            db=db,
+            db_run_id=db_run_id,
+            pretrained_path=pretrained_paths[model_type],
+            freeze_strategy=args.freeze_strategy,
+            cache_type=CacheType.TRANSFER,
         )
-
         results[model_type] = model_results
-        all_stats[model_type] = model_stats
 
-        # Dual-write to DB
+        # Save model summary to DB
         if db_run_id and model_results:
             try:
-                db.save_subject_results_batch(db_run_id, model_results)
-                db.save_summary(db_run_id, model_type, model_stats)
+                db.save_summary(db_run_id, model_type, stats)
             except Exception as e:
-                log_main.warning(f"DB write failed for {model_type}: {e}")
+                log_main.warning(f"DB summary failed: {e}")
 
     # ======================================================================
     # Statistical comparison
@@ -829,133 +284,122 @@ Examples:
             except ValueError as e:
                 log_main.warning(f"Cannot compare: {e}")
 
-    # Print report
     print_comparison_report(results, comparison, args.task, args.paradigm, run_tag)
 
     # ======================================================================
     # Save final cache with summary and comparison
     # ======================================================================
-    # Build cache results dict
-    cache_results = {}
-    for model_type, model_results in results.items():
-        cache_results[model_type] = {
-            r.subject_id: result_to_dict(r) for r in model_results
-        }
+    cache, cache_metadata = load_cache(output_dir, args.paradigm, args.task, run_tag,
+                                       cache_type=CacheType.TRANSFER)
 
-    # Compute summary
+    from dataclasses import asdict
+    comparison_dict = asdict(comparison) if comparison else None
+
     summary = {}
-    for model_type, stats in all_stats.items():
-        summary[model_type] = stats
+    for mt, mrs in results.items():
+        if mrs:
+            summary[mt] = compute_model_statistics(mrs)
 
-    comparison_dict = None
-    if comparison:
-        from dataclasses import asdict
-        comparison_dict = asdict(comparison)
+    n_subjects = len(set(r.subject_id for mrs in results.values() for r in mrs))
 
-    n_subjects = len(set(r.subject_id for model_results in results.values() for r in model_results))
+    transfer_config_meta = {
+        'freeze_strategy': args.freeze_strategy,
+        'finetune_epochs': args.finetune_epochs,
+        'finetune_lr': args.finetune_lr,
+        'finetune_batch_size': args.finetune_batch_size,
+        'pretrained_paths': {k: str(v) for k, v in pretrained_paths.items()},
+        'classifier_types': classifier_types,
+    }
 
     save_cache(
-        output_dir=args.results_dir,
+        output_dir=output_dir,
         paradigm=args.paradigm,
         task=args.task,
-        results=cache_results,
+        results=cache,
         run_tag=run_tag,
         summary=summary,
         comparison=comparison_dict,
         n_subjects=n_subjects,
         is_complete=True,
         cache_type=CacheType.TRANSFER,
-        extra_metadata={'type': 'transfer-comparison', 'transfer_config': transfer_config or {}},
+        extra_metadata={'transfer_config': transfer_config_meta},
     )
 
-    # Finalize DB run
-    if db_run_id:
-        try:
-            if comparison:
-                db.save_comparison(db_run_id, comparison)
-            db.save_transfer_config(
-                db_run_id,
-                freeze_strategy=args.freeze_strategy,
-                finetune_epochs=args.finetune_epochs,
-                finetune_lr=args.finetune_lr,
-                finetune_batch_size=args.finetune_batch_size,
-                pretrained_eegnet=str(pretrained_paths.get('eegnet', '')),
-                pretrained_cbramod=str(pretrained_paths.get('cbramod', '')),
-                classifier_type=next(iter(classifier_types.values()), None),
-            )
-            db.update_n_subjects(db_run_id, n_subjects)
-            db.mark_complete(db_run_id)
-        except Exception as e:
-            log_main.warning(f"DB finalize failed: {e}")
-
     # ======================================================================
-    # Generate visualization
+    # Generate 6-way visualization (BEFORE finalize_db_run which closes DB)
     # ======================================================================
     if not args.no_plot and results:
         subjects_set = set(subjects)
         channel_config_filter = args.channel_config if args.channels != FULL_N_CHANNELS else None
         data_sources = []
 
-        # 1 & 2: Within-subject baselines (per-model, best accuracy from DB)
-        for model_type in ['eegnet', 'cbramod']:
-            ws_results = db.find_best_within_subject_results(
+        # 1 & 2: Within-subject baselines (per model, from DB, hatch='///')
+        for mt in ['eegnet', 'cbramod']:
+            ws_result = db.find_best_within_subject_results(
                 paradigm=args.paradigm,
                 task=args.task,
-                model_type=model_type,
+                model_type=mt,
                 n_channels=args.channels,
                 channel_config=channel_config_filter,
                 subjects=subjects_set,
+                return_run_id=True,
             )
-            if ws_results:
+            if ws_result is not None:
+                ws_results, ws_run_id = ws_result
+                if db_run_id and ws_run_id:
+                    db.add_baseline_ref(db_run_id, ws_run_id, 'within_subject_baseline', mt)
                 mean_acc = sum(r.test_acc_majority for r in ws_results) / len(ws_results)
-                log_io.info(f"Within-subject baseline for {model_type}: mean={mean_acc:.1%}")
+                log_io.info(f"Within-subject baseline for {mt}: mean={mean_acc:.1%}")
                 data_sources.append(PlotDataSource(
-                    model_type=model_type,
+                    model_type=mt,
                     results=ws_results,
                     is_current_run=False,
-                    label=f'{model_type.upper()} (Within)',
+                    label=f'{mt.upper()} (Within)',
                     hatch='///',
                 ))
 
-        # 3 & 4: Cross-subject baselines (per-model, from DB)
+        # 3 & 4: Cross-subject baselines (per model, from DB, hatch='...')
         if not args.no_cross_subject_baseline:
-            for model_type in ['eegnet', 'cbramod']:
-                cross_results = db.find_best_cross_subject_results(
+            for mt in ['eegnet', 'cbramod']:
+                cs_result = db.find_best_cross_subject_results(
                     paradigm=args.paradigm,
                     task=args.task,
-                    model_type=model_type,
+                    model_type=mt,
                     n_channels=args.channels,
                     channel_config=channel_config_filter,
                     subjects=subjects_set,
+                    return_run_id=True,
                 )
-                if cross_results:
+                if cs_result is not None:
+                    cross_results, cs_run_id = cs_result
+                    if db_run_id and cs_run_id:
+                        db.add_baseline_ref(db_run_id, cs_run_id, 'cross_subject_baseline', mt)
                     mean_acc = sum(r.test_acc_majority for r in cross_results) / len(cross_results)
-                    log_io.info(f"Cross-subject baseline for {model_type}: mean={mean_acc:.1%}")
+                    log_io.info(f"Cross-subject baseline for {mt}: mean={mean_acc:.1%}")
                     data_sources.append(PlotDataSource(
-                        model_type=model_type,
+                        model_type=mt,
                         results=cross_results,
                         is_current_run=False,
-                        label=f'{model_type.upper()} (Cross)',
+                        label=f'{mt.upper()} (Cross)',
                         hatch='...',
                     ))
 
-        # 5 & 6: Transfer learning results (current)
-        for model_type in ['eegnet', 'cbramod']:
-            model_results = results.get(model_type, [])
+        # 5 & 6: Transfer results (current run)
+        for mt in ['eegnet', 'cbramod']:
+            model_results = results.get(mt, [])
             filtered = [r for r in model_results if r.subject_id in subjects_set]
             if filtered:
                 data_sources.append(PlotDataSource(
-                    model_type=model_type,
+                    model_type=mt,
                     results=filtered,
                     is_current_run=True,
-                    label=f'{model_type.upper()} (Transfer)',
+                    label=f'{mt.upper()} (Transfer)',
                 ))
 
         if data_sources:
             plot_filename = generate_result_filename(
-                'transfer_combined', args.paradigm, args.task, 'png', run_tag
-            )
-            plot_path = Path(args.results_dir) / plot_filename
+                'transfer_combined', args.paradigm, args.task, 'png', run_tag)
+            plot_path = Path(output_dir) / plot_filename
 
             generate_combined_plot(
                 data_sources=data_sources,
@@ -967,7 +411,19 @@ Examples:
         else:
             log_io.warning("No data sources available for plotting")
 
-    db.close()
+    # ======================================================================
+    # DB finalize (save comparison + transfer config + mark complete + close)
+    # ======================================================================
+    finalize_db_run(db, db_run_id, comparison, n_subjects,
+                    transfer_config={
+                        'freeze_strategy': args.freeze_strategy,
+                        'finetune_epochs': args.finetune_epochs,
+                        'finetune_lr': args.finetune_lr,
+                        'finetune_batch_size': args.finetune_batch_size,
+                        'pretrained_eegnet': str(pretrained_paths.get('eegnet', '')),
+                        'pretrained_cbramod': str(pretrained_paths.get('cbramod', '')),
+                        'classifier_type': next(iter(classifier_types.values()), None),
+                    })
 
     # ======================================================================
     # Total time

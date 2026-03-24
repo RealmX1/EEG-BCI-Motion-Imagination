@@ -45,43 +45,48 @@ Usage:
 """
 
 import argparse
-import json
 import logging
 import sys
 import time
-from datetime import datetime
 from pathlib import Path
 
 # Add project root to path (scripts/experiments/ -> scripts/ -> project root)
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.config.constants import FULL_N_CHANNELS, SUPPORTED_CHANNEL_COUNTS, PARADIGM_CONFIG
+from src.config.constants import FULL_N_CHANNELS, PARADIGM_CONFIG
 from src.utils.device import set_seed, check_cuda_available, get_device
 from src.utils.logging import SectionLogger, setup_logging
 
 from src.config.constants import CacheType
 from src.results import (
-    ExperimentDB,
     PlotDataSource,
     compare_models,
     compute_model_statistics,
     print_comparison_report,
-    save_cross_subject_result,
     generate_result_filename,
-    TrainingResult,
     cross_subject_result_to_training_results,
 )
-from src.results.cache import find_cache_by_tag, load_cache, save_cache
+from src.results.cache import load_cache, save_cache
 from src.visualization import generate_combined_plot
 from src.visualization.comparison import plot_unified_comparison
 from src.training.train_cross_subject import train_cross_subject
-from src.config.training import SCHEDULER_PRESETS, load_yaml_config
 
 SCRIPTS_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from _training_utils import discover_subjects, add_wandb_args
+from _training_utils import (
+    discover_subjects,
+    add_wandb_args,
+    add_common_args,
+    add_cache_resume_args,
+    add_channel_args,
+    add_training_config_args,
+    resolve_run_tag,
+    init_db_run,
+    finalize_db_run,
+    build_config_overrides,
+)
 
 
 setup_logging('cross_subject_comparison')
@@ -115,32 +120,21 @@ Examples:
 '''
     )
 
-    # Data arguments
-    parser.add_argument(
-        '--data-root', type=str, default='data',
-        help='Path to data directory (default: data)'
-    )
-    parser.add_argument(
-        '--subjects', nargs='+', default=None,
-        help='Specific subjects to run (default: all available)'
-    )
+    # Shared common args (--data-root, --subjects, --paradigm, --task, --seed, --output-dir, --no-plot)
+    add_common_args(parser)
+    # Override --output-dir default for cross-subject (checkpoints dir, not results)
+    for action in parser._actions:
+        if hasattr(action, 'dest') and action.dest == 'output_dir':
+            action.default = 'checkpoints/cross_subject'
+            action.help = 'Directory to save pretrained models (default: checkpoints/cross_subject)'
+            break
+
+    # Cross-subject-specific: models and training params
     parser.add_argument(
         '--models', nargs='+', default=['eegnet', 'cbramod'],
         choices=['eegnet', 'cbramod'],
         help='Models to train (default: both)'
     )
-    parser.add_argument(
-        '--paradigm', type=str, default='imagery',
-        choices=['imagery', 'movement'],
-        help='Experiment paradigm (default: imagery)'
-    )
-    parser.add_argument(
-        '--task', type=str, default='binary',
-        choices=['binary', 'ternary', 'quaternary', 'unified'],
-        help='Classification task (default: binary)'
-    )
-
-    # Training arguments
     parser.add_argument(
         '--epochs', type=int, default=None,
         help='Number of training epochs (default: model-specific)'
@@ -149,33 +143,11 @@ Examples:
         '--batch-size', type=int, default=None,
         help='Batch size (default: model-specific)'
     )
-    parser.add_argument(
-        '--seed', type=int, default=42,
-        help='Random seed (default: 42)'
-    )
-    parser.add_argument(
-        '--scheduler', type=str, default=None,
-        choices=list(SCHEDULER_PRESETS.keys()),
-        help='Learning rate scheduler (default: model-specific)'
-    )
-    parser.add_argument(
-        '--config', type=str, default=None, metavar='YAML_PATH',
-        help='YAML config file path (e.g., configs/cbramod_muon.yaml). '
-             'Overrides model defaults; CLI args take priority over YAML.'
-    )
 
-    # Output arguments
-    parser.add_argument(
-        '--output-dir', type=str, default='checkpoints/cross_subject',
-        help='Directory to save pretrained models (default: checkpoints/cross_subject)'
-    )
+    # Results dir (separate from --output-dir which holds checkpoints)
     parser.add_argument(
         '--results-dir', type=str, default='results',
         help='Directory to save results and plots (default: results)'
-    )
-    parser.add_argument(
-        '--no-plot', action='store_true',
-        help='Suppress plot generation'
     )
 
     # Historical data arguments
@@ -188,44 +160,14 @@ Examples:
         help='Disable cross-subject historical data (previous runs) in comparison plot'
     )
 
-    # Cache arguments
-    parser.add_argument(
-        '--cache-only', action='store_true',
-        help='Load data exclusively from cache index (no filesystem scan)'
-    )
-    parser.add_argument(
-        '--cache-index-path', type=str, default='.cache_index.json',
-        help='Path to cache index file (default: .cache_index.json)'
-    )
+    # Shared cache/resume args
+    add_cache_resume_args(parser)
 
-    parser.add_argument(
-        '--channels', type=int, default=FULL_N_CHANNELS,
-        choices=SUPPORTED_CHANNEL_COUNTS,
-        help=f'Number of EEG channels to use: {"/".join(str(c) for c in SUPPORTED_CHANNEL_COUNTS)} (default: {FULL_N_CHANNELS})'
-    )
-    parser.add_argument(
-        '--channel-config', type=str, default='motor_cortex',
-        help='Channel configuration name (default: motor_cortex). '
-             '32ch: motor_cortex, commercial, fdr, csp, attention, band_power; '
-             '61ch: standard_1010'
-    )
-    parser.add_argument(
-        '--classifier-type', type=str, default=None,
-        choices=['two_layer', 'three_layer', 'one_layer', 'attention_pool'],
-        help='Override CBraMod classifier head type (default: use model config)'
-    )
+    # Shared channel selection args
+    add_channel_args(parser)
 
-    # Resume arguments
-    parser.add_argument(
-        '--resume', nargs='?', const='', default=None,
-        metavar='TAG',
-        help='Resume a previous run. Without TAG: resume most recent. '
-             'With TAG: resume run matching the datetime substring (e.g., "20260228")'
-    )
-    parser.add_argument(
-        '--force-retrain', action='store_true',
-        help='Force retraining all models, ignore cached results'
-    )
+    # Shared training config args (--config, --scheduler, --classifier-type, --no-pretrained)
+    add_training_config_args(parser)
 
     add_wandb_args(parser)
 
@@ -238,6 +180,10 @@ Examples:
     parser.add_argument(
         '--quiet', '-q', action='store_true',
         help='Equivalent to --verbose 0'
+    )
+    parser.add_argument(
+        '--baseline', action='store_true',
+        help='Mark this run as a designated baseline in ExperimentDB'
     )
 
     args = parser.parse_args()
@@ -262,65 +208,13 @@ Examples:
     log_main.info(f"Seed: {args.seed}")
 
     # Generate or resume run tag
-    if args.resume is not None:
-        tag_hint = args.resume if args.resume != '' else None
-        found = find_cache_by_tag(
-            args.results_dir, args.paradigm, args.task,
-            tag_substring=tag_hint,
-            cache_type=CacheType.CROSS_SUBJECT,
-        )
-        if found:
-            cache_path, run_tag = found
-            log_main.info(f"Resuming cross-subject comparison run: {run_tag}")
-            # Warn if current CLI parameters differ from cached run
-            try:
-                with open(cache_path, 'r', encoding='utf-8') as f:
-                    cached_meta = json.load(f).get('metadata', {})
-                for key, cli_val in [('paradigm', args.paradigm), ('task', args.task)]:
-                    cached_val = cached_meta.get(key)
-                    if cached_val and cached_val != cli_val:
-                        log_main.warning(
-                            f"Parameter mismatch: cached {key}={cached_val}, "
-                            f"current --{key}={cli_val}")
-            except Exception:
-                pass  # Non-critical: best-effort check
-        else:
-            log_main.error("No previous cross-subject run found to resume")
-            sys.exit(1)
-    else:
-        run_tag = datetime.now().strftime("%Y%m%d_%H%M")
-        log_main.info(f"Starting new cross-subject comparison run: {run_tag}")
+    run_tag = resolve_run_tag(args, args.paradigm, args.task, args.results_dir, cache_type=CacheType.CROSS_SUBJECT)
 
     paradigm_desc = PARADIGM_CONFIG[args.paradigm]['description']
     log_main.info(f"Paradigm: {paradigm_desc}")
 
     # Initialize ExperimentDB (dual-write)
-    import shlex
-    import sqlite3
-    db = ExperimentDB()
-    db_run_id = None
-    try:
-        db_run_id = db.create_run(
-            run_tag=run_tag,
-            experiment_type='cross_subject',
-            paradigm=args.paradigm,
-            task=args.task,
-            n_channels=args.channels,
-            channel_config=args.channel_config if args.channels != FULL_N_CHANNELS else None,
-            command=" ".join(shlex.quote(a) for a in sys.argv),
-        )
-        log_main.info(f"DB run created: {db_run_id}")
-    except sqlite3.IntegrityError:
-        existing = db.find_run_by_tag(
-            run_tag, args.paradigm, args.task, experiment_type='cross_subject',
-        )
-        if existing:
-            db_run_id = existing['run_id']
-            log_main.info(f"DB run resumed: {db_run_id}")
-        else:
-            log_main.warning(f"DB run creation failed: duplicate run_id but tag not found")
-    except Exception as e:
-        log_main.warning(f"DB run creation failed: {e}")
+    db, db_run_id = init_db_run(run_tag, 'cross_subject', args.paradigm, args.task, args)
 
     # Discover subjects
     if args.subjects:
@@ -341,15 +235,7 @@ Examples:
     log_main.info(f"Subjects: {subjects} | Models: {args.models} | Task: {args.task}")
 
     # Build config_overrides: YAML base → CLI overrides
-    config_overrides = load_yaml_config(args.config) if args.config else {}
-    if args.scheduler:
-        config_overrides.setdefault('training', {})['scheduler'] = args.scheduler
-    if args.channels != FULL_N_CHANNELS:
-        config_overrides.setdefault('data', {})['channels'] = args.channels
-        config_overrides.setdefault('data', {})['channel_config'] = args.channel_config
-    if args.classifier_type:
-        config_overrides.setdefault('model', {})['classifier_type'] = args.classifier_type
-    config_overrides = config_overrides or None
+    config_overrides = build_config_overrides(args)
 
     # Load existing cache for resume
     cache = {}
@@ -362,7 +248,6 @@ Examples:
 
     # Train each model (skip cached models on resume)
     results = {}
-    channel_config_to_save = args.channel_config if args.channels != FULL_N_CHANNELS else None
     for model_type in args.models:
         # Check if model already has cached results
         if model_type in cache and not args.force_retrain:
@@ -433,21 +318,8 @@ Examples:
             results=cache,
             run_tag=run_tag,
             cache_type=CacheType.CROSS_SUBJECT,
-            extra_metadata={'type': 'cross-subject-comparison'},
         )
         log_io.info(f"{model_type.upper()} cached to cross_subject_cache")
-
-        # Also save individual model result file (backward compatible)
-        results_path = save_cross_subject_result(
-            result=model_results,
-            model_type=model_type,
-            paradigm=args.paradigm,
-            task=args.task,
-            output_dir=args.results_dir,
-            run_tag=run_tag,
-            channel_config=channel_config_to_save,
-        )
-        log_io.info(f"{model_type.upper()} results saved: {results_path}")
 
         # Dual-write to DB
         if db_run_id:
@@ -480,16 +352,6 @@ Examples:
             except ValueError as e:
                 log_stats.warning(f"Cannot compare: {e}")
 
-    # Save comparison to DB and mark complete
-    if db_run_id:
-        try:
-            if comparison:
-                db.save_comparison(db_run_id, comparison)
-            db.update_n_subjects(db_run_id, len(subjects))
-            db.mark_complete(db_run_id)
-        except Exception as e:
-            log_stats.warning(f"DB finalize failed: {e}")
-
     # Final cache save (mark as complete)
     save_cache(
         output_dir=args.results_dir,
@@ -500,7 +362,6 @@ Examples:
         cache_type=CacheType.CROSS_SUBJECT,
         is_complete=True,
         n_subjects=len(subjects),
-        extra_metadata={'type': 'cross-subject-comparison'},
     )
 
     # Print comparison report
@@ -560,15 +421,19 @@ Examples:
 
             # 1 & 2: Historical within-subject baselines (per-model, best accuracy)
             for model_type in ['eegnet', 'cbramod']:
-                hist_results = db.find_best_within_subject_results(
+                ws_result = db.find_best_within_subject_results(
                     paradigm=args.paradigm,
                     task=args.task,
                     model_type=model_type,
                     n_channels=args.channels,
                     channel_config=channel_config_filter,
                     subjects=subjects_set,
+                    return_run_id=True,
                 )
-                if hist_results:
+                if ws_result is not None:
+                    hist_results, ws_run_id = ws_result
+                    if db_run_id and ws_run_id:
+                        db.add_baseline_ref(db_run_id, ws_run_id, 'within_subject_baseline', model_type)
                     data_sources.append(PlotDataSource(
                         model_type=model_type,
                         results=hist_results,
@@ -595,7 +460,7 @@ Examples:
             # 5: (Optional) Historical cross-subject data
             if not args.no_cross_subject_historical:
                 search_model = 'cbramod' if 'cbramod' in args.models else args.models[0]
-                hist_cross = db.find_best_cross_subject_results(
+                cs_result = db.find_best_cross_subject_results(
                     paradigm=args.paradigm,
                     task=args.task,
                     model_type=search_model,
@@ -603,8 +468,12 @@ Examples:
                     channel_config=channel_config_filter,
                     subjects=subjects_set,
                     exclude_run_id=db_run_id,
+                    return_run_id=True,
                 )
-                if hist_cross:
+                if cs_result is not None:
+                    hist_cross, cs_run_id = cs_result
+                    if db_run_id and cs_run_id:
+                        db.add_baseline_ref(db_run_id, cs_run_id, 'cross_subject_baseline', search_model)
                     data_sources.append(PlotDataSource(
                         model_type=search_model,
                         results=hist_cross,
@@ -629,7 +498,8 @@ Examples:
             else:
                 log_io.warning("No data sources available for plotting")
 
-    db.close()
+    # Save comparison to DB, mark complete, and close
+    finalize_db_run(db, db_run_id, comparison, len(subjects))
 
     # Log total time
     total_time = time.time() - start_time

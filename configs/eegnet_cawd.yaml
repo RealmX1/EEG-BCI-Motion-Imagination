@@ -9,7 +9,7 @@ model:
 
 training:
   scheduler: cosine_annealing_warmup_decay
-  epochs: 100
+  epochs: 500
   batch_size: 128
   learning_rate: 5.0e-4
   weight_decay: 0.06

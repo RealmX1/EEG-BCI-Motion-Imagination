@@ -277,6 +277,9 @@ def train_single_subject(
     wandb_group: Optional[str] = None,
     # Logging verbosity
     verbose: int = 2,
+    # ---- Transfer learning (optional) ----
+    pretrained_path: Optional[str] = None,
+    freeze_strategy: Optional[str] = None,
 ) -> Dict:
     """
     Train model for a single subject.
@@ -311,6 +314,10 @@ def train_single_subject(
             Level 2: Full output (all sections)
             Level 1: Subject header + training table + final evaluation
             Level 0: Training table only
+        pretrained_path: Path to a pretrained checkpoint for transfer learning.
+            When set, replaces the from-scratch model with the pretrained one.
+        freeze_strategy: Freeze strategy for transfer learning ('none', 'backbone',
+            'partial'). Only used when pretrained_path is set.
 
     Returns:
         Results dict with accuracy and history
@@ -566,17 +573,17 @@ def train_single_subject(
             # CBraMod expects patches
             n_patches = n_samples // 200  # 200 samples per patch (1s @ 200Hz)
             if model_config.get('no_pretrained', False):
-                pretrained_path = None
+                cbramod_backbone_path = None
             elif model_config.get('pretrained_path'):
-                pretrained_path = model_config['pretrained_path']
+                cbramod_backbone_path = model_config['pretrained_path']
             else:
-                pretrained_path = get_default_pretrained_path()
+                cbramod_backbone_path = get_default_pretrained_path()
 
             model = CBraModForFingerBCI(
                 n_channels=n_channels,
                 n_patches=n_patches,
                 n_classes=n_classes,
-                pretrained_path=pretrained_path,
+                pretrained_path=cbramod_backbone_path,
                 freeze_backbone=model_config.get('freeze_backbone', False),
                 classifier_type=model_config.get('classifier_type', 'two_layer'),
                 dropout=model_config.get('dropout_rate', 0.1),
@@ -604,6 +611,41 @@ def train_single_subject(
     # ========== MODEL COMPILATION (PyTorch 2.0+) ==========
     use_compile = config.get('training', {}).get('use_compile', True)
     model = maybe_compile_model(model, model_type, device, use_compile, verbose)
+
+    # ========== PRETRAINED MODEL LOADING (Transfer Learning) ==========
+    pretrained_baseline = None
+    if pretrained_path is not None:
+        from src.training.finetune_utils import (
+            load_pretrained_model,
+            apply_freeze_strategy,
+        )
+        from src.config.constants import TASKS
+
+        if verbose >= 2:
+            print_section_header("Loading Pretrained Model")
+
+        # Replace the from-scratch model with the pretrained one
+        model, checkpoint = load_pretrained_model(pretrained_path, device)
+        model_config_ckpt = checkpoint['model_config']
+
+        # Validate n_classes
+        task_n_classes = TASKS[config['task']]['n_classes']
+        ckpt_n_classes = model_config_ckpt['n_classes']
+        if ckpt_n_classes != task_n_classes:
+            ckpt_task = checkpoint.get('training_config', {}).get('task', 'unknown')
+            raise ValueError(
+                f"Checkpoint/task n_classes mismatch: pretrained model has "
+                f"n_classes={ckpt_n_classes} (task='{ckpt_task}'), "
+                f"but current task '{config['task']}' requires n_classes={task_n_classes}. "
+                f"Checkpoint: {pretrained_path}"
+            )
+
+        if verbose >= 2:
+            print_metric("Pretrained from", Path(pretrained_path).parent.name, Colors.CYAN)
+
+        # Apply freeze strategy
+        effective_freeze = freeze_strategy or 'none'
+        apply_freeze_strategy(model, model_type, effective_freeze)
 
     # ========== TRAINER SETUP ==========
     with Timer("trainer_setup", print_on_exit=(verbose >= 2)):
@@ -659,9 +701,67 @@ def train_single_subject(
             verbose=verbose,
         )
 
+    # Replace optimizer for finetune mode
+    if pretrained_path is not None:
+        from src.training.finetune_utils import get_finetune_optimizer
+        effective_freeze = freeze_strategy or 'none'
+        weight_decay = 0.05 if model_type == 'cbramod' else 0.0
+        lr = config['training'].get('learning_rate', 1e-4)
+        trainer.optimizer = get_finetune_optimizer(
+            model, model_type, effective_freeze, lr, weight_decay
+        )
+
     # Create save directory
     subject_save_dir = save_dir / subject_id
     subject_save_dir.mkdir(parents=True, exist_ok=True)
+
+    # Evaluate pretrained baseline (epoch 0) before training
+    if pretrained_path is not None:
+        if verbose >= 2:
+            print_section_header("Pretrained Baseline (Epoch 0)")
+
+        baseline_val_loss, baseline_val_acc = trainer.validate(val_loader)
+        baseline_majority_acc, _ = majority_vote_accuracy(
+            model, train_dataset, val_indices, device, use_amp=True
+        )
+        baseline_combined = (baseline_val_acc + baseline_majority_acc) / 2.0
+
+        if verbose >= 2:
+            print_metric("Val Accuracy (segment)", f"{baseline_val_acc:.2%}", Colors.CYAN)
+            print_metric("Val Accuracy (majority)", f"{baseline_majority_acc:.2%}", Colors.CYAN)
+            print_metric("Combined Score", f"{baseline_combined:.2%}", Colors.YELLOW)
+
+        # Set trainer's initial best to pretrained baseline
+        trainer.best_val_acc = baseline_val_acc
+        trainer.best_majority_acc = baseline_majority_acc
+        trainer.best_combined_score = baseline_combined
+        trainer.best_val_loss = baseline_val_loss
+        trainer.best_epoch = 0
+        trainer.best_state = model.state_dict().copy()
+
+        # Initialize best_selection_score
+        model_selection = config['training'].get('model_selection_strategy', 'combined')
+        if model_selection == 'val_acc':
+            trainer.best_selection_score = baseline_val_acc
+        else:
+            trainer.best_selection_score = baseline_combined
+
+        # Save pretrained as initial best.pt
+        torch.save({
+            'model_state_dict': trainer.best_state,
+            'epoch': 0,
+            'val_acc': baseline_val_acc,
+            'val_majority_acc': baseline_majority_acc,
+            'combined_score': baseline_combined,
+            'val_loss': baseline_val_loss,
+        }, subject_save_dir / 'best.pt')
+
+        pretrained_baseline = {
+            'val_loss': baseline_val_loss,
+            'val_acc': baseline_val_acc,
+            'val_majority_acc': baseline_majority_acc,
+            'combined_score': baseline_combined,
+        }
 
     # ========== TRAINING ==========
     with Timer("training"):
@@ -883,6 +983,9 @@ def train_single_subject(
         'subtask_results': subtask_results,  # Non-None only for unified mode
     }
 
+    if pretrained_baseline is not None:
+        results['pretrained_baseline'] = pretrained_baseline
+
     with open(subject_save_dir / 'results.json', 'w') as f:
         # Convert numpy types for JSON
         def convert(obj):
@@ -974,6 +1077,9 @@ def train_subject_simple(
     wandb_group: Optional[str] = None,
     # Logging verbosity
     verbose: int = 2,
+    # ---- Transfer learning (optional) ----
+    pretrained_path: Optional[str] = None,
+    freeze_strategy: Optional[str] = None,
 ) -> Dict:
     """
     Simplified training function for programmatic use.
@@ -1001,6 +1107,8 @@ def train_subject_simple(
         wandb_entity: WandB entity (team/username)
         wandb_group: WandB run group
         verbose: Logging verbosity level (0=silent, 1=minimal, 2=full). Default: 2.
+        pretrained_path: Path to a pretrained checkpoint for transfer learning.
+        freeze_strategy: Freeze strategy for transfer learning.
 
     Returns:
         Results dict with keys:
@@ -1024,6 +1132,29 @@ def train_subject_simple(
     if n_ch not in (8, 32):
         n_ch = None
     config = get_default_config(model_type, task, n_channels=n_ch)
+
+    # Apply finetune-specific defaults when pretrained_path is set
+    # (applied before user config_overrides so user overrides win)
+    if pretrained_path is not None:
+        from src.training.finetune_utils import get_default_finetune_config
+        effective_freeze = freeze_strategy or 'none'
+        n_ch_ft = config_overrides.get('data', {}).get('channels') if config_overrides else None
+        ft_defaults = get_default_finetune_config(model_type, effective_freeze, n_ch_ft)
+
+        # Build finetune override config (only for keys user didn't explicitly set)
+        ft_overrides = {'training': {}}
+        user_training = config_overrides.get('training', {}) if config_overrides else {}
+        if 'epochs' not in user_training:
+            ft_overrides['training']['epochs'] = ft_defaults['epochs']
+        if 'learning_rate' not in user_training:
+            ft_overrides['training']['learning_rate'] = ft_defaults['learning_rate']
+        if 'batch_size' not in user_training:
+            ft_overrides['training']['batch_size'] = ft_defaults['batch_size']
+        if 'scheduler' not in user_training:
+            ft_overrides['training']['scheduler'] = ft_defaults['scheduler_type']
+
+        # Apply finetune defaults first, then user overrides on top
+        config = apply_config_overrides(config, ft_overrides)
 
     # Apply config overrides with scheduler preset support
     config = apply_config_overrides(config, config_overrides)
@@ -1049,4 +1180,7 @@ def train_subject_simple(
         wandb_entity=wandb_entity,
         wandb_group=wandb_group,
         verbose=verbose,
+        # Transfer learning
+        pretrained_path=pretrained_path,
+        freeze_strategy=freeze_strategy,
     )

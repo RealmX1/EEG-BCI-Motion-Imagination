@@ -15,8 +15,6 @@ Usage:
 from .constants import (
     MODEL_COLORS,
     PARADIGM_CONFIG,
-    CACHE_FILENAME,
-    CACHE_FILENAME_WITH_TAG,
     TASKS,
 )
 from .training import (
@@ -38,8 +36,6 @@ __all__ = [
     # Constants
     'MODEL_COLORS',
     'PARADIGM_CONFIG',
-    'CACHE_FILENAME',
-    'CACHE_FILENAME_WITH_TAG',
     'TASKS',
     # Training
     'SCHEDULER_PRESETS',

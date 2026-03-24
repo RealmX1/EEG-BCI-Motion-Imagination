@@ -1,262 +1,25 @@
 """
-Individual finetuning module for FINGER-EEG-BCI.
+Backward-compatible wrapper for finetune_subject().
 
-Finetunes a pretrained model (from cross-subject training) on a single
-subject's data, with support for different freeze strategies.
+The core finetune logic has been unified into train_within_subject.train_single_subject()
+with optional pretrained_path/freeze_strategy parameters.
 
-Freeze Strategies:
-- 'none': Full model finetuning (all parameters trainable)
-- 'backbone': Freeze feature extractor, train only classifier
-    - EEGNet: Freeze temporal_conv, spatial_conv, bn1, bn2
-    - CBraMod: Freeze backbone (transformer)
-- 'partial': Freeze early layers, train later layers + classifier
-    - EEGNet: Freeze temporal_conv, bn1 only
-    - CBraMod: Freeze first 6 transformer layers
-
-Usage:
-    from src.training.finetune import finetune_subject
-
-    # Full finetuning
-    results = finetune_subject(
-        pretrained_path='checkpoints/cross_subject/eegnet_imagery_binary/best.pt',
-        subject_id='S01',
-        freeze_strategy='none',
-    )
-
-    # Backbone-frozen finetuning (faster, less overfitting)
-    results = finetune_subject(
-        pretrained_path='checkpoints/cross_subject/cbramod_imagery_binary/best.pt',
-        subject_id='S01',
-        freeze_strategy='backbone',
-    )
+This module preserves the original finetune_subject() API for backward compatibility
+with src/hpo/objectives.py and other callers.
 """
 
 import logging
-import json
-import time
-from collections import defaultdict
-from datetime import datetime
-from pathlib import Path
-from typing import Dict, List, Optional, Literal
+from typing import Dict, Optional
 
-import numpy as np
 import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader, Subset
 
-from src.models.eegnet import EEGNet
-from src.models.cbramod_adapter import (
-    CBraModForFingerBCI,
-    get_default_pretrained_path,
+from src.training.finetune_utils import (
+    FreezeStrategy,
+    detect_model_type_from_checkpoint,
 )
-from src.preprocessing.data_loader import (
-    FingerEEGDataset,
-    PreprocessConfig,
-    get_session_folders_for_split,
-)
-from src.config.training import (
-    EIGHT_CHANNEL_FINETUNE_OVERRIDES,
-    THIRTYTWO_CHANNEL_FINETUNE_OVERRIDES,
-    SIXTYONE_CHANNEL_FINETUNE_OVERRIDES,
-)
-from src.config.constants import TASKS
-from src.training.train_within_subject import (
-    WithinSubjectTrainer,
-    majority_vote_accuracy,
-    get_default_config,
-    create_data_loaders_from_dataset,
-)
-from src.utils.device import get_device, set_seed
-from src.utils.logging import SectionLogger
-from src.utils.timing import Timer, print_section_header, print_metric, colored, Colors
-from src.utils.wandb_logger import create_wandb_logger, WandbCallback
+from src.training.train_within_subject import train_subject_simple
 
 logger = logging.getLogger(__name__)
-log_data = SectionLogger(logger, 'data')
-log_model = SectionLogger(logger, 'model')
-log_train = SectionLogger(logger, 'train')
-
-
-FreezeStrategy = Literal['none', 'backbone', 'partial']
-
-
-def load_pretrained_model(
-    pretrained_path: str,
-    device: torch.device,
-) -> tuple[nn.Module, dict]:
-    """
-    Load a pretrained model from checkpoint.
-
-    Args:
-        pretrained_path: Path to pretrained checkpoint (.pt file)
-        device: Device to load model on
-
-    Returns:
-        Tuple of (model, checkpoint_dict)
-    """
-    checkpoint = torch.load(pretrained_path, map_location=device, weights_only=False)
-
-    model_config = checkpoint['model_config']
-    model_type = model_config['model_type']
-    n_channels = model_config['n_channels']
-    n_samples = model_config['n_samples']
-    n_classes = model_config['n_classes']
-
-    if model_type == 'cbramod':
-        n_patches = model_config.get('n_patches', n_samples // 200)
-        model = CBraModForFingerBCI(
-            n_channels=n_channels,
-            n_patches=n_patches,
-            n_classes=n_classes,
-            pretrained_path=None,  # Don't load pretrained weights again
-            freeze_backbone=False,
-            classifier_type=model_config.get('classifier_type', 'two_layer'),
-            dropout=0.1,
-        )
-    else:
-        # EEGNet - need to get config from checkpoint or use defaults
-        model = EEGNet(
-            n_channels=n_channels,
-            n_samples=n_samples,
-            n_classes=n_classes,
-            F1=8,
-            D=2,
-            F2=16,
-            kernel_length=64,
-            dropout_rate=0.5,
-        )
-
-    # Load state dict
-    model.load_state_dict(checkpoint['model_state_dict'])
-    model = model.to(device)
-
-    log_model.info(f"Loaded pretrained {model_type} from {pretrained_path}")
-
-    return model, checkpoint
-
-
-def apply_freeze_strategy(
-    model: nn.Module,
-    model_type: str,
-    freeze_strategy: FreezeStrategy,
-) -> int:
-    """
-    Apply freeze strategy to model.
-
-    Args:
-        model: Model to freeze
-        model_type: 'eegnet' or 'cbramod'
-        freeze_strategy: Freeze strategy to apply
-
-    Returns:
-        Number of frozen parameters
-    """
-    if freeze_strategy == 'none':
-        # All parameters trainable
-        for param in model.parameters():
-            param.requires_grad = True
-        log_model.info("Freeze strategy: none (all parameters trainable)")
-        return 0
-
-    frozen_count = 0
-
-    if model_type == 'cbramod':
-        if freeze_strategy == 'backbone':
-            # Freeze entire backbone, train only classifier
-            if hasattr(model, 'backbone'):
-                for param in model.backbone.parameters():
-                    param.requires_grad = False
-                    frozen_count += param.numel()
-            log_model.info("Freeze strategy: backbone (transformer frozen, classifier trainable)")
-
-        elif freeze_strategy == 'partial':
-            # Freeze first 6 transformer layers
-            if hasattr(model, 'backbone') and hasattr(model.backbone, 'transformer'):
-                transformer = model.backbone.transformer
-                # CBraMod uses custom transformer structure
-                # Freeze encoder layers 0-5 (first half of 12 layers)
-                if hasattr(transformer, 'encoder') and hasattr(transformer.encoder, 'layers'):
-                    for i, layer in enumerate(transformer.encoder.layers):
-                        if i < 6:
-                            for param in layer.parameters():
-                                param.requires_grad = False
-                                frozen_count += param.numel()
-            log_model.info("Freeze strategy: partial (first 6 transformer layers frozen)")
-
-    else:  # EEGNet
-        if freeze_strategy == 'backbone':
-            # Freeze block 1 (temporal + spatial conv)
-            layers_to_freeze = ['temporal_conv', 'spatial_conv', 'bn1', 'bn2']
-            for name, param in model.named_parameters():
-                if any(layer in name for layer in layers_to_freeze):
-                    param.requires_grad = False
-                    frozen_count += param.numel()
-            log_model.info("Freeze strategy: backbone (block1 frozen, block2+fc trainable)")
-
-        elif freeze_strategy == 'partial':
-            # Freeze only temporal conv and bn1
-            layers_to_freeze = ['temporal_conv', 'bn1']
-            for name, param in model.named_parameters():
-                if any(layer in name for layer in layers_to_freeze):
-                    param.requires_grad = False
-                    frozen_count += param.numel()
-            log_model.info("Freeze strategy: partial (temporal_conv frozen only)")
-
-    trainable_count = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    total_count = sum(p.numel() for p in model.parameters())
-
-    log_model.info(f"Parameters: {trainable_count:,} trainable / {total_count:,} total "
-                   f"({frozen_count:,} frozen)")
-
-    return frozen_count
-
-
-def get_finetune_optimizer(
-    model: nn.Module,
-    model_type: str,
-    freeze_strategy: FreezeStrategy,
-    learning_rate: float,
-    weight_decay: float,
-) -> torch.optim.Optimizer:
-    """
-    Create optimizer with appropriate learning rates for finetuning.
-
-    For 'backbone' freeze strategy, only classifier parameters are optimized.
-    For 'partial' freeze strategy, unfrozen layers get lower LR.
-
-    Args:
-        model: Model to optimize
-        model_type: 'eegnet' or 'cbramod'
-        freeze_strategy: Current freeze strategy
-        learning_rate: Base learning rate
-        weight_decay: Weight decay
-
-    Returns:
-        Configured optimizer
-    """
-    # Get trainable parameters only
-    trainable_params = [p for p in model.parameters() if p.requires_grad]
-
-    if not trainable_params:
-        raise ValueError("No trainable parameters! Check freeze strategy.")
-
-    if model_type == 'cbramod' and freeze_strategy == 'none':
-        # Use differential learning rates for CBraMod
-        if hasattr(model, 'get_parameter_groups'):
-            param_groups = model.get_parameter_groups(
-                backbone_lr=learning_rate,
-                classifier_lr=learning_rate * 5,
-            )
-            # Filter to only trainable parameters
-            for group in param_groups:
-                group['params'] = [p for p in group['params'] if p.requires_grad]
-            return torch.optim.AdamW(param_groups, weight_decay=weight_decay)
-
-    # Standard optimizer for other cases
-    if model_type == 'cbramod':
-        return torch.optim.AdamW(trainable_params, lr=learning_rate, weight_decay=weight_decay)
-    else:
-        return torch.optim.Adam(trainable_params, lr=learning_rate, weight_decay=weight_decay)
 
 
 def finetune_subject(
@@ -273,17 +36,13 @@ def finetune_subject(
     task: str = 'binary',
     device: Optional[torch.device] = None,
     seed: int = 42,
-    # Channel selection
     channels: Optional[int] = None,
     channel_config: Optional[str] = None,
-    # Cache-only mode
     cache_only: bool = False,
     cache_index_path: str = ".cache_index.json",
-    # Model selection strategy
     model_selection_strategy: str = 'combined',
     ema_decay: float = 0.998,
     soup_top_k: int = 3,
-    # WandB (默认禁用，向后兼容)
     no_wandb: bool = True,
     upload_model: bool = False,
     wandb_project: str = 'eeg-bci',
@@ -291,555 +50,73 @@ def finetune_subject(
     wandb_group: Optional[str] = None,
     verbose: int = 2,
 ) -> Dict:
-    """
-    Finetune a pretrained model on a single subject's data.
+    """Backward-compatible wrapper. Delegates to train_subject_simple().
 
-    Args:
-        pretrained_path: Path to pretrained model checkpoint
-        subject_id: Subject ID to finetune on (e.g., 'S01')
-        freeze_strategy: 'none', 'backbone', or 'partial'
-        run_tag: Optional run tag (timestamp) for this experiment (None = auto-generate)
-        epochs: Number of finetuning epochs (None = use default)
-        learning_rate: Learning rate (None = use default based on strategy)
-        batch_size: Batch size (None = use default)
-        save_dir: Directory to save finetuned model
-        data_root: Path to data directory
-        paradigm: 'imagery' or 'movement'
-        task: 'binary', 'ternary', or 'quaternary'
-        device: Device to use (None = auto-detect)
-        seed: Random seed
-        channels: Number of channels (8 or 128). None = use default (128)
-
-    Returns:
-        Dict with:
-        - model_path: Path to saved finetuned model
-        - test_acc: Test accuracy (majority voting)
-        - val_acc: Best validation accuracy
-        - training_time: Training time
-        - history: Training history
+    Translates explicit finetune params (epochs, learning_rate, batch_size)
+    into the config_overrides format used by the unified training function.
     """
-    total_start = time.perf_counter()
-    Timer.reset()
+    # Preserve seed behavior from original finetune_subject()
+    from src.utils.device import set_seed
     set_seed(seed)
 
-    # Validate pretrained path early
-    pretrained_file = Path(pretrained_path)
-    if not pretrained_file.exists():
-        raise FileNotFoundError(
-            f"Pretrained checkpoint not found: {pretrained_path}"
-        )
+    model_type = detect_model_type_from_checkpoint(pretrained_path)
 
-    # Generate run_tag at start of finetuning (if not provided)
-    if run_tag is None:
-        run_tag = datetime.now().strftime('%Y%m%d_%H%M')
+    # Build config_overrides from explicit params
+    config_overrides = {'training': {}}
+    if epochs is not None:
+        config_overrides['training']['epochs'] = epochs
+    if learning_rate is not None:
+        config_overrides['training']['learning_rate'] = learning_rate
+    if batch_size is not None:
+        config_overrides['training']['batch_size'] = batch_size
+    if model_selection_strategy != 'combined':
+        config_overrides['training']['model_selection_strategy'] = model_selection_strategy
+    config_overrides['training']['ema_decay'] = ema_decay
+    config_overrides['training']['soup_top_k'] = soup_top_k
 
-    if device is None:
-        device = get_device()
+    # Channel overrides
+    if channels is not None:
+        config_overrides.setdefault('data', {})['channels'] = channels
+    if channel_config is not None:
+        config_overrides.setdefault('data', {})['channel_config'] = channel_config
 
-    # ========== LOAD PRETRAINED MODEL ==========
-    print()
-    print(colored("=" * 70, Colors.BRIGHT_MAGENTA, bold=True))
-    print(colored(f"  Finetuning: {subject_id} (freeze={freeze_strategy})", Colors.BRIGHT_MAGENTA, bold=True))
-    print(colored("=" * 70, Colors.BRIGHT_MAGENTA, bold=True))
-
-    print_section_header("Loading Pretrained Model")
-
-    model, checkpoint = load_pretrained_model(pretrained_path, device)
-    model_config = checkpoint['model_config']
-    model_type = model_config['model_type']
-    n_classes = model_config['n_classes']
-
-    # Validate that the pretrained model's n_classes matches the current task
-    task_n_classes = TASKS[task]['n_classes']
-    if n_classes != task_n_classes:
-        ckpt_task = checkpoint.get('training_config', {}).get('task', 'unknown')
-        raise ValueError(
-            f"Checkpoint/task n_classes mismatch: pretrained model has"
-            f" n_classes={n_classes} (task='{ckpt_task}'),"
-            f" but current task '{task}' requires n_classes={task_n_classes}."
-            f" Checkpoint: {pretrained_path}"
-        )
-
-    print_metric("Model type", model_type.upper(), Colors.CYAN)
-    print_metric("Pretrained from", Path(pretrained_path).parent.name, Colors.CYAN)
-
-    # Apply freeze strategy
-    frozen_count = apply_freeze_strategy(model, model_type, freeze_strategy)
-
-    # ========== GET TRAINING CONFIG ==========
-    config = get_default_config(model_type, task)
-    task_config = config['tasks'][task]
-    target_classes = task_config['classes']
-
-    # Set finetuning-specific defaults
-    is_8ch_cbramod = (channels == 8 and model_type == 'cbramod')
-    is_32ch_cbramod = (channels == 32 and model_type == 'cbramod')
-    is_61ch_cbramod = (channels == 61 and model_type == 'cbramod')
-
-    if epochs is None:
-        if is_8ch_cbramod:
-            epochs = EIGHT_CHANNEL_FINETUNE_OVERRIDES['epochs']
-        elif is_32ch_cbramod:
-            epochs = THIRTYTWO_CHANNEL_FINETUNE_OVERRIDES['epochs']
-        elif is_61ch_cbramod:
-            epochs = SIXTYONE_CHANNEL_FINETUNE_OVERRIDES['epochs']
-        elif freeze_strategy == 'backbone':
-            epochs = 20 if model_type == 'eegnet' else 10
-        else:
-            epochs = 30 if model_type == 'eegnet' else 15
-
-    if learning_rate is None:
-        if is_8ch_cbramod:
-            learning_rate = EIGHT_CHANNEL_FINETUNE_OVERRIDES['learning_rate']
-        elif is_32ch_cbramod:
-            learning_rate = THIRTYTWO_CHANNEL_FINETUNE_OVERRIDES['learning_rate']
-        elif is_61ch_cbramod:
-            learning_rate = SIXTYONE_CHANNEL_FINETUNE_OVERRIDES['learning_rate']
-        elif freeze_strategy == 'backbone':
-            learning_rate = 5e-4  # Higher LR when only training classifier
-        elif freeze_strategy == 'partial':
-            learning_rate = 1e-4
-        else:
-            learning_rate = 1e-4 if model_type == 'cbramod' else 1e-4
-
-    if batch_size is None:
-        batch_size = 64 if model_type == 'eegnet' else 128
-
-    # ========== DATA LOADING ==========
-    print_section_header(f"Data Loading ({subject_id})")
-
-    data_root_path = Path(data_root)
-    elc_path = data_root_path / 'biosemi128.ELC'
-
-    # Preprocessing config
-    if model_type == 'cbramod':
-        preprocess_config = PreprocessConfig.for_cbramod(full_channels=True)
-    else:
-        preprocess_config = PreprocessConfig.paper_aligned(n_class=n_classes)
-
-    # Apply reduced-channel override if specified
-    preprocess_config.apply_channel_overrides(channels=channels, channel_config=channel_config)
-    # Get session folders
-    train_folders = get_session_folders_for_split(paradigm, task, 'train')
-    test_folders = get_session_folders_for_split(paradigm, task, 'test')
-
-    # Load training data
-    with Timer("train_data_loading", print_on_exit=True):
-        train_dataset = FingerEEGDataset(
-            str(data_root_path),
-            [subject_id],
-            preprocess_config,
-            session_folders=train_folders,
-            target_classes=target_classes,
-            elc_path=str(elc_path),
-            cache_only=cache_only,
-            cache_index_path=cache_index_path,
-        )
-
-    if len(train_dataset) == 0:
-        raise ValueError(f"No training data found for {subject_id}")
-
-    # Load test data
-    with Timer("test_data_loading", print_on_exit=True):
-        test_dataset = FingerEEGDataset(
-            str(data_root_path),
-            [subject_id],
-            preprocess_config,
-            session_folders=test_folders,
-            target_classes=target_classes,
-            elc_path=str(elc_path),
-            cache_only=cache_only,
-            cache_index_path=cache_index_path,
-            reject_trials=False,
-        )
-
-    print_metric("Train segments", len(train_dataset), Colors.CYAN)
-    print_metric("Test segments", len(test_dataset), Colors.MAGENTA)
-
-    # ========== TEMPORAL SPLIT ==========
-    print_section_header("Data Splitting (Temporal)")
-
-    # Same split logic as within-subject training
-    unique_trials = train_dataset.get_unique_trials()
-
-    # Group by session for stratified split
-    session_to_trials = defaultdict(list)
-    for trial_idx in unique_trials:
-        for info in train_dataset.trial_infos:
-            if info.trial_idx == trial_idx:
-                session_to_trials[info.session_type].append(trial_idx)
-                break
-
-    val_ratio = 0.2
-    train_trials = []
-    val_trials = []
-
-    for session_type, trials in session_to_trials.items():
-        trials = sorted(set(trials))
-        n_val = max(1, int(len(trials) * val_ratio))
-        train_trials.extend(trials[:-n_val])
-        val_trials.extend(trials[-n_val:])
-
-    train_indices = train_dataset.get_segment_indices_for_trials(train_trials)
-    val_indices = train_dataset.get_segment_indices_for_trials(val_trials)
-
-    print_metric("Train segments", len(train_indices), Colors.GREEN)
-    print_metric("Val segments", len(val_indices), Colors.YELLOW)
-
-    # ========== DATALOADER CREATION ==========
-    train_loader, val_loader = create_data_loaders_from_dataset(
-        train_dataset,
-        train_indices,
-        val_indices,
-        batch_size=batch_size,
-        num_workers=0,
-        shuffle_train=True,
-    )
-
-    # ========== WANDB INITIALIZATION ==========
-    wandb_config = {
-        "model_type": model_type,
-        "classifier_type": model_config.get('classifier_type', 'two_layer'),
-        "task": task,
-        "paradigm": paradigm,
-        "training_type": "finetune",
-        "freeze_strategy": freeze_strategy,
-        "pretrained_path": pretrained_path,
-        "learning_rate": learning_rate,
-        "epochs": epochs,
-        "batch_size": batch_size,
-    }
-
-    wandb_logger = create_wandb_logger(
+    result_dict = train_subject_simple(
         subject_id=subject_id,
         model_type=model_type,
         task=task,
         paradigm=paradigm,
-        config=wandb_config,
-        enabled=not no_wandb,
-        project=wandb_project,
-        entity=wandb_entity,
-        group=wandb_group or f"finetune_{model_type}_{freeze_strategy}",
-        log_model=upload_model,
-        extra_tags=["finetune", f"freeze:{freeze_strategy}"],
-    )
-
-    wandb_callback = WandbCallback(wandb_logger) if wandb_logger.enabled else None
-
-    # ========== OPTIMIZER SETUP ==========
-    weight_decay = 0.05 if model_type == 'cbramod' else 0.0
-    optimizer = get_finetune_optimizer(
-        model, model_type, freeze_strategy, learning_rate, weight_decay
-    )
-
-    if verbose >= 2:
-        print_section_header("Finetuning Setup")
-        print_metric("Epochs", epochs, Colors.CYAN)
-        print_metric("Learning rate", f"{learning_rate:.0e}", Colors.CYAN)
-        print_metric("Batch size", batch_size, Colors.CYAN)
-        print_metric("Freeze strategy", freeze_strategy, Colors.YELLOW)
-
-    # ========== TRAINER SETUP ==========
-    # Create trainer (we'll use our custom optimizer)
-    trainer = WithinSubjectTrainer(
-        model,
-        train_dataset,
-        val_indices,
-        device,
-        model_type=model_type,
-        n_classes=n_classes,
-        learning_rate=learning_rate,
-        weight_decay=weight_decay,
-        scheduler_type='plateau' if model_type == 'eegnet' else 'cosine_annealing_warmup_decay',
-        use_amp=True,
-        gradient_clip=1.0 if model_type == 'cbramod' else 0.0,
-        model_selection_strategy=model_selection_strategy,
-        ema_decay=ema_decay,
-        soup_top_k=soup_top_k,
+        data_root=data_root,
+        save_dir=save_dir,
+        device=device,
+        run_tag=run_tag,
+        config_overrides=config_overrides,
+        cache_only=cache_only,
+        cache_index_path=cache_index_path,
+        no_wandb=no_wandb,
+        upload_model=upload_model,
+        wandb_project=wandb_project,
+        wandb_entity=wandb_entity,
+        wandb_group=wandb_group,
         verbose=verbose,
+        pretrained_path=pretrained_path,
+        freeze_strategy=freeze_strategy,
     )
 
-    # Replace optimizer with our finetuning-aware one
-    trainer.optimizer = optimizer
+    if not result_dict:
+        raise ValueError(f"Training failed for {subject_id}")
 
-    # Setup save path
-    save_path = Path(save_dir) / f'{run_tag}_{model_type}_{paradigm}_{task}' / subject_id
-    save_path.mkdir(parents=True, exist_ok=True)
-
-    # ========== PRETRAINED BASELINE EVALUATION (Epoch 0) ==========
-    print_section_header("Pretrained Baseline (Epoch 0)")
-
-    with Timer("pretrained_baseline"):
-        baseline_val_loss, baseline_val_acc = trainer.validate(val_loader)
-        baseline_majority_acc, _ = majority_vote_accuracy(
-            model, train_dataset, val_indices, device, use_amp=True
-        )
-        baseline_combined = (baseline_val_acc + baseline_majority_acc) / 2.0
-
-    print_metric("Val Accuracy (segment)", f"{baseline_val_acc:.2%}", Colors.CYAN)
-    print_metric("Val Accuracy (majority)", f"{baseline_majority_acc:.2%}", Colors.CYAN)
-    print_metric("Combined Score", f"{baseline_combined:.2%}", Colors.YELLOW)
-
-    # Set trainer's initial best to pretrained baseline
-    trainer.best_val_acc = baseline_val_acc
-    trainer.best_majority_acc = baseline_majority_acc
-    trainer.best_combined_score = baseline_combined
-    trainer.best_val_loss = baseline_val_loss
-    trainer.best_epoch = 0  # Epoch 0 = pretrained model
-    trainer.best_state = model.state_dict().copy()
-
-    # Initialize best_selection_score based on model selection strategy
-    if model_selection_strategy == 'val_acc':
-        trainer.best_selection_score = baseline_val_acc
-    else:
-        trainer.best_selection_score = baseline_combined
-
-    # Save pretrained as initial best.pt
-    torch.save({
-        'model_state_dict': trainer.best_state,
-        'epoch': 0,
-        'val_acc': baseline_val_acc,
-        'val_majority_acc': baseline_majority_acc,
-        'combined_score': baseline_combined,
-        'val_loss': baseline_val_loss,
-    }, save_path / 'best.pt')
-
-    log_train.info(
-        f"Pretrained baseline: combined={baseline_combined:.4f} "
-        f"(seg={baseline_val_acc:.4f}, maj={baseline_majority_acc:.4f})"
-    )
-
-    # ========== TRAINING ==========
-    with Timer("finetuning"):
-        history = trainer.train(
-            train_loader,
-            val_loader,
-            epochs=epochs,
-            save_path=save_path,
-            wandb_callback=wandb_callback,
-        )
-
-    # ========== TEST EVALUATION ==========
-    print_section_header("Test Evaluation")
-
-    test_indices = list(range(len(test_dataset)))
-    test_acc, test_results = majority_vote_accuracy(
-        model, test_dataset, test_indices, device
-    )
-
-    test_color = Colors.BRIGHT_GREEN if test_acc > 0.7 else (
-        Colors.YELLOW if test_acc > 0.5 else Colors.RED
-    )
-    print(f"  {colored('Test Accuracy:', Colors.WHITE, bold=True)} "
-          f"{colored(f'{test_acc:.2%}', test_color, bold=True)}")
-
-    # ========== MILESTONE EVALUATION ==========
-    milestone_test_results = []
-    milestones = history.get('milestones', [])
-
-    if milestones and len(milestones) > 1 and len(test_dataset) > 0:
-        print_section_header(f"Milestone Evaluation ({len(milestones)} checkpoints)")
-
-        for ms in milestones:
-            ms_path = Path(ms['path'])
-            if not ms_path.exists():
-                log_train.warning(f"Milestone checkpoint not found: {ms_path}")
-                continue
-
-            ms_checkpoint = torch.load(ms_path, map_location=device, weights_only=True)
-            model.load_state_dict(ms_checkpoint['model_state_dict'])
-
-            ms_test_acc, _ = majority_vote_accuracy(
-                model, test_dataset, test_indices, device
-            )
-
-            milestone_test_results.append({
-                'epoch': ms['epoch'],
-                'combined_score': ms['combined_score'],
-                'val_acc': ms.get('val_acc', 0),
-                'val_majority_acc': ms.get('val_majority_acc', 0),
-                'test_accuracy': ms_test_acc,
-            })
-
-            ms_color = Colors.BRIGHT_GREEN if ms_test_acc > 0.7 else (
-                Colors.YELLOW if ms_test_acc > 0.5 else Colors.RED
-            )
-            print(f"  Epoch {ms['epoch']:3d}: "
-                  f"val_combined={ms['combined_score']:.4f}  "
-                  f"test_acc={colored(f'{ms_test_acc:.4f}', ms_color)}")
-
-        # Restore best model after milestone evaluation
-        if (save_path / 'best.pt').exists():
-            best_ckpt = torch.load(save_path / 'best.pt', map_location=device, weights_only=True)
-            model.load_state_dict(best_ckpt['model_state_dict'])
-        elif trainer.best_state is not None:
-            model.load_state_dict(trainer.best_state)
-
-    history['milestone_test_results'] = milestone_test_results
-
-    # ========== SAVE RESULTS ==========
-    total_time = time.perf_counter() - total_start
-
-    results = {
-        'subject_id': subject_id,
-        'model_type': model_type,
-        'task': task,
-        'paradigm': paradigm,
-        'freeze_strategy': freeze_strategy,
-        'pretrained_path': pretrained_path,
-        'test_acc': test_acc,
-        'val_acc': trainer.best_val_acc,
-        'val_majority_acc': trainer.best_majority_acc,
-        'best_epoch': trainer.best_epoch,
-        'epochs_trained': len(history['train_loss']),
-        'training_time': total_time,
-        'pretrained_baseline_combined': baseline_combined,
-    }
-
-    # Save results JSON
-    with open(save_path / 'results.json', 'w') as f:
-        json.dump(results, f, indent=2)
-
-    # Add pretrained baseline to history
-    history['pretrained_baseline'] = {
-        'val_loss': baseline_val_loss,
-        'val_acc': baseline_val_acc,
-        'val_majority_acc': baseline_majority_acc,
-        'combined_score': baseline_combined,
-    }
-
-    # Save training history
-    with open(save_path / 'history.json', 'w') as f:
-        json.dump(history, f, indent=2)
-
-    # ========== MILESTONE COMPARISON FIGURE ==========
-    if milestone_test_results and len(milestone_test_results) > 1:
-        from src.visualization.milestone import generate_milestone_plot
-
-        milestone_plot_path = save_path / 'milestone_comparison.png'
-        generate_milestone_plot(
-            history=history,
-            milestone_test_results=milestone_test_results,
-            output_path=str(milestone_plot_path),
-            subject_id=subject_id,
-            model_type=model_type,
-        )
-        print(colored(f"  Milestone plot: {milestone_plot_path}", Colors.DIM))
-
-    # ========== WANDB FINALIZATION ==========
-    if wandb_callback is not None:
-        wandb_callback.on_train_end(
-            best_epoch=trainer.best_epoch,
-            best_val_acc=trainer.best_val_acc,
-            test_acc=test_acc,
-            test_majority_acc=test_acc,
-            model_path=save_path / 'best.pt',
-        )
-        wandb_logger.finish()
-
-    Timer.print_summary(f"Finetuning {subject_id}")
-
+    # Translate result_dict to the format expected by existing callers
+    # (src/hpo/objectives.py expects 'test_acc', 'val_acc', etc.)
     return {
-        'run_tag': run_tag,
-        'model_path': str(save_path / 'best.pt'),
-        'test_acc': test_acc,
-        'val_acc': trainer.best_val_acc,
-        'val_majority_acc': trainer.best_majority_acc,
-        'best_epoch': trainer.best_epoch,
-        'training_time': total_time,
-        'history': history,
-        'pretrained_baseline': {
-            'val_acc': baseline_val_acc,
-            'val_majority_acc': baseline_majority_acc,
-            'combined_score': baseline_combined,
-        },
-        'milestone_test_results': milestone_test_results,
+        'run_tag': result_dict.get('run_tag', run_tag),
+        'model_path': result_dict.get('model_path', ''),
+        'test_acc': result_dict.get('test_accuracy_majority', result_dict.get('test_accuracy', 0.0)),
+        'val_acc': result_dict.get('best_val_acc', result_dict.get('val_accuracy', 0.0)),
+        'val_majority_acc': result_dict.get('val_majority_acc', 0.0),
+        'best_epoch': result_dict.get('best_epoch', 0),
+        'epochs_trained': result_dict.get('epochs_trained', 0),
+        'training_time': result_dict.get('training_time', 0.0),
+        'history': result_dict.get('history', {}),
+        'pretrained_baseline': result_dict.get('pretrained_baseline'),
+        'milestone_test_results': result_dict.get('milestone_test_results', []),
     }
-
-
-def finetune_all_subjects(
-    pretrained_path: str,
-    subjects: List[str],
-    freeze_strategy: FreezeStrategy = 'none',
-    run_tag: Optional[str] = None,
-    **kwargs,
-) -> Dict[str, Dict]:
-    """
-    Finetune a pretrained model on multiple subjects.
-
-    Args:
-        pretrained_path: Path to pretrained model
-        subjects: List of subject IDs
-        freeze_strategy: Freeze strategy to use
-        run_tag: Optional shared run tag for all subjects (None = auto-generate)
-        **kwargs: Additional arguments passed to finetune_subject
-
-    Returns:
-        Dict mapping subject_id -> results
-    """
-    # If run_tag not provided, generate a shared one for all subjects
-    if run_tag is None:
-        run_tag = datetime.now().strftime('%Y%m%d_%H%M')
-
-    all_results = {}
-    kwargs.pop('verbose', None)  # We control verbose explicitly
-
-    for i, subject_id in enumerate(subjects, 1):
-        print(f"\n{'='*70}")
-        print(f"  [{i}/{len(subjects)}] Finetuning {subject_id}")
-        print('='*70)
-
-        try:
-            results = finetune_subject(
-                pretrained_path=pretrained_path,
-                subject_id=subject_id,
-                freeze_strategy=freeze_strategy,
-                run_tag=run_tag,
-                verbose=2 if i == 1 else 1,
-                **kwargs,
-            )
-            all_results[subject_id] = results
-
-        except Exception as e:
-            log_train.error(f"Failed to finetune {subject_id}: {e}")
-            all_results[subject_id] = {'error': str(e)}
-
-    # Print summary
-    successful = {k: v for k, v in all_results.items() if 'error' not in v}
-    if successful:
-        test_accs = [v['test_acc'] for v in successful.values()]
-        print(f"\n{'='*70}")
-        print(f"  FINETUNING SUMMARY")
-        print('='*70)
-        print(f"  Subjects: {len(successful)}/{len(subjects)} successful")
-        print(f"  Mean test acc: {np.mean(test_accs):.2%} +/- {np.std(test_accs):.2%}")
-        print('='*70)
-
-    return all_results
-
-
-if __name__ == '__main__':
-    import sys
-
-    logging.basicConfig(level=logging.INFO)
-
-    # This requires a pretrained model to exist
-    # Run train_cross_subject.py first to create one
-
-    pretrained = Path('checkpoints/cross_subject/eegnet_imagery_binary/best.pt')
-    if not pretrained.exists():
-        print(f"Pretrained model not found: {pretrained}")
-        print("Run train_cross_subject.py first to create a pretrained model.")
-        sys.exit(1)
-
-    # Test finetuning
-    results = finetune_subject(
-        pretrained_path=str(pretrained),
-        subject_id='S01',
-        freeze_strategy='none',
-        epochs=5,  # Quick test
-    )
-
-    print("\nResults:")
-    print(f"  Test acc: {results['test_acc']:.2%}")
-    print(f"  Model path: {results['model_path']}")

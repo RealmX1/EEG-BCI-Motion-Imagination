@@ -74,7 +74,7 @@ CBraMod further pre-training 使用了 10 个通过 MOABB 框架下载的公开�
 **预处理**: 原始 raw EEG 发布，未经离线预处理。
 **数据清洗**: 自动标注：(1) 8-30 Hz 后方差 z>5 的通道标记为噪声；(2) ±100 µV 的 trial 标记为伪迹。**仅标记，未修改数据**。3% session 有 >4 噪声通道，3% session >5% trial 含伪迹。
 **数据格式与单位**: `.mat`，µV。每被试每 session 一个文件。
-**已知问题**: (1) 部分被试个体电极位置未记录；(2) 数据托管在 Figshare (AWS S3 eu-west-1)，从中国大陆下载建议 VPN 连西欧节点（英国/德国/法国）；(3) 已下载 23/62 被试（25,020 segments，增量脚本 `preprocess_stieger_incremental.py` / GUI 版 `preprocess_stieger_gui.py` 支持断点续传）。
+**已知问题**: (1) 部分被试个体电极位置未记录；(2) 数据托管在 Figshare (AWS S3 eu-west-1)，从中国大陆下载建议 VPN 连西欧节点（英国/德国/法国）；(3) ~~已下载 23/62 被试~~ → **已补全 62/62 被试** (2026-03-23)，LMDB 预处理后 120 GB。
 **与本项目关系**: 规模最大的 MI 数据集（>600h），但任务为粗粒度手/方向级别。纵向多 session 设计对预训练有价值。
 
 ---
@@ -88,7 +88,7 @@ CBraMod further pre-training 使用了 10 个通过 MOABB 框架下载的公开�
 **预处理**: 最小化预处理支持 end-to-end 学习。HGD 降采样 250 Hz；可选 4 Hz 高通 + exponential moving standardization。
 **数据清洗**: 仅移除任意通道 >±800 µV 的 trial。HGD 使用运动皮层 44 通道子集效果最佳（全 128ch 反而下降）。
 **数据格式与单位**: BCI2000 格式，µV。Braindecode 库公开。
-**已知问题**: (1) 下载不完整——仅 5/14 被试（gin.g-node.org 限速）；(2) 44ch 子集优于 128ch 的发现对通道选择有参考价值。
+**已知问题**: (1) ~~下载不完整——仅 5/14 被试~~ → **已补全 14/14 被试** (2026-03-22)，LMDB 预处理后 3,310 segments (15 GB)；(2) 44ch 子集优于 128ch 的发现对通道选择有参考价值。
 **与本项目关系**: 128 通道配置与本项目一致。4-class 运动执行含手指敲击，是粗粒度运动中最接近手指级别的任务。Shallow/Deep ConvNet 是 EEGNet 的重要前身。
 
 ---
@@ -154,10 +154,10 @@ CBraMod further pre-training 使用了 10 个通过 MOABB 框架下载的公开�
 | 数据集 | 被试 | 通道 | 采样率 | MI 类型 | 总时长 (h) | 预训练 Segments | 优先级 |
 |--------|:---:|:---:|:---:|--------|:---:|:---:|:---:|
 | Lee2019_MI | 54 | 62 | 1000 Hz | 左/右手抓握 | 44.1 | 3,264 | ★★★ |
-| Stieger2021 | 62 (23 downloaded) | 60 | 1000 Hz | 左/右/上/下 SMR | 706.0 | 25,020 | ★★★ |
+| Stieger2021 | 62 (62 downloaded ✓) | 60 | 1000 Hz | 左/右/上/下 SMR | 706.0 | ~61,500+ | ★★★ |
 | PhysionetMI | 109 | 64 | 160 Hz | 左/右拳 + 双拳/双脚 | 22.7 | 1,000 | ★★★ |
 | Cho2017 | 52 | 64 | 512 Hz | 左/右手 | 20.2 | 2,416 | ★★ |
-| Schirrmeister2017 | 14 | 128 | 500 Hz | 4-class 手指敲击+脚 | 14.3 | 927 | ★★ |
+| Schirrmeister2017 | 14 (14 downloaded ✓) | 128 | 500 Hz | 4-class 手指敲击+脚 | 27.6 | 3,310 | ★★ |
 | GrosseWentrup2009 | 10 | 128 | 500 Hz | 左/右手 haptic MI | 8.7 | 910 | ★★ |
 | Ofner2017 | 15 | 61 | 512 Hz | 6-class 上肢 MI/ME | 13.6 | 1,363 | ★★ |
 | BNCI2015_004 | 9 | 30 | 256 Hz | 5-class 混合心理任务 | 14.0 | 1,634 | ★ |
@@ -186,14 +186,14 @@ CBraMod further pre-training 使用了 10 个通过 MOABB 框架下载的公开�
 - **Ofner2017**: MOABB PR #700 添加 `raw._data *= 1e-6`，但 MNE GDF reader 可能已转 V，存在**双重缩放风险**（FIXME 未解决）
 - 其他数据集单位处理正确
 
-### 下载完整性
+### 下载完整性 (2026-03-23 更新)
 
 | 数据集 | 已下载被试 | 总被试 | 备注 |
 |--------|:---:|:---:|------|
-| Schirrmeister2017 | 5 | 14 | gin.g-node.org 限速 |
-| Stieger2021 | 23 | 62 | 增量下载中，支持断点续传 |
-| Weibo2014 | 部分 | 10 | zip 解压错误，已排除 |
-| Dreyer2023 | 0 | 87 | OSF 404，已排除 |
+| Schirrmeister2017 | **14** | 14 | ✓ 已补全 (2026-03-22)，LMDB 15 GB |
+| Stieger2021 | **62** | 62 | ✓ 已补全 (2026-03-23)，LMDB 120 GB |
+| Weibo2014 | 0 | 10 | zip 解压错误，仍未解决 |
+| Dreyer2023 | 0 | 87 | OSF 404，仍未解决 |
 
 ### 与本项目 Finger MI 的 Domain Gap
 

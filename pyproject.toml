@@ -20,6 +20,7 @@ dependencies = [
     "optuna>=3.5.0",
     "h5py>=3.8.0",
     "mpmath>=1.3.0",  # Required by sympy (torch dependency)
+    "rich>=14.3.3",
 ]
 
 # Note: PyTorch with CUDA must be installed separately:
@@ -40,8 +41,15 @@ tracking = [
     "wandb>=0.15.0",
     "tensorboard>=2.14.0",
 ]
+pretraining = [
+    "lmdb>=1.4.0",
+    "moabb>=1.0.0",
+]
+monitoring = [
+    "psutil>=5.9.0",
+]
 all = [
-    "eeg-bci[dev,viz,tracking]",
+    "eeg-bci[dev,viz,tracking,pretraining,monitoring]",
 ]
 
 # Note: Entry point scripts removed - use module invocation instead:

@@ -22,7 +22,7 @@ class SelectionStrategy(Enum):
     NEWEST = "newest"           # 最新时间戳（用于训练恢复）
     BEST_ACCURACY = "best_acc"  # 最高准确率（用于图表生成）
 
-from ..config.constants import CACHE_FILENAME, CACHE_FILENAME_WITH_TAG, CacheType, FULL_N_CHANNELS, PARADIGM_CONFIG
+from ..config.constants import CacheType, FULL_N_CHANNELS, PARADIGM_CONFIG
 from ..utils.logging import SectionLogger
 from .dataclasses import ComparisonResult, TrainingResult, PlotDataSource
 from .serialization import (
@@ -78,8 +78,31 @@ def _compute_mean_accuracy(subjects_data: list) -> float:
     return float(np.mean(accs)) if accs else 0.0
 
 
+def _cache_glob_patterns(cache_type: str, paradigm: str, task: str) -> List[str]:
+    """Return glob patterns for both current and legacy cache naming.
+
+    CacheType 重命名后 (within_subject_cache, transfer_cache)，旧文件使用
+    comparison_cache / transfer_comparison_cache。此函数返回新旧两种 pattern
+    以确保向后兼容。
+    """
+    _OLD_CACHE_TYPE_NAMES = {
+        'within_subject_cache': 'comparison_cache',
+        'transfer_cache': 'transfer_comparison_cache',
+    }
+    patterns = [f'*{cache_type}_{paradigm}_{task}.json']
+    old_name = _OLD_CACHE_TYPE_NAMES.get(cache_type)
+    if old_name:
+        patterns.append(f'*{old_name}_{paradigm}_{task}.json')
+    return patterns
+
+
 def _filter_cache_type(files: List[Path], cache_type: str) -> List[Path]:
-    """过滤 glob 结果，排除子串误匹配（如 comparison_cache 匹配到 transfer_comparison_cache）."""
+    """Filter glob results to exclude substring false matches.
+
+    Needed for backward compat: old 'comparison_cache' pattern could match
+    'transfer_comparison_cache' files. With new naming this is less likely
+    but retained for safety when searching old-format files.
+    """
     if cache_type == CacheType.WITHIN_SUBJECT:
         return [f for f in files if 'transfer_' not in f.name]
     return files
@@ -119,9 +142,11 @@ def find_latest_cache(
     if not results_dir.exists():
         return None
 
-    # Pattern matches both tagged and untagged cache files
-    pattern = f'*{cache_type}_{paradigm}_{task}.json'
-    cache_files = _filter_cache_type(list(results_dir.glob(pattern)), cache_type)
+    # Pattern matches both tagged and untagged cache files (new + legacy naming)
+    cache_files = []
+    for pattern in _cache_glob_patterns(cache_type, paradigm, task):
+        cache_files.extend(results_dir.glob(pattern))
+    cache_files = _filter_cache_type(list(set(cache_files)), cache_type)
 
     if not cache_files and cache_type == CacheType.WITHIN_SUBJECT:
         # Fallback: try old format without paradigm (only for within-subject)
@@ -175,21 +200,32 @@ def find_cache_by_tag(
     if not results_dir.exists():
         return None
 
-    # 搜索所有可能的缓存文件
-    pattern = f'*{cache_type}_{paradigm}_{task}.json'
-    cache_files = _filter_cache_type(list(results_dir.glob(pattern)), cache_type)
+    # 搜索所有可能的缓存文件（新旧命名）
+    cache_files = []
+    for pattern in _cache_glob_patterns(cache_type, paradigm, task):
+        cache_files.extend(results_dir.glob(pattern))
+    cache_files = _filter_cache_type(list(set(cache_files)), cache_type)
 
     if not cache_files:
         return None
 
-    suffix = f'_{cache_type}_{paradigm}_{task}.json'
+    # 新旧命名的后缀列表，用于提取 run_tag
+    _OLD_CACHE_TYPE_NAMES = {
+        'within_subject_cache': 'comparison_cache',
+        'transfer_cache': 'transfer_comparison_cache',
+    }
+    suffixes = [f'_{cache_type}_{paradigm}_{task}.json']
+    old_name = _OLD_CACHE_TYPE_NAMES.get(cache_type)
+    if old_name:
+        suffixes.append(f'_{old_name}_{paradigm}_{task}.json')
 
     def extract_run_tag(path: Path) -> Optional[str]:
         """从文件名中提取 run_tag."""
         name = path.name
-        if name.endswith(suffix):
-            tag = name[:-len(suffix)]
-            return tag if tag else None
+        for sfx in suffixes:
+            if name.endswith(sfx):
+                tag = name[:-len(sfx)]
+                return tag if tag else None
         return None
 
     def safe_mtime(p: Path) -> float:
@@ -366,7 +402,17 @@ def save_cache(
 
     # Create/update metadata structure
     from ..config.constants import PREPROCESSING_VERSION
+
+    # Derive training_type from cache_type
+    _CACHE_TYPE_TO_TRAINING_TYPE = {
+        CacheType.WITHIN_SUBJECT: 'within_subject',
+        CacheType.CROSS_SUBJECT: 'cross_subject',
+        CacheType.TRANSFER: 'transfer',
+    }
+    training_type = _CACHE_TYPE_TO_TRAINING_TYPE.get(cache_type, 'within_subject')
+
     metadata = {
+        'training_type': training_type,
         'paradigm': paradigm,
         'task': task,
         'run_tag': run_tag,
@@ -376,7 +422,10 @@ def save_cache(
         'preprocessing_version': PREPROCESSING_VERSION,
     }
     if extra_metadata:
-        metadata.update(extra_metadata)
+        # Remove 'type' key from extra_metadata since training_type replaces it
+        extra = {k: v for k, v in extra_metadata.items() if k != 'type'}
+        if extra:
+            metadata.update(extra)
 
     data = {
         'metadata': metadata,
@@ -450,12 +499,9 @@ def _collect_compatible_files(
     if not results_dir.exists():
         return []
 
-    # 搜索所有可能的结果文件
-    cache_patterns = [
-        f'*comparison_cache_{paradigm}_{task}.json',  # 新格式（带 tag）
-        f'comparison_cache_{paradigm}_{task}.json',   # 新格式（不带 tag）
-        f'*comparison_{paradigm}_{task}*.json',       # 旧格式
-    ]
+    # 搜索所有可能的结果文件（新旧命名 + 旧格式）
+    cache_patterns = _cache_glob_patterns(CacheType.WITHIN_SUBJECT, paradigm, task)
+    cache_patterns.append(f'*comparison_{paradigm}_{task}*.json')  # 旧格式
 
     all_files = []
     for pattern in cache_patterns:
@@ -722,7 +768,7 @@ def find_best_within_subject_for_model(
     .. deprecated::
         使用 ``ExperimentDB.find_best_within_subject_results()`` 替代。
 
-    在所有 comparison_cache 文件中查找该模型的数据，条件:
+    在所有 within_subject_cache / comparison_cache 文件中查找该模型的数据，条件:
     - is_complete: true
     - 该模型的被试集合覆盖 subjects_set
     - 选择平均测试准确率最高的运行
@@ -741,9 +787,12 @@ def find_best_within_subject_for_model(
     if not results_dir.exists():
         return None
 
-    pattern = f'*comparison_cache_{paradigm}_{task}.json'
+    all_files = []
+    for pattern in _cache_glob_patterns(CacheType.WITHIN_SUBJECT, paradigm, task):
+        all_files.extend(results_dir.glob(pattern))
+    all_files = list(set(all_files))
     all_files = [
-        f for f in results_dir.glob(pattern)
+        f for f in all_files
         if 'cross-subject' not in f.name and 'transfer' not in f.name
     ]
 
@@ -1197,108 +1246,6 @@ def load_comparison_results(results_file: str) -> Dict[str, List[TrainingResult]
 
 
 # ============================================================================
-# Single Model Results IO
-# ============================================================================
-
-def save_single_model_results(
-    model_type: str,
-    results: List[TrainingResult],
-    statistics: Dict,
-    paradigm: str,
-    task: str,
-    output_dir: str,
-    run_tag: Optional[str] = None,
-) -> Path:
-    """Save single model results to JSON.
-
-    Args:
-        model_type: 'eegnet' or 'cbramod'
-        results: List of TrainingResult
-        statistics: Statistics dict from compute_model_statistics()
-        paradigm: 'imagery' or 'movement'
-        task: 'binary', 'ternary', or 'quaternary'
-        output_dir: Directory to save results
-        run_tag: Optional run identifier
-
-    Returns:
-        Path to saved file
-    """
-    from ..config.constants import PREPROCESSING_VERSION
-    output = {
-        'metadata': {
-            'model_type': model_type,
-            'paradigm': paradigm,
-            'paradigm_description': PARADIGM_CONFIG[paradigm]['description'],
-            'task': task,
-            'run_tag': run_tag,
-            'timestamp': datetime.now().isoformat(),
-            'n_subjects': statistics['n_subjects'],
-            'preprocessing_version': PREPROCESSING_VERSION,
-        },
-        'subjects': [result_to_dict(r) for r in results],
-        'statistics': statistics,
-    }
-
-    filename = generate_result_filename(model_type, paradigm, task, 'json', run_tag)
-
-    output_path = Path(output_dir) / filename
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(output_path, 'w', encoding='utf-8') as f:
-        json.dump(output, f, indent=2)
-
-    log_cache.info(f"Results saved: {output_path}")
-    return output_path
-
-
-def load_single_model_results(
-    model_type: str,
-    output_dir: str,
-    paradigm: str,
-    task: str,
-    results_file: Optional[str] = None,
-) -> Tuple[List[TrainingResult], Dict]:
-    """Load single model results from cache or specific file.
-
-    Args:
-        model_type: 'eegnet' or 'cbramod'
-        output_dir: Directory containing cache files
-        paradigm: 'imagery' or 'movement'
-        task: 'binary', 'ternary', or 'quaternary'
-        results_file: Optional path to specific results file
-
-    Returns:
-        Tuple of (results_list, statistics_dict)
-    """
-    if results_file:
-        with open(results_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-
-        # Handle different file formats
-        if 'subjects' in data:
-            # Single model format
-            results = [dict_to_result(s) for s in data['subjects']]
-        elif 'models' in data and model_type in data['models']:
-            # Full comparison format
-            results = [dict_to_result(s) for s in data['models'][model_type]['subjects']]
-        else:
-            raise ValueError(f"Cannot find {model_type} results in {results_file}")
-
-        stats = compute_model_statistics(results)
-        return results, stats
-
-    # Load from cache
-    cache, _ = load_cache(output_dir, paradigm, task, find_latest=True)
-
-    if model_type not in cache:
-        return [], {}
-
-    results = [dict_to_result(d) for d in cache[model_type].values()]
-    stats = compute_model_statistics(results)
-    return results, stats
-
-
-# ============================================================================
 # Cross-Subject Results Search
 # ============================================================================
 
@@ -1316,7 +1263,7 @@ def find_compatible_within_subject_results(
         使用 ``ExperimentDB.find_historical_comparison()`` 替代。
 
     条件:
-    - 文件模式: *comparison_cache_{paradigm}_{task}.json（排除 cross-subject 文件）
+    - 文件模式: *within_subject_cache_{paradigm}_{task}.json + *comparison_cache_{paradigm}_{task}.json（排除 cross-subject 文件）
     - is_complete: true
     - 被试集合覆盖 subjects
 
@@ -1342,9 +1289,11 @@ def find_compatible_within_subject_results(
     if not results_dir.exists():
         return None
 
-    # 搜索 within-subject 缓存文件（排除 cross-subject）
-    pattern = f'*comparison_cache_{paradigm}_{task}.json'
-    all_files = list(results_dir.glob(pattern))
+    # 搜索 within-subject 缓存文件（新旧命名，排除 cross-subject）
+    all_files = []
+    for pattern in _cache_glob_patterns(CacheType.WITHIN_SUBJECT, paradigm, task):
+        all_files.extend(results_dir.glob(pattern))
+    all_files = list(set(all_files))
 
     # 排除 cross-subject 和 transfer 文件
     all_files = [
