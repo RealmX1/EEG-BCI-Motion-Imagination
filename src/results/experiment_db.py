@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_DB_PATH = 'results/experiments.db'
 
 # Schema version for future migrations
-_SCHEMA_VERSION = 5
+_SCHEMA_VERSION = 6
 
 _SCHEMA_SQL = """
 -- Schema version tracking
@@ -76,7 +76,8 @@ CREATE TABLE IF NOT EXISTS runs (
     -- [deprecated] Legacy-only columns below — NULL for new runs
     legacy_source   TEXT,   -- original JSON filename, e.g. '20260205_0116_comparison_cache_imagery_binary.json'
     command         TEXT,   -- full terminal command used to launch this run (sys.argv)
-    preprocessing_version TEXT  -- e.g., 'v1.0', 'v2.0'; tracks data filtering/cleaning version
+    preprocessing_version TEXT,  -- e.g., 'v1.0', 'v2.0'; tracks data filtering/cleaning version
+    is_baseline     INTEGER NOT NULL DEFAULT 0  -- 1 = designated baseline for this category
 );
 
 -- Transfer learning specific configuration
@@ -147,6 +148,9 @@ CREATE INDEX IF NOT EXISTS idx_results_subject
     ON subject_results(subject_id, model_type);
 CREATE INDEX IF NOT EXISTS idx_summaries_run
     ON model_summaries(run_id);
+-- NOTE: idx_runs_baseline is created in _migrate_to_v6(), not here,
+-- because existing v5 databases lack the is_baseline column when
+-- _SCHEMA_SQL runs (before migrations).
 """
 
 
@@ -236,6 +240,8 @@ class ExperimentDB:
                 self._migrate_to_v4(conn)
             if current_version < 5:
                 self._migrate_to_v5(conn)
+            if current_version < 6:
+                self._migrate_to_v6(conn)
 
             conn.execute(
                 "INSERT OR REPLACE INTO schema_info (key, value) VALUES (?, ?)",
@@ -307,6 +313,46 @@ class ExperimentDB:
                 f"(v0.1={n_v01}, v0.2={n_v02})"
             )
 
+    # Baseline backfill: best-in-category post-HPO runs (2026-03-20+)
+    _BASELINE_BACKFILL = {
+        # CBraMod binary model selection: best of 4 runs each
+        ('20260321_0343', 'within_subject'):  'cbramod binary within-subject best 1/4 (soup)',
+        ('20260321_0608', 'cross_subject'):   'cbramod binary cross-subject best 1/4 (combined)',
+        ('20260321_1025', 'transfer'):        'cbramod binary transfer default config 1/4 (combined)',
+        # EEGNet binary: post-EEGNet-HPO run (F1=16, D=4 architecture)
+        ('20260316_1411', 'within_subject'):  'eegnet binary within-subject 1/1 v2.0',
+        # Unified HPO validation: only run each (contains both eegnet + cbramod)
+        ('20260320_0243', 'within_subject'):  'unified within-subject 1/1',
+        ('20260320_0548', 'cross_subject'):   'unified cross-subject 1/1',
+    }
+
+    def _migrate_to_v6(self, conn: sqlite3.Connection):
+        """v5 -> v6: Add is_baseline column and backfill known baselines."""
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(runs)").fetchall()}
+        if 'is_baseline' not in cols:
+            conn.execute(
+                "ALTER TABLE runs ADD COLUMN is_baseline INTEGER NOT NULL DEFAULT 0"
+            )
+            logger.info("Schema migration v6: added runs.is_baseline")
+
+        # Create index for baseline queries
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_runs_baseline "
+            "ON runs(is_baseline, paradigm, task, experiment_type, n_channels)"
+        )
+
+        # Backfill confirmed post-HPO baselines
+        n_marked = 0
+        for (tag, exp_type), note in self._BASELINE_BACKFILL.items():
+            n_marked += conn.execute(
+                "UPDATE runs SET is_baseline = 1 "
+                "WHERE run_tag = ? AND experiment_type = ? AND is_baseline = 0",
+                (tag, exp_type),
+            ).rowcount
+        if n_marked:
+            logger.info(f"Schema migration v6: marked {n_marked} runs as baseline"
+            )
+
     def close(self):
         """Close the database connection."""
         if self._conn is not None:
@@ -342,6 +388,7 @@ class ExperimentDB:
         git_commit: Optional[str] = None,
         command: Optional[str] = None,
         preprocessing_version: Optional[str] = None,
+        is_baseline: bool = False,
     ) -> str:
         """Create a new experiment run.
 
@@ -367,6 +414,7 @@ class ExperimentDB:
             preprocessing_version: Override for preprocessing version string.
                 If None, auto-populated from PREPROCESSING_VERSION constant
                 (new runs) or left as None (legacy runs).
+            is_baseline: Mark this run as a designated baseline (default False).
 
         Returns:
             run_id: Unique identifier for this run
@@ -395,12 +443,14 @@ class ExperimentDB:
                    (run_id, run_tag, experiment_type, paradigm, task,
                     n_channels, channel_config, n_subjects, is_complete,
                     git_commit, wandb_group, created_at, updated_at, notes,
-                    is_legacy, legacy_source, command, preprocessing_version)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    is_legacy, legacy_source, command, preprocessing_version,
+                    is_baseline)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (run_id, run_tag, experiment_type, paradigm, task,
                  n_channels, channel_config, n_subjects, git_commit,
                  wandb_group, created_at, updated_at, notes,
-                 int(is_legacy), legacy_source, command, preprocessing_version),
+                 int(is_legacy), legacy_source, command, preprocessing_version,
+                 int(is_baseline)),
             )
 
         logger.info(f"Created run: {run_id}")
@@ -619,6 +669,24 @@ class ExperimentDB:
                 "UPDATE runs SET n_subjects = ?, updated_at = ? WHERE run_id = ?",
                 (n_subjects, now, run_id),
             )
+
+    def set_baseline(self, run_id: str, is_baseline: bool = True):
+        """Set or clear the baseline flag for a run.
+
+        Args:
+            run_id: Run identifier
+            is_baseline: True to mark as baseline, False to un-mark
+        """
+        now = datetime.now().isoformat()
+        with self._connection() as conn:
+            n = conn.execute(
+                "UPDATE runs SET is_baseline = ?, updated_at = ? WHERE run_id = ?",
+                (int(is_baseline), now, run_id),
+            ).rowcount
+            if n == 0:
+                raise ValueError(f"Run not found: {run_id}")
+        action = "marked as baseline" if is_baseline else "baseline flag cleared"
+        logger.info(f"Run {action}: {run_id}")
 
     # ========================================================================
     # Read / Query operations
@@ -899,6 +967,73 @@ class ExperimentDB:
                 better_model=row['better_model'] or 'tie',
                 significant=bool(row['significant']),
             )
+
+    def find_baseline_run(
+        self,
+        paradigm: str,
+        task: str,
+        model_type: str,
+        experiment_type: str = 'within_subject',
+        n_channels: int = 128,
+    ) -> Optional[Dict[str, Any]]:
+        """Find the designated baseline run for a category.
+
+        Priority 1: Explicitly marked baseline (is_baseline=1)
+        Priority 2: Heuristic fallback — most recent 'standard config' run
+
+        Returns:
+            Dict with run info + 'baseline_source' key ('explicit' or 'heuristic'),
+            or None if no baseline found.
+        """
+        # Priority 1: Explicit baseline
+        with self._connection() as conn:
+            row = conn.execute(
+                """SELECT r.*, ms.mean_acc AS best_mean_acc
+                   FROM runs r
+                   JOIN model_summaries ms ON r.run_id = ms.run_id
+                   WHERE r.is_baseline = 1
+                     AND r.paradigm = ? AND r.task = ?
+                     AND r.experiment_type = ? AND r.n_channels = ?
+                     AND ms.model_type = ?
+                     AND r.is_complete = 1
+                   ORDER BY r.created_at DESC
+                   LIMIT 1""",
+                (paradigm, task, experiment_type, n_channels, model_type),
+            ).fetchone()
+
+        if row:
+            result = dict(row)
+            result['baseline_source'] = 'explicit'
+            return result
+
+        # Priority 2: Heuristic fallback
+        _EXCLUDE_FLAGS = ['--config', '--no-pretrained', '--classifier-type']
+
+        with self._connection() as conn:
+            candidates = conn.execute(
+                """SELECT r.*, ms.mean_acc AS best_mean_acc
+                   FROM runs r
+                   JOIN model_summaries ms ON r.run_id = ms.run_id
+                   WHERE r.paradigm = ? AND r.task = ?
+                     AND r.experiment_type = ?
+                     AND r.n_channels = ?
+                     AND r.channel_config IS NULL
+                     AND r.is_complete = 1
+                     AND r.preprocessing_version = 'v2.0'
+                     AND ms.model_type = ?
+                   ORDER BY r.created_at DESC""",
+                (paradigm, task, experiment_type, n_channels, model_type),
+            ).fetchall()
+
+        for candidate in candidates:
+            cmd = candidate['command'] or ''
+            if any(flag in cmd for flag in _EXCLUDE_FLAGS):
+                continue
+            result = dict(candidate)
+            result['baseline_source'] = 'heuristic'
+            return result
+
+        return None
 
     def get_best_run(
         self,
