@@ -322,7 +322,7 @@ Examples:
         n_subjects=n_subjects,
         is_complete=True,
         cache_type=CacheType.TRANSFER,
-        extra_metadata={'type': 'transfer-comparison', 'transfer_config': transfer_config_meta},
+        extra_metadata={'transfer_config': transfer_config_meta},
     )
 
     # ======================================================================

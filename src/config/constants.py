@@ -38,8 +38,8 @@ PARADIGM_CONFIG: Dict[str, Dict[str, str]] = {
 
 class CacheType:
     """缓存文件类型标识."""
-    WITHIN_SUBJECT = 'comparison_cache'
-    TRANSFER = 'transfer_comparison_cache'
+    WITHIN_SUBJECT = 'within_subject_cache'
+    TRANSFER = 'transfer_cache'
     CROSS_SUBJECT = 'cross_subject_cache'
 
 # ============================================================================

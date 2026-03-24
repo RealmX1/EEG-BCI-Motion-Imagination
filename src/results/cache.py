@@ -366,7 +366,17 @@ def save_cache(
 
     # Create/update metadata structure
     from ..config.constants import PREPROCESSING_VERSION
+
+    # Derive training_type from cache_type
+    _CACHE_TYPE_TO_TRAINING_TYPE = {
+        CacheType.WITHIN_SUBJECT: 'within_subject',
+        CacheType.CROSS_SUBJECT: 'cross_subject',
+        CacheType.TRANSFER: 'transfer',
+    }
+    training_type = _CACHE_TYPE_TO_TRAINING_TYPE.get(cache_type, 'within_subject')
+
     metadata = {
+        'training_type': training_type,
         'paradigm': paradigm,
         'task': task,
         'run_tag': run_tag,
@@ -376,7 +386,10 @@ def save_cache(
         'preprocessing_version': PREPROCESSING_VERSION,
     }
     if extra_metadata:
-        metadata.update(extra_metadata)
+        # Remove 'type' key from extra_metadata since training_type replaces it
+        extra = {k: v for k, v in extra_metadata.items() if k != 'type'}
+        if extra:
+            metadata.update(extra)
 
     data = {
         'metadata': metadata,

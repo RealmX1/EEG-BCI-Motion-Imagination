@@ -64,7 +64,6 @@ from src.results import (
     compare_models,
     compute_model_statistics,
     print_comparison_report,
-    save_cross_subject_result,
     generate_result_filename,
     cross_subject_result_to_training_results,
 )
@@ -249,7 +248,6 @@ Examples:
 
     # Train each model (skip cached models on resume)
     results = {}
-    channel_config_to_save = args.channel_config if args.channels != FULL_N_CHANNELS else None
     for model_type in args.models:
         # Check if model already has cached results
         if model_type in cache and not args.force_retrain:
@@ -320,21 +318,8 @@ Examples:
             results=cache,
             run_tag=run_tag,
             cache_type=CacheType.CROSS_SUBJECT,
-            extra_metadata={'type': 'cross-subject-comparison'},
         )
         log_io.info(f"{model_type.upper()} cached to cross_subject_cache")
-
-        # Also save individual model result file (backward compatible)
-        results_path = save_cross_subject_result(
-            result=model_results,
-            model_type=model_type,
-            paradigm=args.paradigm,
-            task=args.task,
-            output_dir=args.results_dir,
-            run_tag=run_tag,
-            channel_config=channel_config_to_save,
-        )
-        log_io.info(f"{model_type.upper()} results saved: {results_path}")
 
         # Dual-write to DB
         if db_run_id:
@@ -377,7 +362,6 @@ Examples:
         cache_type=CacheType.CROSS_SUBJECT,
         is_complete=True,
         n_subjects=len(subjects),
-        extra_metadata={'type': 'cross-subject-comparison'},
     )
 
     # Print comparison report
