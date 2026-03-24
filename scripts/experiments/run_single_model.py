@@ -58,8 +58,6 @@ from src.results import (
     dict_to_result,
     compute_model_statistics,
     print_model_summary,
-    save_single_model_results,
-    load_single_model_results,
 )
 from src.visualization import generate_combined_plot, generate_single_model_plot
 from src.training.train_within_subject import (
@@ -375,10 +373,6 @@ Examples:
         '--skip-training', action='store_true',
         help='Skip training, load existing results'
     )
-    parser.add_argument(
-        '--results-file', type=str, default=None,
-        help='Path to existing results file (used with --skip-training)'
-    )
 
     # Output control
     parser.add_argument(
@@ -506,17 +500,13 @@ Examples:
             )
 
     if args.skip_training:
-        # Load existing results
-        results, stats = load_single_model_results(
-            model_type=args.model,
-            output_dir=args.output_dir,
-            paradigm=args.paradigm,
-            task=args.task,
-            results_file=args.results_file,
-        )
-        if not results:
+        # Load from cache
+        cache, _ = load_cache(args.output_dir, args.paradigm, args.task, find_latest=True, cache_type=cache_type)
+        if args.model not in cache:
             log_main.error(f"No cached results found for {args.model}")
             sys.exit(1)
+        results = [dict_to_result(d) for d in cache[args.model].values()]
+        stats = compute_model_statistics(results)
         log_io.info(f"Loaded {len(results)} results from cache")
     else:
         # Discover subjects
@@ -566,16 +556,13 @@ Examples:
     if results:
         print_model_summary(args.model, stats, results)
 
-        # Save results JSON
-        save_single_model_results(
-            model_type=args.model,
-            results=results,
-            statistics=stats,
-            paradigm=args.paradigm,
-            task=args.task,
-            output_dir=args.output_dir,
-            run_tag=run_tag,
-        )
+        # Save summary to cache (final save with statistics)
+        cache_final, cache_meta = load_cache(args.output_dir, args.paradigm, args.task, run_tag, cache_type=cache_type)
+        save_cache(args.output_dir, args.paradigm, args.task, cache_final, run_tag,
+                   wandb_groups=cache_meta.get('wandb_groups', {}),
+                   summary={args.model: stats},
+                   is_complete=True,
+                   cache_type=cache_type)
 
         # Generate plot
         if not args.no_plot:

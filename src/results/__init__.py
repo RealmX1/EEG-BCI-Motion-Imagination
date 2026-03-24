@@ -36,9 +36,6 @@ from .cache import (
     # Full comparison results IO
     save_full_comparison_results,
     load_comparison_results,
-    # Single model results IO
-    save_single_model_results,
-    load_single_model_results,
     # Cross-subject results search
     find_compatible_within_subject_results,
     find_compatible_cross_subject_results,
@@ -80,9 +77,6 @@ __all__ = [
     # Full comparison results IO
     'save_full_comparison_results',
     'load_comparison_results',
-    # Single model results IO
-    'save_single_model_results',
-    'load_single_model_results',
     # Cross-subject results search
     'find_compatible_within_subject_results',
     'find_compatible_cross_subject_results',
