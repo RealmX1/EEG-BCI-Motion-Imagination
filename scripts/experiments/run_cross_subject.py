@@ -117,7 +117,7 @@ Examples:
     # Training arguments
     parser.add_argument(
         '--epochs', type=int, default=None,
-        help='Number of training epochs (default: 50 for EEGNet, 100 for CBraMod)'
+        help='Max training epochs; early stopping controls actual duration (default: 500)'
     )
     parser.add_argument(
         '--batch-size', type=int, default=None,

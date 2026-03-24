@@ -8,7 +8,7 @@ model:
 training:
   optimizer_type: muon
   scheduler: cosine_annealing_warmup_decay
-  epochs: 100
+  epochs: 500
   batch_size: 256
   weight_decay: 0.12
   label_smoothing: 0.15

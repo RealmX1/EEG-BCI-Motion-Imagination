@@ -78,8 +78,30 @@ def _compute_mean_accuracy(subjects_data: list) -> float:
     return float(np.mean(accs)) if accs else 0.0
 
 
+def _cache_glob_patterns(cache_type: str, paradigm: str, task: str) -> List[str]:
+    """Return glob patterns for both current and legacy cache naming.
+
+    CacheType 重命名后 (within_subject_cache, transfer_cache)，旧文件使用
+    comparison_cache / transfer_comparison_cache。此函数返回新旧两种 pattern
+    以确保向后兼容。
+    """
+    _OLD_CACHE_TYPE_NAMES = {
+        'within_subject_cache': 'comparison_cache',
+        'transfer_cache': 'transfer_comparison_cache',
+    }
+    patterns = [f'*{cache_type}_{paradigm}_{task}.json']
+    old_name = _OLD_CACHE_TYPE_NAMES.get(cache_type)
+    if old_name:
+        patterns.append(f'*{old_name}_{paradigm}_{task}.json')
+    return patterns
+
+
 def _filter_cache_type(files: List[Path], cache_type: str) -> List[Path]:
-    """过滤 glob 结果，排除子串误匹配（如 comparison_cache 匹配到 transfer_comparison_cache）."""
+    """过滤 glob 结果，排除子串误匹配.
+
+    向后兼容场景：旧文件 comparison_cache 会被 transfer_comparison_cache 的 glob 误匹配，
+    同理 within_subject_cache 不应匹配 transfer_cache 相关文件。
+    """
     if cache_type == CacheType.WITHIN_SUBJECT:
         return [f for f in files if 'transfer_' not in f.name]
     return files
@@ -119,9 +141,11 @@ def find_latest_cache(
     if not results_dir.exists():
         return None
 
-    # Pattern matches both tagged and untagged cache files
-    pattern = f'*{cache_type}_{paradigm}_{task}.json'
-    cache_files = _filter_cache_type(list(results_dir.glob(pattern)), cache_type)
+    # Pattern matches both tagged and untagged cache files (new + legacy naming)
+    cache_files = []
+    for pattern in _cache_glob_patterns(cache_type, paradigm, task):
+        cache_files.extend(results_dir.glob(pattern))
+    cache_files = _filter_cache_type(list(set(cache_files)), cache_type)
 
     if not cache_files and cache_type == CacheType.WITHIN_SUBJECT:
         # Fallback: try old format without paradigm (only for within-subject)
@@ -175,21 +199,32 @@ def find_cache_by_tag(
     if not results_dir.exists():
         return None
 
-    # 搜索所有可能的缓存文件
-    pattern = f'*{cache_type}_{paradigm}_{task}.json'
-    cache_files = _filter_cache_type(list(results_dir.glob(pattern)), cache_type)
+    # 搜索所有可能的缓存文件（新旧命名）
+    cache_files = []
+    for pattern in _cache_glob_patterns(cache_type, paradigm, task):
+        cache_files.extend(results_dir.glob(pattern))
+    cache_files = _filter_cache_type(list(set(cache_files)), cache_type)
 
     if not cache_files:
         return None
 
-    suffix = f'_{cache_type}_{paradigm}_{task}.json'
+    # 新旧命名的后缀列表，用于提取 run_tag
+    _OLD_CACHE_TYPE_NAMES = {
+        'within_subject_cache': 'comparison_cache',
+        'transfer_cache': 'transfer_comparison_cache',
+    }
+    suffixes = [f'_{cache_type}_{paradigm}_{task}.json']
+    old_name = _OLD_CACHE_TYPE_NAMES.get(cache_type)
+    if old_name:
+        suffixes.append(f'_{old_name}_{paradigm}_{task}.json')
 
     def extract_run_tag(path: Path) -> Optional[str]:
         """从文件名中提取 run_tag."""
         name = path.name
-        if name.endswith(suffix):
-            tag = name[:-len(suffix)]
-            return tag if tag else None
+        for sfx in suffixes:
+            if name.endswith(sfx):
+                tag = name[:-len(sfx)]
+                return tag if tag else None
         return None
 
     def safe_mtime(p: Path) -> float:
@@ -463,12 +498,9 @@ def _collect_compatible_files(
     if not results_dir.exists():
         return []
 
-    # 搜索所有可能的结果文件
-    cache_patterns = [
-        f'*comparison_cache_{paradigm}_{task}.json',  # 新格式（带 tag）
-        f'comparison_cache_{paradigm}_{task}.json',   # 新格式（不带 tag）
-        f'*comparison_{paradigm}_{task}*.json',       # 旧格式
-    ]
+    # 搜索所有可能的结果文件（新旧命名 + 旧格式）
+    cache_patterns = _cache_glob_patterns(CacheType.WITHIN_SUBJECT, paradigm, task)
+    cache_patterns.append(f'*comparison_{paradigm}_{task}*.json')  # 旧格式
 
     all_files = []
     for pattern in cache_patterns:
@@ -754,9 +786,12 @@ def find_best_within_subject_for_model(
     if not results_dir.exists():
         return None
 
-    pattern = f'*comparison_cache_{paradigm}_{task}.json'
+    all_files = []
+    for pattern in _cache_glob_patterns(CacheType.WITHIN_SUBJECT, paradigm, task):
+        all_files.extend(results_dir.glob(pattern))
+    all_files = list(set(all_files))
     all_files = [
-        f for f in results_dir.glob(pattern)
+        f for f in all_files
         if 'cross-subject' not in f.name and 'transfer' not in f.name
     ]
 
@@ -1227,7 +1262,7 @@ def find_compatible_within_subject_results(
         使用 ``ExperimentDB.find_historical_comparison()`` 替代。
 
     条件:
-    - 文件模式: *comparison_cache_{paradigm}_{task}.json（排除 cross-subject 文件）
+    - 文件模式: *within_subject_cache_{paradigm}_{task}.json + *comparison_cache_{paradigm}_{task}.json（排除 cross-subject 文件）
     - is_complete: true
     - 被试集合覆盖 subjects
 
@@ -1253,9 +1288,11 @@ def find_compatible_within_subject_results(
     if not results_dir.exists():
         return None
 
-    # 搜索 within-subject 缓存文件（排除 cross-subject）
-    pattern = f'*comparison_cache_{paradigm}_{task}.json'
-    all_files = list(results_dir.glob(pattern))
+    # 搜索 within-subject 缓存文件（新旧命名，排除 cross-subject）
+    all_files = []
+    for pattern in _cache_glob_patterns(CacheType.WITHIN_SUBJECT, paradigm, task):
+        all_files.extend(results_dir.glob(pattern))
+    all_files = list(set(all_files))
 
     # 排除 cross-subject 和 transfer 文件
     all_files = [

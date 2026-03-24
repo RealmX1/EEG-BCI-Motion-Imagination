@@ -421,15 +421,19 @@ Examples:
 
             # 1 & 2: Historical within-subject baselines (per-model, best accuracy)
             for model_type in ['eegnet', 'cbramod']:
-                hist_results = db.find_best_within_subject_results(
+                ws_result = db.find_best_within_subject_results(
                     paradigm=args.paradigm,
                     task=args.task,
                     model_type=model_type,
                     n_channels=args.channels,
                     channel_config=channel_config_filter,
                     subjects=subjects_set,
+                    return_run_id=True,
                 )
-                if hist_results:
+                if ws_result is not None:
+                    hist_results, ws_run_id = ws_result
+                    if db_run_id and ws_run_id:
+                        db.add_baseline_ref(db_run_id, ws_run_id, 'within_subject_baseline', model_type)
                     data_sources.append(PlotDataSource(
                         model_type=model_type,
                         results=hist_results,
@@ -456,7 +460,7 @@ Examples:
             # 5: (Optional) Historical cross-subject data
             if not args.no_cross_subject_historical:
                 search_model = 'cbramod' if 'cbramod' in args.models else args.models[0]
-                hist_cross = db.find_best_cross_subject_results(
+                cs_result = db.find_best_cross_subject_results(
                     paradigm=args.paradigm,
                     task=args.task,
                     model_type=search_model,
@@ -464,8 +468,12 @@ Examples:
                     channel_config=channel_config_filter,
                     subjects=subjects_set,
                     exclude_run_id=db_run_id,
+                    return_run_id=True,
                 )
-                if hist_cross:
+                if cs_result is not None:
+                    hist_cross, cs_run_id = cs_result
+                    if db_run_id and cs_run_id:
+                        db.add_baseline_ref(db_run_id, cs_run_id, 'cross_subject_baseline', search_model)
                     data_sources.append(PlotDataSource(
                         model_type=search_model,
                         results=hist_cross,

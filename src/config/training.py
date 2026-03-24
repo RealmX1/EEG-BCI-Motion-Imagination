@@ -2,7 +2,7 @@
 Training configuration for EEG-BCI project.
 
 This module contains:
-- SCHEDULER_PRESETS: Recommended epochs for each scheduler type
+- SCHEDULER_PRESETS: max_epochs ceiling + scheduler-specific LR curve parameters
 - get_default_config(): Default training configurations for each model (within-subject)
 - get_cross_subject_config(): Cross-subject pretraining configurations
 - CROSS_SUBJECT_SCHEDULER_OVERRIDES: Scheduler parameter overrides for cross-subject
@@ -12,7 +12,7 @@ Usage:
 
     # Get scheduler preset
     preset = SCHEDULER_PRESETS['cosine_annealing_warmup_decay']
-    print(preset['epochs'])  # 100
+    print(preset['max_epochs'])  # 500
 
     # Get default config for a model (within-subject)
     config = get_default_config('eegnet', 'binary')
@@ -33,50 +33,53 @@ from .constants import TASKS
 # Scheduler Presets
 # ============================================================================
 
-# Scheduler presets: recommended epochs for each scheduler type
-# These values can be overridden by user-specified config_overrides
+# Scheduler presets: max_epochs is a safety ceiling; early stopping controls actual duration.
+# Scheduler-specific LR curve parameters (cosine_T_max, warmup_epochs, cycle_epochs, etc.)
+# are absolute values decoupled from max_epochs, so the LR schedule is unaffected by the ceiling.
+# These values can be overridden by user-specified config_overrides.
 # Early stopping patience is computed automatically in WithinSubjectTrainer.train():
 #   CAWD: 2 * phase_epochs | others: 10
 SCHEDULER_PRESETS: Dict[str, Dict[str, Any]] = {
     'plateau': {
-        # ReduceLROnPlateau - 靠 LR 衰减收敛
-        'epochs': 30,
+        # ReduceLROnPlateau - 靠 LR 衰减收敛 (metric-driven, no epoch dependency)
+        'max_epochs': 500,
         # Exploration phase (optional for traditional schedulers)
         'exploration_epochs': 5,
         'exploration_batch_size': 32,
     },
     'cosine': {
-        # CosineAnnealingLR - 需要较多 epochs 到达 min LR
-        'epochs': 30,
+        # CosineAnnealingLR - 固定半周期，不随 max_epochs 变化
+        'max_epochs': 500,
+        'cosine_T_max': 30,             # Fixed cosine half-period (decoupled from max_epochs)
         # Exploration phase
         'exploration_epochs': 5,
         'exploration_batch_size': 32,
     },
     'wsd': {
-        # Warmup-Stable-Decay - 有明确的阶段
-        'epochs': 50,
-        # WSD-specific parameters
-        'warmup_ratio': 0.1,            # 10% = 5 epochs warmup
-        'stable_ratio': 0.0,            # 0% = no stable phase
-        'decay_ratio': 0.3,             # 30% = 15 epochs decay
+        # Warmup-Stable-Decay - 使用绝对 epoch 数定义各阶段
+        'max_epochs': 500,
+        # WSD-specific parameters (absolute epochs, decoupled from max_epochs)
+        'warmup_epochs': 5,             # Absolute warmup duration (was warmup_ratio=0.1)
+        'stable_epochs': 0,             # Absolute stable duration (was stable_ratio=0.0)
+        'decay_epochs': 15,             # Absolute decay duration (was decay_ratio=0.3)
         'eta_min': 1e-6,
         # Exploration phase
-        'exploration_epochs': 5,        # 10% of epochs
+        'exploration_epochs': 5,
         'exploration_batch_size': 32,
     },
     'cosine_decay': {
-        # CosineDecayRestarts - 周期性重启
-        'epochs': 50,
-        # CosineDecayRestarts-specific
+        # CosineDecayRestarts - 固定周期长度
+        'max_epochs': 500,
+        # CosineDecayRestarts-specific (absolute cycle length, decoupled from max_epochs)
         'decay_factor': 0.7,            # Peak reduces by 30% each cycle
-        'num_cycles': 5,                # Number of restart cycles
+        'cycle_epochs': 10,             # Fixed cycle length in epochs (was total_steps // num_cycles)
         # Exploration phase
         'exploration_epochs': 6,
         'exploration_batch_size': 32,
     },
     'cosine_annealing_warmup_decay': {
-        # 多阶段余弦，每阶段带 LR ramp-up + cosine decay
-        'epochs': 50,
+        # 多阶段余弦，每阶段带 LR ramp-up + cosine decay (naturally compatible with high max_epochs)
+        'max_epochs': 500,
         # CAWD-specific parameters (HPO-optimized for within-subject)
         'phase_epochs': 8,              # 6→8 (HPO within)
         'phase_decay': 0.47,            # 0.7→0.47 (HPO within: 0.468)
@@ -160,7 +163,7 @@ def get_default_config(model_type: str, task: str, n_channels: int = None) -> di
     Example:
         >>> config = get_default_config('eegnet', 'binary')
         >>> config['training']['epochs']
-        30
+        500
     """
     tasks = TASKS
 
@@ -175,7 +178,7 @@ def get_default_config(model_type: str, task: str, n_channels: int = None) -> di
             },
             'training': {
                 'scheduler': default_scheduler,
-                'epochs': SCHEDULER_PRESETS[default_scheduler]['epochs'],
+                'epochs': SCHEDULER_PRESETS[default_scheduler]['max_epochs'],
                 'batch_size': 256,       # 128→256 (HPO within)
                 'learning_rate': 2.9e-4, # 1e-4→2.9e-4 (HPO within: 2.87e-4)
                 'backbone_lr': 2.9e-4,   # = learning_rate (HPO within)
@@ -201,7 +204,7 @@ def get_default_config(model_type: str, task: str, n_channels: int = None) -> di
             },
             'training': {
                 'scheduler': default_scheduler,
-                'epochs': SCHEDULER_PRESETS[default_scheduler]['epochs'],
+                'epochs': SCHEDULER_PRESETS[default_scheduler]['max_epochs'],
                 'batch_size': 64,
                 'learning_rate': 4e-3,  # 1e-3→4e-3 (HPO within: 3.98e-3)
                 'weight_decay': 1e-5,   # 0→1e-5 (HPO within: 1.09e-5)
@@ -263,7 +266,7 @@ EIGHT_CHANNEL_CROSS_SUBJECT_OVERRIDES = {
 }
 
 EIGHT_CHANNEL_FINETUNE_OVERRIDES = {
-    'epochs': 20,
+    'epochs': 500,               # Safety ceiling; early stopping controls actual duration
     'learning_rate': 5e-5,
 }
 
@@ -292,7 +295,7 @@ THIRTYTWO_CHANNEL_CROSS_SUBJECT_OVERRIDES = {
 }
 
 THIRTYTWO_CHANNEL_FINETUNE_OVERRIDES = {
-    'epochs': 25,
+    'epochs': 500,               # Safety ceiling; early stopping controls actual duration
     'learning_rate': 8e-5,
 }
 
@@ -321,7 +324,7 @@ SIXTYONE_CHANNEL_CROSS_SUBJECT_OVERRIDES = {
 }
 
 SIXTYONE_CHANNEL_FINETUNE_OVERRIDES = {
-    'epochs': 23,                # Between 32ch (25) and 128ch default
+    'epochs': 500,               # Safety ceiling; early stopping controls actual duration
     'learning_rate': 9e-5,       # Between 32ch (8e-5) and 128ch default (1e-4)
 }
 
@@ -420,7 +423,7 @@ def get_cross_subject_config(model_type: str, task: str, n_channels: int = None)
     if model_type == 'cbramod':
         config['model']['dropout_rate'] = 0.37          # HPO cross: 0.369, rounded
         config['training'].update({
-            'epochs': 100,                               # (unchanged)
+            'epochs': 500,                               # Safety ceiling; early stopping controls actual duration
             'batch_size': 256,                           # (unchanged)
             'learning_rate': 1.3e-4,                     # 5e-5→1.3e-4 (HPO cross: 1.335e-4)
             'backbone_lr': 1.3e-4,                       # = learning_rate (HPO cross)
@@ -438,7 +441,7 @@ def get_cross_subject_config(model_type: str, task: str, n_channels: int = None)
         })
         config['model']['name'] = 'EEGNet-16,4'         # Update name to match architecture
         config['training'].update({
-            'epochs': 50,                                # (unchanged)
+            'epochs': 500,                               # Safety ceiling; early stopping controls actual duration
             'batch_size': 128,                           # (unchanged)
             'learning_rate': 1e-3,                       # Between within HPO (4e-3) and old (5e-4)
             'weight_decay': 1e-4,                        # (unchanged)

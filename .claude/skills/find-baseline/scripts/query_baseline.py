@@ -19,6 +19,14 @@ def _has_column(db, table, column):
     return column in cols
 
 
+def _has_table(db, table):
+    """Check if a table exists."""
+    row = db.execute(
+        "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?", (table,)
+    ).fetchone()
+    return row[0] > 0
+
+
 def query_top_results(args):
     """Query top results matching the given filters."""
     db = sqlite3.connect(str(DB_PATH))
@@ -197,6 +205,36 @@ def query_run_detail(run_tag):
                 f"{s['test_acc']*100:>7.2f}% | {s['epochs_trained']:>6} | "
                 f"{s['training_time']:>7.1f}s"
             )
+
+    # Show baseline references (v7+)
+    has_refs = _has_table(db, "run_baseline_refs")
+    if has_refs:
+        refs = db.execute(
+            "SELECT br.ref_type, br.model_type, r2.run_tag AS bl_tag "
+            "FROM run_baseline_refs br "
+            "JOIN runs r2 ON br.baseline_run_id = r2.run_id "
+            "WHERE br.run_id = ? ORDER BY br.ref_type, br.model_type",
+            (run["run_id"],),
+        ).fetchall()
+        if refs:
+            print(f"\n  Baseline References:")
+            for ref in refs:
+                mt_label = f" ({ref['model_type']})" if ref['model_type'] else ""
+                print(f"    -> {ref['ref_type']}{mt_label}: {ref['bl_tag']}")
+
+        # Show runs that reference this run as baseline
+        reverse = db.execute(
+            "SELECT r2.run_tag AS ref_tag, br.ref_type, br.model_type "
+            "FROM run_baseline_refs br "
+            "JOIN runs r2 ON br.run_id = r2.run_id "
+            "WHERE br.baseline_run_id = ? ORDER BY r2.run_tag",
+            (run["run_id"],),
+        ).fetchall()
+        if reverse:
+            print(f"\n  Referenced as Baseline by:")
+            for rev in reverse:
+                mt_label = f" ({rev['model_type']})" if rev['model_type'] else ""
+                print(f"    <- {rev['ref_tag']} [{rev['ref_type']}{mt_label}]")
 
     print(f"{'='*80}\n")
     db.close()

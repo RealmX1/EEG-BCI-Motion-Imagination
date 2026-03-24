@@ -247,18 +247,26 @@ class TableEpochLogger:
 
     def print_progress(self, epoch: int):
         """打印进度条行."""
-        progress = epoch / self.total_epochs
-        bar = self._make_progress_bar(progress)
-        pct = int(progress * 100)
+        if self.total_epochs > 200:
+            # Open-ended mode: epoch count + elapsed time (no misleading % or ETA)
+            elapsed_str = ""
+            if self.start_time and epoch > 0:
+                elapsed = time.perf_counter() - self.start_time
+                elapsed_str = f" | Elapsed: {format_time_plain(elapsed)}"
+            progress_str = f"Progress: Epoch {epoch}{elapsed_str} (early stopping active)"
+        else:
+            progress = epoch / self.total_epochs
+            bar = self._make_progress_bar(progress)
+            pct = int(progress * 100)
 
-        # ETA 计算
-        eta_str = ""
-        if self.start_time and epoch > 0:
-            elapsed = time.perf_counter() - self.start_time
-            remaining = (elapsed / epoch) * (self.total_epochs - epoch)
-            eta_str = f" ETA: {format_time_plain(remaining)}"
+            # ETA 计算
+            eta_str = ""
+            if self.start_time and epoch > 0:
+                elapsed = time.perf_counter() - self.start_time
+                remaining = (elapsed / epoch) * (self.total_epochs - epoch)
+                eta_str = f" ETA: {format_time_plain(remaining)}"
 
-        progress_str = f"Progress: {bar} {pct}% ({epoch}/{self.total_epochs}){eta_str}"
+            progress_str = f"Progress: {bar} {pct}% ({epoch}/{self.total_epochs}){eta_str}"
         print(progress_str)
 
     def print_header(self):

@@ -257,10 +257,12 @@ def apply_config_overrides(
         applied = []
 
         # Preset overrides model default, but not user-specified values
-        for key in ('epochs',):
-            if key in preset and key not in training_overrides:
-                config['training'][key] = preset[key]
-                applied.append(f"{key}={preset[key]}")
+        # Support both 'max_epochs' (new) and 'epochs' (legacy) keys in presets
+        if 'epochs' not in training_overrides:
+            preset_epochs = preset.get('max_epochs', preset.get('epochs'))
+            if preset_epochs is not None:
+                config['training']['epochs'] = preset_epochs
+                applied.append(f"epochs={preset_epochs}")
 
         if applied:
             log_train.info(f"{log_prefix}Applied scheduler preset '{new_scheduler}': {', '.join(applied)}")
