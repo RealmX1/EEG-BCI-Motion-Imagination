@@ -19,7 +19,11 @@ from .comparison import generate_combined_plot, generate_comparison_plot, plot_u
 from .single_model import generate_single_model_plot
 from .cross_subject import generate_cross_subject_single_plot, generate_config_comparison_plot
 from .milestone import generate_milestone_plot
-from .plots import MODEL_COLORS, CHANCE_LEVELS
+from .extra_sessions import generate_extra_sessions_combined_plot
+from .plots import (
+    MODEL_COLORS, CHANCE_LEVELS, annotate_bars_with_leaders, accuracy_ylim,
+    separate_paired_labels, draw_label_with_leader,
+)
 try:
     from .electrode_map import (
         create_mne_montage,
@@ -46,9 +50,15 @@ __all__ = [
     'generate_config_comparison_plot',
     # Milestone
     'generate_milestone_plot',
+    # Extra sessions
+    'generate_extra_sessions_combined_plot',
     # Utilities
     'MODEL_COLORS',
     'CHANCE_LEVELS',
+    'annotate_bars_with_leaders',
+    'accuracy_ylim',
+    'separate_paired_labels',
+    'draw_label_with_leader',
 ]
 
 if _HAS_ELECTRODE_MAP:

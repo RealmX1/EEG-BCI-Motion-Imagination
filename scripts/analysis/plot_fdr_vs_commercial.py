@@ -216,7 +216,7 @@ def generate_fdr_vs_commercial_plot(
         f'{paradigm.title()} {task.title()} (21 subjects)',
         fontsize=12,
     )
-    ax_bar.legend(loc='upper left', fontsize=7.5, ncol=2)
+    ax_bar.legend(loc='lower right', fontsize=7.5, ncol=2)
 
     # =========================================================================
     # Panel 2: Box plot (CBraMod only, FDR vs Commercial per experiment type)
@@ -263,7 +263,7 @@ def generate_fdr_vs_commercial_plot(
                 linestyle='--', linewidth=1.2, alpha=0.6,
                 label=f'128ch ({baseline_128ch["cbramod"]*100:.1f}%)',
             )
-            ax_box.legend(loc='upper right', fontsize=7)
+            ax_box.legend(loc='lower right', fontsize=7)
 
         ax_box.set_ylabel('Test Accuracy (CBraMod)', fontsize=10)
         ax_box.set_title('CBraMod Distribution', fontsize=11)

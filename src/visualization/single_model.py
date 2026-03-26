@@ -13,7 +13,10 @@ import numpy as np
 from ..config.constants import MODEL_COLORS
 from ..results.dataclasses import TrainingResult
 from ..utils.logging import SectionLogger
-from .plots import CHANCE_LEVELS
+from .plots import (
+    CHANCE_LEVELS, annotate_bars_with_leaders, accuracy_ylim,
+    separate_paired_labels, draw_label_with_leader,
+)
 
 logger = logging.getLogger(__name__)
 log_plot = SectionLogger(logger, 'plot')
@@ -70,10 +73,11 @@ def generate_single_model_plot(
 
     bars = ax1.bar(subjects, accs, color=model_color, edgecolor='black', linewidth=0.5, alpha=0.8)
 
-    # Add value labels on bars
-    for bar, val in zip(bars, accs):
-        ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1,
-                f'{val:.1f}', ha='center', va='bottom', fontsize=8)
+    # Add value labels with leader lines
+    annotate_bars_with_leaders(
+        ax1, [(bars, accs, True)],
+        base_margin=3.0, step_height=1.5, scale=1, fontsize=8,
+    )
 
     # Chance level line
     ax1.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5,
@@ -88,7 +92,7 @@ def generate_single_model_plot(
     ax1.set_ylabel('Test Accuracy (%)')
     ax1.set_title(f'{model_type.upper()} Per-Subject Accuracy')
     ax1.legend(loc='lower right')
-    ax1.set_ylim([0, 105])
+    ax1.set_ylim(accuracy_ylim(task_type, is_pct=True))
 
     # Rotate x-labels if many subjects
     if len(subjects) > 10:
@@ -116,10 +120,14 @@ def generate_single_model_plot(
 
     # Add value annotations
     median_acc = statistics['median'] * 100
-    ax2.text(1.35, mean_acc, f'Mean: {mean_acc:.1f}%',
-             ha='left', va='center', fontsize=9, color='red', fontweight='bold')
-    ax2.text(1.35, median_acc, f'Median: {median_acc:.1f}%',
-             ha='left', va='center', fontsize=9, color='black', fontweight='bold')
+    box_right = max(v[0] for v in bp['boxes'][0].get_path().vertices)
+    adj_mean, adj_med = separate_paired_labels(mean_acc, median_acc, min_gap=2.0)
+    draw_label_with_leader(
+        ax2, mean_acc, adj_mean, box_right,
+        f'Mean: {mean_acc:.1f}%', color='red', fontsize=9, fontweight='bold')
+    draw_label_with_leader(
+        ax2, median_acc, adj_med, box_right,
+        f'Median: {median_acc:.1f}%', color='black', fontsize=9, fontweight='bold')
 
     # Chance level
     ax2.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5)
@@ -135,13 +143,14 @@ def generate_single_model_plot(
     ax2.set_ylabel('Test Accuracy (%)')
     ax2.set_title(f'{model_type.upper()} Accuracy Distribution')
     ax2.set_xlim([0.5, 1.8])
+    ax2.set_ylim(accuracy_ylim(task_type, is_pct=True, top_pad=0.08))
 
     # Legend for mean/median lines
     legend_elements = [
         Line2D([0], [0], color='black', linewidth=2, linestyle='-', label='Median'),
         Line2D([0], [0], color='red', linewidth=2, linestyle=(0, (3, 2)), label='Mean')
     ]
-    ax2.legend(handles=legend_elements, loc='upper right', fontsize=8)
+    ax2.legend(handles=legend_elements, loc='lower right', fontsize=8)
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches='tight')

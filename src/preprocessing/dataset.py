@@ -27,6 +27,7 @@ from .pipeline import (
     trials_to_segments,
     _process_single_mat_file_to_trials,
 )
+from ..config.constants import CACHE_DIR
 from .channel_selection import (
     create_biosemi128_to_1020_mapping,
     get_channel_indices,
@@ -64,12 +65,11 @@ class FingerEEGDataset(Dataset):
         elc_path: Optional[str] = None,
         transform=None,
         use_cache: bool = True,
-        cache_dir: str = "caches/preprocessed",
+        cache_dir: str = CACHE_DIR,
         session_folders: Optional[List[str]] = None,
         preconvert_tensors: bool = True,
         parallel_workers: int = 0,
         cache_only: bool = False,
-        cache_index_path: str = ".cache_index.json",
         reject_trials: bool = True,
         unified_mode: bool = False,
     ):
@@ -101,8 +101,6 @@ class FingerEEGDataset(Dataset):
             cache_only: If True, load data exclusively from cache index without
                        scanning filesystem. Useful when original .mat files are not
                        available but preprocessed caches exist. (default: False)
-            cache_index_path: Path to cache index file for cache_only mode.
-                            (default: '.cache_index.json')
             reject_trials: If True (default), apply amplitude-based trial rejection
                           during loading. Set False for test datasets to preserve
                           the original data distribution.
@@ -120,7 +118,7 @@ class FingerEEGDataset(Dataset):
         self.session_folders = session_folders
         self.preconvert_tensors = preconvert_tensors
         self.cache_only = cache_only
-        self.cache_index_path = cache_index_path
+        self.cache_index_path = str(Path(cache_dir) / ".cache_index.json")
         self.reject_trials = reject_trials
         self.unified_mode = unified_mode
 

@@ -5,6 +5,7 @@ Ensures NVIDIA GPU is available and used for training.
 Provides reproducibility utilities (random seed setting).
 """
 
+import subprocess
 import sys
 import os
 import random
@@ -13,6 +14,10 @@ import numpy as np
 import logging
 
 logger = logging.getLogger(__name__)
+
+# VRAM thresholds for the interactive check
+_VRAM_WARN_RELATIVE = 0.40  # Warn if >40% VRAM used by other processes
+_VRAM_WARN_ABSOLUTE_MB = 4096  # Warn if <4 GB free
 
 
 def set_seed(seed: int = 42, deterministic: bool = True) -> None:
@@ -204,6 +209,174 @@ def print_gpu_info():
         print(f"  Compute Capability: {props.major}.{props.minor}")
         print(f"  Total Memory: {props.total_memory / 1e9:.1f} GB")
         print(f"  Multi-Processor Count: {props.multi_processor_count}")
+
+
+def check_vram_utilization(interactive: bool = True) -> bool:
+    """Check GPU VRAM utilization and warn if other processes consume too much.
+
+    When VRAM usage exceeds thresholds (>40% used by others or <4 GB free),
+    shows the offending processes and offers the user options:
+    - Continue anyway
+    - Abort
+    - Close processes one by one
+
+    Args:
+        interactive: If True (default), prompt user for action. If False,
+            just log a warning and continue.
+
+    Returns:
+        True if training should proceed, False if user chose to abort.
+    """
+    if not torch.cuda.is_available():
+        return True
+
+    props = torch.cuda.get_device_properties(0)
+    total_mb = props.total_memory / (1024 ** 2)
+
+    # Get current VRAM usage from nvidia-smi
+    try:
+        result = subprocess.run(
+            ['nvidia-smi', '--id=0', '--query-gpu=memory.used,memory.free',
+             '--format=csv,noheader,nounits'],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0:
+            return True
+        parts = result.stdout.strip().split(',')
+        used_mb = float(parts[0].strip())
+        free_mb = float(parts[1].strip())
+    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError, IndexError):
+        return True
+
+    used_ratio = used_mb / total_mb
+
+    # Check thresholds
+    if used_ratio <= _VRAM_WARN_RELATIVE and free_mb >= _VRAM_WARN_ABSOLUTE_MB:
+        logger.debug(f"VRAM OK: {used_mb:.0f}/{total_mb:.0f} MB used ({used_ratio:.0%}), {free_mb:.0f} MB free")
+        return True
+
+    # Gather GPU process list
+    processes = _get_gpu_processes()
+
+    # Display warning
+    print(f"\n{'='*60}")
+    print(f"  [!] GPU VRAM usage high")
+    print(f"{'='*60}")
+    print(f"  Used: {used_mb:.0f} MB / {total_mb:.0f} MB ({used_ratio:.0%})")
+    print(f"  Free: {free_mb:.0f} MB")
+    print()
+
+    if processes:
+        print(f"  Processes using VRAM:")
+        print(f"  {'PID':>8s}  {'VRAM (MB)':>10s}  Process")
+        print(f"  {'-'*8}  {'-'*10}  {'-'*36}")
+        for proc in processes:
+            name = os.path.basename(proc['name']) if proc['name'] else '(unknown)'
+            mem_str = f"{proc['mem_mb']:.0f}" if proc['mem_mb'] else '?'
+            print(f"  {proc['pid']:>8d}  {mem_str:>10s}  {name}")
+        print()
+
+    if not interactive:
+        print("  (non-interactive mode -- continuing)")
+        print(f"{'='*60}\n")
+        return True
+
+    # Interactive menu
+    print("  Options:")
+    print("    [c] Continue (ignore warning)")
+    print("    [a] Abort experiment")
+    print("    [k] Kill processes one by one")
+    print()
+
+    while True:
+        try:
+            choice = input("  Choose [c/a/k]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return False
+
+        if choice == 'c':
+            print(f"{'='*60}\n")
+            return True
+        elif choice == 'a':
+            print("  Aborted.")
+            print(f"{'='*60}\n")
+            return False
+        elif choice == 'k':
+            if processes:
+                _interactive_kill_processes(processes)
+                # Re-check after killing
+                return check_vram_utilization(interactive=True)
+            else:
+                print("  No processes to kill.")
+        else:
+            print("  Invalid option, enter c / a / k")
+
+
+def _get_gpu_processes():
+    """Get list of processes using the GPU via nvidia-smi."""
+    try:
+        result = subprocess.run(
+            ['nvidia-smi',
+             '--query-compute-apps=pid,used_gpu_memory,process_name',
+             '--format=csv,noheader,nounits'],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0:
+            return []
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return []
+
+    processes = []
+    for line in result.stdout.strip().split('\n'):
+        if not line.strip():
+            continue
+        parts = [p.strip() for p in line.split(',')]
+        if len(parts) < 3:
+            continue
+        try:
+            pid = int(parts[0])
+        except ValueError:
+            continue
+        try:
+            mem_mb = float(parts[1])
+        except (ValueError, TypeError):
+            mem_mb = None
+        name = parts[2] if parts[2] not in ('[N/A]', '') else None
+        processes.append({'pid': pid, 'mem_mb': mem_mb, 'name': name})
+
+    return processes
+
+
+def _interactive_kill_processes(processes):
+    """Offer to terminate GPU processes one by one."""
+    # Filter to only killable user processes (skip system processes)
+    current_pid = os.getpid()
+
+    for proc in processes:
+        if proc['pid'] == current_pid:
+            continue
+        name = os.path.basename(proc['name']) if proc['name'] else '(unknown)'
+        mem_str = f"{proc['mem_mb']:.0f} MB" if proc['mem_mb'] else '? MB'
+
+        try:
+            choice = input(f"  Kill PID {proc['pid']} ({name}, {mem_str})? [y/n/q]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+
+        if choice == 'q':
+            return
+        elif choice == 'y':
+            try:
+                if sys.platform == 'win32':
+                    subprocess.run(['taskkill', '/PID', str(proc['pid']), '/F'],
+                                   capture_output=True, timeout=5)
+                else:
+                    os.kill(proc['pid'], 15)  # SIGTERM
+                print(f"    [OK] Terminated PID {proc['pid']}")
+            except Exception as e:
+                print(f"    [FAIL] Could not terminate PID {proc['pid']}: {e}")
 
 
 if __name__ == '__main__':

@@ -101,8 +101,8 @@ def load_multi_subject_data(
     task: str,
     elc_path: Path,
     cache_only: bool = False,
-    cache_index_path: str = ".cache_index.json",
     unified_mode: bool = False,
+    session_folders_override: Optional[Dict[str, List[str]]] = None,
 ) -> Tuple[FingerEEGDataset, Dict[str, FingerEEGDataset]]:
     """
     Load data for multiple subjects.
@@ -116,8 +116,10 @@ def load_multi_subject_data(
         task: 'binary', 'ternary', or 'quaternary'
         elc_path: Path to electrode location file
         cache_only: If True, load exclusively from cache index
-        cache_index_path: Path to cache index file
         unified_mode: If True, load all session types with relaxed n_classes filter
+        session_folders_override: Optional dict with 'train' and 'test' keys
+            mapping to lists of session folder names. When provided, overrides
+            the default session folder selection from get_session_folders_for_split().
 
     Returns:
         Tuple of (train_dataset, test_datasets_by_subject)
@@ -126,8 +128,15 @@ def load_multi_subject_data(
           (empty dict for unified mode — evaluation handled separately)
     """
     # Get session folders
-    train_folders = get_session_folders_for_split(paradigm, task, 'train')
-    test_folders = get_session_folders_for_split(paradigm, task, 'test')
+    if session_folders_override is not None:
+        missing = {'train', 'test'} - session_folders_override.keys()
+        if missing:
+            raise ValueError(f"session_folders_override missing required keys: {missing}")
+        train_folders = session_folders_override['train']
+        test_folders = session_folders_override['test']
+    else:
+        train_folders = get_session_folders_for_split(paradigm, task, 'train')
+        test_folders = get_session_folders_for_split(paradigm, task, 'test')
 
     log_data.info(f"Train folders: {train_folders}")
     log_data.info(f"Test folders: {test_folders}")
@@ -141,7 +150,6 @@ def load_multi_subject_data(
         target_classes=target_classes,
         elc_path=str(elc_path),
         cache_only=cache_only,
-        cache_index_path=cache_index_path,
         unified_mode=unified_mode,
     )
     log_data.info(f"Train data: {len(subjects)} subjects, {len(train_dataset)} segs")
@@ -158,7 +166,6 @@ def load_multi_subject_data(
                 target_classes=target_classes,
                 elc_path=str(elc_path),
                 cache_only=cache_only,
-                cache_index_path=cache_index_path,
                 reject_trials=False,
             )
             if len(test_ds) > 0:
@@ -248,7 +255,6 @@ def train_cross_subject(
     config_overrides: Optional[Dict] = None,
     # Cache-only mode
     cache_only: bool = False,
-    cache_index_path: str = ".cache_index.json",
     # WandB parameters
     wandb_enabled: bool = False,
     upload_model: bool = False,
@@ -259,6 +265,8 @@ def train_cross_subject(
     verbose: int = 2,
     # Resume support
     resume_checkpoint: bool = False,
+    # Session folders override (for extra sessions experiments)
+    session_folders_override: Optional[Dict[str, List[str]]] = None,
 ) -> Dict:
     """
     Cross-subject pretraining.
@@ -280,7 +288,6 @@ def train_cross_subject(
         run_tag: Optional run tag (timestamp) for this experiment (None = auto-generate)
         config_overrides: Optional dict to override config values
         cache_only: If True, load data exclusively from cache index
-        cache_index_path: Path to cache index file for cache_only mode
         wandb_enabled: Enable WandB logging
         upload_model: Upload model artifacts to WandB
         wandb_project: WandB project name
@@ -408,8 +415,8 @@ def train_cross_subject(
             task,
             elc_path,
             cache_only=cache_only,
-            cache_index_path=cache_index_path,
             unified_mode=is_unified,
+            session_folders_override=session_folders_override,
         )
 
     if verbose >= 2:
@@ -587,7 +594,7 @@ def train_cross_subject(
 
             subj_results = unified_model_evaluate(
                 model, data_root_path, [subject_id], preprocess_config, elc_path,
-                paradigm, device, cache_only, cache_index_path,
+                paradigm, device, cache_only,
                 train_dataset=train_dataset,
                 offline_test_indices=subj_offline_test,
             )

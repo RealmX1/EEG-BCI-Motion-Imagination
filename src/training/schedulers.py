@@ -674,7 +674,7 @@ def visualize_lr_schedule(
     ax.set_xlim(0, total_epochs)
     ax.set_ylim(0, base_lr * 1.1)
     ax.grid(True, alpha=0.3)
-    ax.legend(loc='upper right')
+    ax.legend(loc='lower right')
 
     # Add text annotations
     info_text = (
@@ -739,7 +739,7 @@ def visualize_lr_schedule(
                 "ax.set_xlim(0, d['total_epochs'])\n"
                 "ax.set_ylim(0, d['base_lr'] * 1.1)\n"
                 "ax.grid(True, alpha=0.3)\n"
-                "ax.legend(loc='upper right')\n"
+                "ax.legend(loc='lower right')\n"
                 "ax.text(0.02, 0.98, d['info_text'], transform=ax.transAxes, fontsize=9,\n"
                 "        verticalalignment='top', fontfamily='monospace',\n"
                 "        bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))\n"

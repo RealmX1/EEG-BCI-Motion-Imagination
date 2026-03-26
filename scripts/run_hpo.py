@@ -116,7 +116,6 @@ def parse_args():
                         help='检查点保存目录')
     parser.add_argument('--cache-only', action='store_true',
                         help='仅从缓存加载数据')
-    parser.add_argument('--cache-index-path', default='.cache_index.json')
 
     return parser.parse_args()
 
@@ -205,7 +204,6 @@ def main():
             paradigm=args.eeg_paradigm,
             task=args.task,
             cache_only=args.cache_only,
-            cache_index_path=args.cache_index_path,
         )
     log.info(f"Subjects ({len(subjects)}): {subjects}")
 
@@ -251,7 +249,6 @@ def main():
         data_root=args.data_root,
         save_dir=args.save_dir,
         cache_only=args.cache_only,
-        cache_index_path=args.cache_index_path,
         n_channels=args.n_channels,
     )
 

@@ -52,7 +52,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.config.constants import FULL_N_CHANNELS, PARADIGM_CONFIG
-from src.utils.device import set_seed, check_cuda_available, get_device
+from src.utils.device import set_seed, check_cuda_available, get_device, check_vram_utilization
 from src.utils.logging import SectionLogger, setup_logging
 
 # Import from src modules
@@ -190,6 +190,8 @@ Examples:
 
     # Check GPU
     check_cuda_available(required=True)
+    if not check_vram_utilization():
+        sys.exit(0)
     device = get_device()
     log_main.info(f"Device: {device}")
 
@@ -254,7 +256,6 @@ Examples:
                 args.paradigm,
                 args.task,
                 cache_only=args.cache_only,
-                cache_index_path=args.cache_index_path
             )
 
         if not subjects:
@@ -285,7 +286,6 @@ Examples:
                 wandb_project=args.wandb_project,
                 wandb_entity=args.wandb_entity,
                 cache_only=args.cache_only,
-                cache_index_path=args.cache_index_path,
                 config_overrides=config_overrides,
                 db=db,
                 db_run_id=db_run_id,

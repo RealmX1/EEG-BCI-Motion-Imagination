@@ -17,7 +17,10 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from .schedulers import WSDScheduler, CosineDecayRestarts, CosineAnnealingWarmupDecay
-from .evaluation import majority_vote_accuracy, majority_vote_accuracy_unified
+from .evaluation import (
+    majority_vote_accuracy, majority_vote_accuracy_unified,
+    build_trial_grouping, majority_vote_from_predictions,
+)
 from ..preprocessing.data_loader import FingerEEGDataset
 from ..utils.logging import SectionLogger
 from ..utils.timing import EpochTimer, print_section_header
@@ -254,11 +257,20 @@ class WithinSubjectTrainer:
         self.exploration_batch_size = self.scheduler_config.get('exploration_batch_size', 32)
 
         # AMP (Automatic Mixed Precision) setup
+        # Prefer BF16 on supported hardware (Ampere+): no GradScaler needed,
+        # wider dynamic range, and potentially better tensor core throughput.
         self.use_amp = use_amp and device.type == 'cuda'
+        self.amp_dtype = torch.float16  # default fallback
         if self.use_amp:
-            self.scaler = torch.amp.GradScaler('cuda')
-            if self.verbose >= 2:
-                log_train.info("AMP enabled")
+            if torch.cuda.is_bf16_supported():
+                self.amp_dtype = torch.bfloat16
+                self.scaler = None  # BF16 does not need loss scaling
+                if self.verbose >= 2:
+                    log_train.info("AMP enabled (BF16 — no GradScaler)")
+            else:
+                self.scaler = torch.amp.GradScaler('cuda')
+                if self.verbose >= 2:
+                    log_train.info("AMP enabled (FP16 + GradScaler)")
         else:
             self.scaler = None
 
@@ -379,7 +391,7 @@ class WithinSubjectTrainer:
 
             # Forward pass with AMP
             if self.use_amp:
-                with torch.amp.autocast('cuda', dtype=torch.float16):
+                with torch.amp.autocast('cuda', dtype=self.amp_dtype):
                     outputs = self.model(segments)
                     loss = self.criterion(outputs, labels)
 
@@ -388,25 +400,36 @@ class WithinSubjectTrainer:
                     t_forward += time.perf_counter() - t0
                     t0 = time.perf_counter()
 
-                # Backward pass with gradient scaling
-                self.scaler.scale(loss).backward()
+                if self.scaler is not None:
+                    # FP16 path: needs GradScaler for loss scaling
+                    self.scaler.scale(loss).backward()
 
-                if profile:
-                    torch.cuda.synchronize()
-                    t_backward += time.perf_counter() - t0
-                    t0 = time.perf_counter()
+                    if profile:
+                        torch.cuda.synchronize()
+                        t_backward += time.perf_counter() - t0
+                        t0 = time.perf_counter()
 
-                # Gradient clipping (unscale first)
-                # MuonAdamWHybrid wraps two real optimizers; unscale/step each
-                sub_opts = self._get_sub_optimizers()
-                if self.gradient_clip > 0:
+                    sub_opts = self._get_sub_optimizers()
+                    if self.gradient_clip > 0:
+                        for opt in sub_opts:
+                            self.scaler.unscale_(opt)
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip)
+
                     for opt in sub_opts:
-                        self.scaler.unscale_(opt)
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip)
+                        self.scaler.step(opt)
+                    self.scaler.update()
+                else:
+                    # BF16 path: no GradScaler needed
+                    loss.backward()
 
-                for opt in sub_opts:
-                    self.scaler.step(opt)
-                self.scaler.update()
+                    if profile:
+                        torch.cuda.synchronize()
+                        t_backward += time.perf_counter() - t0
+                        t0 = time.perf_counter()
+
+                    if self.gradient_clip > 0:
+                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.gradient_clip)
+                    self.optimizer.step()
             else:
                 outputs = self.model(segments)
                 loss = self.criterion(outputs, labels)
@@ -461,19 +484,34 @@ class WithinSubjectTrainer:
         return total_loss / total, correct / total
 
     @torch.no_grad()
-    def validate(self, dataloader: DataLoader) -> Tuple[float, float]:
-        """Validate (segment-level accuracy) with AMP support."""
+    def validate(self, dataloader: DataLoader, collect_predictions: bool = False):
+        """Validate (segment-level accuracy) with AMP support.
+
+        Args:
+            dataloader: Validation DataLoader
+            collect_predictions: If True, also return per-segment predictions
+                and labels for downstream use (e.g. majority voting without
+                a second forward pass).
+
+        Returns:
+            If collect_predictions is False: ``(loss, accuracy)``
+            If collect_predictions is True: ``(loss, accuracy, preds_list, labels_list)``
+        """
         self.model.eval()
         total_loss = 0.0
         correct = 0
         total = 0
+
+        if collect_predictions:
+            all_preds = []
+            all_labels = []
 
         for segments, labels in dataloader:
             segments = segments.to(self.device, non_blocking=True)
             labels = labels.to(self.device, non_blocking=True)
 
             if self.use_amp:
-                with torch.amp.autocast('cuda', dtype=torch.float16):
+                with torch.amp.autocast('cuda', dtype=self.amp_dtype):
                     outputs = self.model(segments)
                     loss = self.criterion(outputs, labels)
             else:
@@ -485,6 +523,12 @@ class WithinSubjectTrainer:
             correct += (preds == labels).sum().item()
             total += segments.size(0)
 
+            if collect_predictions:
+                all_preds.extend(preds.cpu().numpy())
+                all_labels.extend(labels.cpu().numpy())
+
+        if collect_predictions:
+            return total_loss / total, correct / total, all_preds, all_labels
         return total_loss / total, correct / total
 
     def validate_unified(self) -> Tuple[float, Dict[str, float]]:
@@ -601,7 +645,7 @@ class WithinSubjectTrainer:
                     break
                 segments = segments.to(self.device)
                 if self.use_amp:
-                    with torch.amp.autocast('cuda', dtype=torch.float16):
+                    with torch.amp.autocast('cuda', dtype=self.amp_dtype):
                         self.model(segments)
                 else:
                     self.model(segments)
@@ -920,6 +964,8 @@ class WithinSubjectTrainer:
                     log_train.info("AMP scaler state restored from resume checkpoint")
                 except Exception as e:
                     log_train.warning(f"Failed to restore scaler state: {e}")
+            else:
+                log_train.debug("Skipping scaler state restore (BF16 mode, no GradScaler)")
             self._pending_scaler_state = None
 
         # Determine start epoch for resume
@@ -929,6 +975,12 @@ class WithinSubjectTrainer:
             no_improve = max(0, start_epoch - self.best_epoch)
             log_train.info(f"Resuming from epoch {start_epoch}, "
                            f"epochs since last improvement: {no_improve}")
+
+        # Pre-compute trial grouping for majority vote (avoids rebuilding every epoch)
+        if not self.unified_val_groups:
+            self._val_trial_grouping = build_trial_grouping(self.dataset, self.val_indices)
+        else:
+            self._val_trial_grouping = None
 
         # Milestone checkpoint tracking
         # Strategy: During the initial continuous best streak, don't save
@@ -963,21 +1015,27 @@ class WithinSubjectTrainer:
             if self.model_selection_strategy == 'ema':
                 self._update_ema()
 
-            # Validate & majority vote (under EMA context if strategy='ema')
+            # Validate & majority vote in a SINGLE forward pass
+            # (unified mode still uses its own separate path)
             _ema_ctx = self._ema_context() if self.model_selection_strategy == 'ema' else contextmanager(lambda: (yield))()
             with _ema_ctx:
-                with epoch_timer.phase("validate"):
-                    val_loss, val_acc = self.validate(val_loader)
-
-                # Majority voting: compute every epoch for accurate early stopping
-                with epoch_timer.phase("majority_vote"):
-                    if self.unified_val_groups:
+                if self.unified_val_groups:
+                    with epoch_timer.phase("validate"):
+                        val_loss, val_acc = self.validate(val_loader)
+                    with epoch_timer.phase("majority_vote"):
                         majority_acc, _subtask_accs = self.validate_unified()
-                    else:
-                        majority_acc, _ = majority_vote_accuracy(
-                            self.model, self.dataset, self.val_indices, self.device,
-                            use_amp=self.use_amp
+                else:
+                    # Single forward pass: validate() collects predictions,
+                    # then majority_vote_from_predictions() does CPU-only grouping
+                    with epoch_timer.phase("validate"):
+                        val_loss, val_acc, val_preds, val_labels = self.validate(
+                            val_loader, collect_predictions=True,
                         )
+                    with epoch_timer.phase("majority_vote"):
+                        majority_acc, _ = majority_vote_from_predictions(
+                            val_preds, val_labels, self._val_trial_grouping,
+                        )
+                    _subtask_accs = None
 
             epoch_timer.end_epoch()
 

@@ -160,10 +160,6 @@ Examples:
         '--cache-only', action='store_true',
         help='Load data exclusively from cache index (no filesystem scan)'
     )
-    parser.add_argument(
-        '--cache-index-path', type=str, default='.cache_index.json',
-        help='Path to cache index file (default: .cache_index.json)'
-    )
 
     # WandB arguments
     parser.add_argument(
@@ -231,7 +227,6 @@ Examples:
             args.paradigm,
             args.task,
             cache_only=args.cache_only,
-            cache_index_path=args.cache_index_path
         )
 
     if not subjects:

@@ -21,6 +21,11 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.visualization.plots import (
+    annotate_bars_with_leaders, accuracy_ylim,
+    separate_paired_labels, draw_label_with_leader,
+)
+
 
 def load_results(results_file: str) -> Dict:
     """Load results from JSON file."""
@@ -95,16 +100,15 @@ def create_visualizations(data: Dict, output_dir: Path):
     ax1.set_title('A. Per-Subject Classification Accuracy', fontweight='bold')
     ax1.set_xticks(x)
     ax1.set_xticklabels(subjects)
-    ax1.set_ylim([0, 100])
-    ax1.legend(loc='upper right')
+    ax1.set_ylim(accuracy_ylim(task_type, is_pct=True))
+    ax1.legend(loc='lower right')
 
-    # Add value labels on bars
-    for bar, val in zip(bars1, eegnet_acc):
-        ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1,
-                f'{val*100:.1f}', ha='center', va='bottom', fontsize=8)
-    for bar, val in zip(bars2, cbramod_acc):
-        ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1,
-                f'{val*100:.1f}', ha='center', va='bottom', fontsize=8)
+    annotate_bars_with_leaders(
+        ax1,
+        [(bars1, [a*100 for a in eegnet_acc], True),
+         (bars2, [a*100 for a in cbramod_acc], True)],
+        base_margin=3.0, step_height=1.5, scale=1, fontsize=8,
+    )
 
     # Panel B: Box plot comparison (showing both median and mean)
     ax2 = fig.add_subplot(gs[0, 1])
@@ -150,22 +154,22 @@ def create_visualizations(data: Dict, output_dir: Path):
     ax2.set_ylim([max(0, chance_level - 15), 100])
 
     # Add value annotations next to the lines (right side of each box)
-    x_offset = 0.35  # Offset from box center
-    ax2.text(1 + x_offset, eegnet_mean, f'{eegnet_mean:.1f}',
-             ha='left', va='center', fontsize=8, color=mean_color, fontweight='bold')
-    ax2.text(1 + x_offset, eegnet_median, f'{eegnet_median:.1f}',
-             ha='left', va='center', fontsize=8, color=median_color, fontweight='bold')
-    ax2.text(2 + x_offset, cbramod_mean, f'{cbramod_mean:.1f}',
-             ha='left', va='center', fontsize=8, color=mean_color, fontweight='bold')
-    ax2.text(2 + x_offset, cbramod_median, f'{cbramod_median:.1f}',
-             ha='left', va='center', fontsize=8, color=median_color, fontweight='bold')
+    for box_i, (bm, bmed) in enumerate([(eegnet_mean, eegnet_median), (cbramod_mean, cbramod_median)]):
+        box_right = max(v[0] for v in bp['boxes'][box_i].get_path().vertices)
+        adj_mean, adj_med = separate_paired_labels(bm, bmed, min_gap=2.0)
+        draw_label_with_leader(
+            ax2, bm, adj_mean, box_right,
+            f'{bm:.1f}', color=mean_color, fontsize=8, fontweight='bold')
+        draw_label_with_leader(
+            ax2, bmed, adj_med, box_right,
+            f'{bmed:.1f}', color=median_color, fontsize=8, fontweight='bold')
 
     # Add legend for mean/median lines
     legend_elements = [
         Line2D([0], [0], color=median_color, linewidth=2, linestyle='-', label='Median'),
         Line2D([0], [0], color=mean_color, linewidth=2, linestyle=(0, (3, 2)), label='Mean')
     ]
-    ax2.legend(handles=legend_elements, loc='upper right', fontsize=9)
+    ax2.legend(handles=legend_elements, loc='lower right', fontsize=9)
 
     # Add significance annotation
     y_max = max(max(eegnet_acc), max(cbramod_acc)) * 100 + 5
@@ -197,7 +201,7 @@ def create_visualizations(data: Dict, output_dir: Path):
     ax3.set_xlim(lims)
     ax3.set_ylim(lims)
     ax3.set_aspect('equal')
-    ax3.legend(loc='upper left', fontsize=9)
+    ax3.legend(loc='lower right', fontsize=9)
 
     # Panel D: Summary statistics
     ax4 = fig.add_subplot(gs[1, 1])

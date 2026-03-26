@@ -411,7 +411,7 @@ def plot_region_distribution(
     ax.set_xticklabels(region_names, fontsize=10)
     ax.set_ylabel('Number of Channels', fontsize=11)
     ax.set_title('Channel Distribution by Brain Region', fontsize=12, fontweight='bold')
-    ax.legend(fontsize=8, loc='upper right', ncol=2)
+    ax.legend(fontsize=8, loc='lower right', ncol=2)
     ax.set_ylim(0, max(max(data[c][r] for r in region_names) for c in config_names) + 3)
 
     plt.tight_layout()
@@ -989,7 +989,7 @@ def plot_electrode_placement_3d(
     ax.set_ylabel('Y (Front)')
     ax.set_zlabel('Z (Up)')
     ax.view_init(elev=elevation, azim=azimuth)
-    ax.legend(loc='upper left', fontsize=7, markerscale=1.5)
+    ax.legend(loc='lower right', fontsize=7, markerscale=1.5)
     ax.set_title(f'3D Electrode Placement — All Configs', fontsize=12)
 
     plt.savefig(output_path, dpi=150, bbox_inches='tight')

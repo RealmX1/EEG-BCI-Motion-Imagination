@@ -110,7 +110,6 @@ def run_single_model(
     wandb_project: str = 'eeg-bci',
     wandb_entity: Optional[str] = None,
     cache_only: bool = False,
-    cache_index_path: str = ".cache_index.json",
     config_overrides: Optional[Dict] = None,
     verbose_first_only: bool = True,
     db: Optional[ExperimentDB] = None,
@@ -138,7 +137,6 @@ def run_single_model(
         wandb_project: WandB project name (default: eeg-bci)
         wandb_entity: WandB entity (team/username)
         cache_only: If True, load data exclusively from cache index
-        cache_index_path: Path to cache index file for cache_only mode
         config_overrides: Config overrides dict (from YAML + CLI merge). Passed to train_and_get_result.
         verbose_first_only: If True, only show full verbose output for the first trained subject.
             Subsequent subjects show minimal output (subject header + training table + final eval).
@@ -257,7 +255,6 @@ def run_single_model(
                 wandb_project=wandb_project,
                 wandb_entity=wandb_entity,
                 cache_only=cache_only,
-                cache_index_path=cache_index_path,
                 config_overrides=config_overrides,
                 verbose=verbose,
                 pretrained_path=pretrained_path,
@@ -433,7 +430,6 @@ Examples:
                 args.paradigm,
                 args.task,
                 cache_only=args.cache_only,
-                cache_index_path=args.cache_index_path
             )
 
         if not subjects:
@@ -460,7 +456,6 @@ Examples:
             wandb_project=args.wandb_project,
             wandb_entity=args.wandb_entity,
             cache_only=args.cache_only,
-            cache_index_path=args.cache_index_path,
             config_overrides=config_overrides,
             pretrained_path=args.pretrained,
             freeze_strategy=args.freeze_strategy,

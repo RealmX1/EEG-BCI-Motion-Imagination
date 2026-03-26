@@ -33,6 +33,16 @@ PARADIGM_CONFIG: Dict[str, Dict[str, str]] = {
 }
 
 # ============================================================================
+# Cache Paths
+# ============================================================================
+
+CACHE_DIR = "caches/preprocessed"
+DEFAULT_CACHE_INDEX_PATH = f"{CACHE_DIR}/.cache_index.json"
+
+CACHE_DIR_MOVEMENT = "caches/preprocessed_movement"
+DEFAULT_CACHE_INDEX_PATH_MOVEMENT = f"{CACHE_DIR_MOVEMENT}/.cache_index.json"
+
+# ============================================================================
 # Cache Type Identifiers
 # ============================================================================
 
@@ -41,6 +51,7 @@ class CacheType:
     WITHIN_SUBJECT = 'within_subject_cache'
     TRANSFER = 'transfer_cache'
     CROSS_SUBJECT = 'cross_subject_cache'
+    EXTRA_SESSIONS = 'extra_sessions_cache'
 
 # ============================================================================
 # Task Definitions

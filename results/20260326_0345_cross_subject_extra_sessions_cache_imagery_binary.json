@@ -1,0 +1,344 @@
+{
+  "metadata": {
+    "paradigm": "imagery",
+    "task": "binary",
+    "run_tag": "20260326_0345",
+    "training_type": "cross_subject_extra_sessions",
+    "test_strategy": "per_session",
+    "timestamp": "2026-03-26T11:52:16.895350"
+  },
+  "results": {
+    "eegnet": {
+      "baseline": {
+        "step": "baseline",
+        "up_to_session": 2,
+        "per_subject_test_acc": {
+          "S02": 0.81875,
+          "S03": 0.84375,
+          "S04": 0.90625,
+          "S06": 0.7375,
+          "S07": 0.8375,
+          "S08": 0.85,
+          "S09": 0.95625,
+          "S10": 0.6625,
+          "S11": 0.78125,
+          "S13": 0.8625,
+          "S14": 0.65,
+          "S15": 0.80625,
+          "S16": 0.68125,
+          "S17": 0.81875,
+          "S18": 0.8875,
+          "S19": 0.95
+        },
+        "mean_test_acc": 0.815625,
+        "std_test_acc": 0.09089399732655618,
+        "val_acc": 0.6838660412348642,
+        "best_epoch": 13,
+        "training_time": 1909.0650313999504,
+        "model_path": "checkpoints\\cross_subject\\20260326_0345_baseline_eegnet_imagery_binary\\best.pt",
+        "n_subjects": 16,
+        "train_folders": [
+          "OfflineImagery",
+          "OnlineImagery_Sess01_2class_Base",
+          "OnlineImagery_Sess01_2class_Finetune",
+          "OnlineImagery_Sess02_2class_Base"
+        ],
+        "test_folders": [
+          "OnlineImagery_Sess02_2class_Finetune"
+        ]
+      },
+      "sess03": {
+        "step": "sess03",
+        "up_to_session": 3,
+        "per_subject_test_acc": {
+          "S02": 0.8875,
+          "S03": 0.71875,
+          "S04": 0.825,
+          "S06": 0.81875,
+          "S07": 0.84375,
+          "S08": 0.86875,
+          "S09": 0.95625,
+          "S10": 0.7875,
+          "S11": 0.7875,
+          "S13": 0.85625,
+          "S14": 0.7875,
+          "S15": 0.8125,
+          "S16": 0.63125,
+          "S17": 0.8,
+          "S18": 0.90625,
+          "S19": 0.9375
+        },
+        "mean_test_acc": 0.8265625000000001,
+        "std_test_acc": 0.07804683589838861,
+        "val_acc": 0.6706938418056606,
+        "best_epoch": 12,
+        "training_time": 2319.845692300005,
+        "model_path": "checkpoints\\cross_subject\\20260326_0345_sess03_eegnet_imagery_binary\\best.pt",
+        "n_subjects": 16,
+        "train_folders": [
+          "OfflineImagery",
+          "OnlineImagery_Sess01_2class_Base",
+          "OnlineImagery_Sess01_2class_Finetune",
+          "OnlineImagery_Sess02_2class_Base",
+          "OnlineImagery_Sess02_2class_Finetune",
+          "OnlineImagery_Sess03_2class_Base"
+        ],
+        "test_folders": [
+          "OnlineImagery_Sess03_2class_Finetune"
+        ]
+      },
+      "sess04": {
+        "step": "sess04",
+        "up_to_session": 4,
+        "per_subject_test_acc": {
+          "S02": 0.95,
+          "S03": 0.85,
+          "S04": 0.9375,
+          "S06": 0.725,
+          "S07": 0.8125,
+          "S08": 0.85625,
+          "S09": 0.93125,
+          "S10": 0.78125,
+          "S11": 0.7125,
+          "S13": 0.875,
+          "S14": 0.8,
+          "S15": 0.79375,
+          "S16": 0.73125,
+          "S17": 0.71875,
+          "S18": 0.88125,
+          "S19": 0.975
+        },
+        "mean_test_acc": 0.833203125,
+        "std_test_acc": 0.08465574675699444,
+        "val_acc": 0.6823374750858742,
+        "best_epoch": 44,
+        "training_time": 6270.427499300044,
+        "model_path": "checkpoints\\cross_subject\\20260326_0345_sess04_eegnet_imagery_binary\\best.pt",
+        "n_subjects": 16,
+        "train_folders": [
+          "OfflineImagery",
+          "OnlineImagery_Sess01_2class_Base",
+          "OnlineImagery_Sess01_2class_Finetune",
+          "OnlineImagery_Sess02_2class_Base",
+          "OnlineImagery_Sess02_2class_Finetune",
+          "OnlineImagery_Sess03_2class_Base",
+          "OnlineImagery_Sess03_2class_Finetune",
+          "OnlineImagery_Sess04_2class_Base"
+        ],
+        "test_folders": [
+          "OnlineImagery_Sess04_2class_Finetune"
+        ]
+      },
+      "sess05": {
+        "step": "sess05",
+        "up_to_session": 5,
+        "per_subject_test_acc": {
+          "S02": 0.925,
+          "S03": 0.78125,
+          "S04": 0.81875,
+          "S06": 0.875,
+          "S07": 0.84375,
+          "S08": 0.91875,
+          "S09": 0.9375,
+          "S10": 0.725,
+          "S11": 0.73125,
+          "S13": 0.875,
+          "S14": 0.7375,
+          "S15": 0.76875,
+          "S16": 0.63125,
+          "S17": 0.74375,
+          "S18": 0.8625,
+          "S19": 0.9125
+        },
+        "mean_test_acc": 0.81796875,
+        "std_test_acc": 0.08688047981818182,
+        "val_acc": 0.693887545299068,
+        "best_epoch": 20,
+        "training_time": 4564.186720400001,
+        "model_path": "checkpoints\\cross_subject\\20260326_0345_sess05_eegnet_imagery_binary\\best.pt",
+        "n_subjects": 16,
+        "train_folders": [
+          "OfflineImagery",
+          "OnlineImagery_Sess01_2class_Base",
+          "OnlineImagery_Sess01_2class_Finetune",
+          "OnlineImagery_Sess02_2class_Base",
+          "OnlineImagery_Sess02_2class_Finetune",
+          "OnlineImagery_Sess03_2class_Base",
+          "OnlineImagery_Sess03_2class_Finetune",
+          "OnlineImagery_Sess04_2class_Base",
+          "OnlineImagery_Sess04_2class_Finetune",
+          "OnlineImagery_Sess05_2class_Base"
+        ],
+        "test_folders": [
+          "OnlineImagery_Sess05_2class_Finetune"
+        ]
+      }
+    },
+    "cbramod": {
+      "baseline": {
+        "step": "baseline",
+        "up_to_session": 2,
+        "per_subject_test_acc": {
+          "S02": 0.94375,
+          "S03": 1.0,
+          "S04": 0.98125,
+          "S06": 0.85625,
+          "S07": 0.90625,
+          "S08": 0.96875,
+          "S09": 0.9875,
+          "S10": 0.65625,
+          "S11": 0.86875,
+          "S13": 0.96875,
+          "S14": 0.83125,
+          "S15": 0.95625,
+          "S16": 0.9375,
+          "S17": 0.875,
+          "S18": 0.9,
+          "S19": 0.98125
+        },
+        "mean_test_acc": 0.913671875,
+        "std_test_acc": 0.0834795876411376,
+        "val_acc": 0.6819988642816581,
+        "best_epoch": 27,
+        "training_time": 2385.392389899993,
+        "model_path": "checkpoints\\cross_subject\\20260326_0345_baseline_cbramod_imagery_binary\\best.pt",
+        "n_subjects": 16,
+        "train_folders": [
+          "OfflineImagery",
+          "OnlineImagery_Sess01_2class_Base",
+          "OnlineImagery_Sess01_2class_Finetune",
+          "OnlineImagery_Sess02_2class_Base"
+        ],
+        "test_folders": [
+          "OnlineImagery_Sess02_2class_Finetune"
+        ]
+      },
+      "sess03": {
+        "step": "sess03",
+        "up_to_session": 3,
+        "per_subject_test_acc": {
+          "S02": 0.98125,
+          "S03": 0.94375,
+          "S04": 0.8625,
+          "S06": 0.85,
+          "S07": 0.9375,
+          "S08": 0.93125,
+          "S09": 0.98125,
+          "S10": 0.6875,
+          "S11": 0.925,
+          "S13": 0.88125,
+          "S14": 0.8875,
+          "S15": 0.98125,
+          "S16": 0.84375,
+          "S17": 0.93125,
+          "S18": 0.89375,
+          "S19": 0.9875
+        },
+        "mean_test_acc": 0.906640625,
+        "std_test_acc": 0.07306984932829255,
+        "val_acc": 0.6613606477956953,
+        "best_epoch": 17,
+        "training_time": 2373.539987700002,
+        "model_path": "checkpoints\\cross_subject\\20260326_0345_sess03_cbramod_imagery_binary\\best.pt",
+        "n_subjects": 16,
+        "train_folders": [
+          "OfflineImagery",
+          "OnlineImagery_Sess01_2class_Base",
+          "OnlineImagery_Sess01_2class_Finetune",
+          "OnlineImagery_Sess02_2class_Base",
+          "OnlineImagery_Sess02_2class_Finetune",
+          "OnlineImagery_Sess03_2class_Base"
+        ],
+        "test_folders": [
+          "OnlineImagery_Sess03_2class_Finetune"
+        ]
+      },
+      "sess04": {
+        "step": "sess04",
+        "up_to_session": 4,
+        "per_subject_test_acc": {
+          "S02": 0.975,
+          "S03": 0.975,
+          "S04": 0.94375,
+          "S06": 0.71875,
+          "S07": 0.85,
+          "S08": 0.9125,
+          "S09": 0.975,
+          "S10": 0.8125,
+          "S11": 0.9625,
+          "S13": 0.95,
+          "S14": 0.86875,
+          "S15": 0.9625,
+          "S16": 0.98125,
+          "S17": 0.875,
+          "S18": 0.89375,
+          "S19": 0.99375
+        },
+        "mean_test_acc": 0.9156249999999999,
+        "std_test_acc": 0.07305418579725599,
+        "val_acc": 0.6846742613029548,
+        "best_epoch": 20,
+        "training_time": 3074.9537941999733,
+        "model_path": "checkpoints\\cross_subject\\20260326_0345_sess04_cbramod_imagery_binary\\best.pt",
+        "n_subjects": 16,
+        "train_folders": [
+          "OfflineImagery",
+          "OnlineImagery_Sess01_2class_Base",
+          "OnlineImagery_Sess01_2class_Finetune",
+          "OnlineImagery_Sess02_2class_Base",
+          "OnlineImagery_Sess02_2class_Finetune",
+          "OnlineImagery_Sess03_2class_Base",
+          "OnlineImagery_Sess03_2class_Finetune",
+          "OnlineImagery_Sess04_2class_Base"
+        ],
+        "test_folders": [
+          "OnlineImagery_Sess04_2class_Finetune"
+        ]
+      },
+      "sess05": {
+        "step": "sess05",
+        "up_to_session": 5,
+        "per_subject_test_acc": {
+          "S02": 0.9625,
+          "S03": 0.9875,
+          "S04": 0.9875,
+          "S06": 0.975,
+          "S07": 0.94375,
+          "S08": 0.94375,
+          "S09": 0.95,
+          "S10": 0.8,
+          "S11": 1.0,
+          "S13": 0.95625,
+          "S14": 0.9125,
+          "S15": 0.88125,
+          "S16": 0.9625,
+          "S17": 0.9375,
+          "S18": 0.90625,
+          "S19": 0.90625
+        },
+        "mean_test_acc": 0.93828125,
+        "std_test_acc": 0.0479499148689286,
+        "val_acc": 0.7062430323299889,
+        "best_epoch": 18,
+        "training_time": 961.3887362999999,
+        "model_path": "checkpoints\\cross_subject\\20260326_0345_sess05_cbramod_imagery_binary\\best.pt",
+        "n_subjects": 16,
+        "train_folders": [
+          "OfflineImagery",
+          "OnlineImagery_Sess01_2class_Base",
+          "OnlineImagery_Sess01_2class_Finetune",
+          "OnlineImagery_Sess02_2class_Base",
+          "OnlineImagery_Sess02_2class_Finetune",
+          "OnlineImagery_Sess03_2class_Base",
+          "OnlineImagery_Sess03_2class_Finetune",
+          "OnlineImagery_Sess04_2class_Base",
+          "OnlineImagery_Sess04_2class_Finetune",
+          "OnlineImagery_Sess05_2class_Base"
+        ],
+        "test_folders": [
+          "OnlineImagery_Sess05_2class_Finetune"
+        ]
+      }
+    }
+  }
+}

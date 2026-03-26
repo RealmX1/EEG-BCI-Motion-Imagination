@@ -268,7 +268,8 @@ def compute_attention_scores(X, y, cache_index_path=None, paradigm='imagery', ta
 
             # Load CBraMod-preprocessed data (200 Hz, correct filtering/normalization)
             if cache_index_path is None:
-                cache_index_path = 'caches/preprocessed/.cache_index.json'
+                from src.config.constants import DEFAULT_CACHE_INDEX_PATH
+                cache_index_path = DEFAULT_CACHE_INDEX_PATH
             print(f"    Loading CBraMod cache data (200 Hz)...")
             X_cbramod, y_cbramod = load_all_trials(
                 cache_index_path, paradigm, task, model='cbramod_128ch'

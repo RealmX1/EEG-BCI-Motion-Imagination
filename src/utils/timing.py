@@ -263,6 +263,76 @@ class Timer:
         print(colored(f"{'='*60}", Colors.CYAN, bold=True))
         print()
 
+    @classmethod
+    def append_to_log(cls, log_path: str, metadata: Optional[Dict] = None):
+        """Append timing stats as a CSV row for offline analysis.
+
+        Each call writes one row with columns: timestamp, metadata fields,
+        and one column per timing phase (in seconds).
+
+        Args:
+            log_path: Path to the CSV log file (created if missing).
+            metadata: Optional dict of extra columns (e.g. subject_id, model_type).
+        """
+        import csv
+        from pathlib import Path
+        from datetime import datetime
+
+        stats = cls.get_stats()
+        if not stats:
+            return
+
+        meta = metadata or {}
+        phase_data = {name: f"{s.total:.2f}" for name, s in stats.items()}
+
+        row = {'timestamp': datetime.now().isoformat(), **meta, **phase_data}
+
+        path = Path(log_path)
+        file_exists = path.exists()
+
+        # Merge with existing header to handle varying Timer phases
+        # across subjects (e.g. unified vs non-unified)
+        existing_header: list = []  # initialised here so the except branch below doesn't leave it unbound
+        if file_exists:
+            try:
+                with open(path, 'r', newline='') as rf:
+                    existing_header = next(csv.reader(rf), [])
+                all_fields = list(dict.fromkeys(existing_header + list(row.keys())))
+            except Exception:
+                existing_header = []
+                all_fields = list(row.keys())
+        else:
+            all_fields = list(row.keys())
+
+        # Re-write with unified header when new columns appear.
+        # NOTE (concurrency): this read-then-truncate-rewrite is NOT safe for
+        # concurrent writers (e.g. multi-subject parallel training).  Two
+        # processes that both detect new columns can interleave and clobber
+        # each other's rows.  Acceptable for a timing log; do not rely on this
+        # file for correctness under heavy parallelism.
+        if file_exists and set(row.keys()) - set(existing_header):
+            # New columns detected — rewrite file with expanded header
+            try:
+                with open(path, 'r', newline='') as rf:
+                    reader = csv.DictReader(rf)
+                    old_rows = list(reader)
+                with open(path, 'w', newline='') as wf:
+                    writer = csv.DictWriter(wf, fieldnames=all_fields, restval='')
+                    writer.writeheader()
+                    writer.writerows(old_rows)
+                    writer.writerow(row)
+            except Exception:
+                # Fallback: append with extrasaction='ignore'
+                with open(path, 'a', newline='') as f:
+                    writer = csv.DictWriter(f, fieldnames=all_fields, extrasaction='ignore', restval='')
+                    writer.writerow(row)
+        else:
+            with open(path, 'a', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=all_fields, restval='')
+                if not file_exists:
+                    writer.writeheader()
+                writer.writerow(row)
+
     @staticmethod
     def _make_bar(pct: float, width: int = 20) -> str:
         """Create a visual progress bar (ASCII-safe for Windows)."""

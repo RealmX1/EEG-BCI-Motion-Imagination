@@ -124,7 +124,6 @@ def evaluate_checkpoint(checkpoint_dir: Path, device: torch.device):
         paradigm=paradigm, task='unified',
         elc_path=elc_path,
         cache_only=True,
-        cache_index_path='.cache_index.json',
         unified_mode=True,
     )
     logger.info(f"  Loaded {len(train_dataset)} segments in {time.time()-t0:.1f}s")
@@ -148,7 +147,7 @@ def evaluate_checkpoint(checkpoint_dir: Path, device: torch.device):
 
         subj_results = unified_model_evaluate(
             model, data_root, [subject_id], preprocess_config, elc_path,
-            paradigm, device, cache_only=True, cache_index_path='.cache_index.json',
+            paradigm, device, cache_only=True,
             train_dataset=train_dataset,
             offline_test_indices=subj_offline_test,
         )

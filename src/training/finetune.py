@@ -17,6 +17,7 @@ from src.training.finetune_utils import (
     FreezeStrategy,
     detect_model_type_from_checkpoint,
 )
+from src.config.constants import DEFAULT_CACHE_INDEX_PATH
 from src.training.train_within_subject import train_subject_simple
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,6 @@ def finetune_subject(
     channels: Optional[int] = None,
     channel_config: Optional[str] = None,
     cache_only: bool = False,
-    cache_index_path: str = ".cache_index.json",
     model_selection_strategy: str = 'combined',
     ema_decay: float = 0.998,
     soup_top_k: int = 3,
@@ -91,7 +91,6 @@ def finetune_subject(
         run_tag=run_tag,
         config_overrides=config_overrides,
         cache_only=cache_only,
-        cache_index_path=cache_index_path,
         no_wandb=no_wandb,
         upload_model=upload_model,
         wandb_project=wandb_project,

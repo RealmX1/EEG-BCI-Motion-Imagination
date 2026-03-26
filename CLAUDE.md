@@ -13,22 +13,13 @@ EEG 脑机接口研究项目，对比 EEG 基座模型（CBraMod）与传统 CNN
 实验结果双写：JSON cache + SQLite 注册表 (`ExperimentDB`)。详细命令、文件索引、脚本目录树见 `docs/codebase_reference.md`。
 
 ## 常用命令
-
+默认加 `--cache-only`避免触发耗时的文件系统扫描 -- 同时，因为部分原subject文件并未本地留存，只能通过缓存文件发现以进行完整实验。
 ```bash
-uv sync                                                    # 安装依赖
-uv run python scripts/run_within_subject_comparison.py     # 被试内对比 (最常用)
-uv run python scripts/run_cross_subject_comparison.py      # 跨被试对比
-uv run python scripts/run_transfer_comparison.py           # 迁移学习对比
+uv sync                                                               # 安装依赖
+uv run python scripts/run_within_subject_comparison.py --cache-only   # 被试内对比
+uv run python scripts/run_cross_subject_comparison.py --cache-only    # 跨被试对比
+uv run python scripts/run_transfer_comparison.py --cache-only         # 迁移学习对比
 ```
-
-运行 `scripts/experiments/` 下的脚本时，默认加 `--cache-only` 避免触发耗时的文件系统扫描：
-
-```bash
-uv run python scripts/run_single_model.py --model cbramod --cache-only        # 被试内单模型
-uv run python scripts/run_cross_subject.py --model cbramod --cache-only        # 跨被试
-```
-
-完整命令参考见 `docs/codebase_reference.md`。
 
 ## 数据划分协议
 

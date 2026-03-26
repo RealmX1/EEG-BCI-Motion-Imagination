@@ -29,6 +29,7 @@ from analyze_data_quality import (
     load_subject_data,
 )
 from src.preprocessing.channel_selection import BIOSEMI_128_LABELS
+from src.config.constants import DEFAULT_CACHE_INDEX_PATH
 
 # ============================================================================
 # Constants
@@ -732,7 +733,7 @@ def main():
     args = parser.parse_args()
 
     cache_dir = PROJECT_ROOT / 'caches' / 'preprocessed'
-    cache_index_path = cache_dir / '.cache_index.json'
+    cache_index_path = PROJECT_ROOT / DEFAULT_CACHE_INDEX_PATH
 
     if not cache_index_path.exists():
         print(f"ERROR: Cache index not found: {cache_index_path}")

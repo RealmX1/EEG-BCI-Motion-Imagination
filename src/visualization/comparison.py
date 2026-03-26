@@ -13,7 +13,10 @@ import numpy as np
 from ..config.constants import MODEL_COLORS
 from ..results.dataclasses import ComparisonResult, PlotDataSource, TrainingResult
 from ..utils.logging import SectionLogger
-from .plots import CHANCE_LEVELS
+from .plots import (
+    CHANCE_LEVELS, annotate_bars_with_leaders, accuracy_ylim,
+    separate_paired_labels, draw_label_with_leader,
+)
 
 logger = logging.getLogger(__name__)
 log_plot = SectionLogger(logger, 'plot')
@@ -70,13 +73,15 @@ def generate_combined_plot(
         log_plot.warning("No subjects for plotting")
         return
 
-    # 创建 2 行布局，第一行跨两列
-    fig = plt.figure(figsize=(14, 10))
-    gs = GridSpec(2, 2, height_ratios=[1.2, 1], hspace=0.3, wspace=0.25)
+    # 创建 2 行布局，第一行跨两列; 底部行加高以容纳正方形子图
+    fig = plt.figure(figsize=(14, 12))
+    gs = GridSpec(2, 2, height_ratios=[1.0, 1.2], hspace=0.22, wspace=0.25)
 
     ax_bar = fig.add_subplot(gs[0, :])      # 顶部条形图（跨两列）
     ax_box = fig.add_subplot(gs[1, 0])      # 左下箱线图
     ax_scatter = fig.add_subplot(gs[1, 1])  # 右下配对散点图
+    ax_box.set_box_aspect(1)
+    ax_scatter.set_box_aspect(1)
 
     # =========================================================================
     # Panel 1: 条形图
@@ -86,6 +91,7 @@ def generate_combined_plot(
     bar_width = 0.8 / n_sources
     x_base = np.arange(n_subjects)
 
+    bar_entries = []
     for i, source in enumerate(data_sources):
         x_positions = x_base + (i - (n_sources - 1) / 2) * bar_width
 
@@ -110,17 +116,9 @@ def generate_combined_plot(
             linewidth=linewidth,
             hatch=hatch,
         )
+        bar_entries.append((bars, accs, source.is_current_run))
 
-        # 仅为当前运行添加数值标签
-        if source.is_current_run:
-            for bar, val in zip(bars, accs):
-                if val > 0:
-                    ax_bar.text(
-                        bar.get_x() + bar.get_width()/2,
-                        bar.get_height() + 0.01,
-                        f'{val*100:.1f}',
-                        ha='center', va='bottom', fontsize=7
-                    )
+    annotate_bars_with_leaders(ax_bar, bar_entries)
 
     ax_bar.set_xlabel('Subject')
     ax_bar.set_ylabel('Test Accuracy')
@@ -132,8 +130,8 @@ def generate_combined_plot(
     ax_bar.set_xticklabels(subjects, rotation=45, ha='right')
     ax_bar.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5,
                    label=f'Chance ({chance_level*100:.1f}%)')
-    ax_bar.set_ylim([0, 1.05])
-    ax_bar.legend(loc='upper right', fontsize=8)
+    ax_bar.set_ylim(accuracy_ylim(task_type))
+    ax_bar.legend(loc='lower right', fontsize=8)
 
     # =========================================================================
     # Panel 2: 箱线图
@@ -180,29 +178,32 @@ def generate_combined_plot(
             median.set_color(median_color)
             median.set_linewidth(2)
 
-        # 添加统计标注
+        # 添加统计标注 (leader starts at box right edge)
         for i, (source, accs_list) in enumerate(zip(data_sources, box_data)):
             mean_val = np.mean(accs_list)
             median_val = np.median(accs_list)
-            x_offset = 0.35
+            box_right = max(v[0] for v in bp['boxes'][i].get_path().vertices)
             fontweight = 'bold' if source.is_current_run else 'normal'
-
-            ax_box.text(i + 1 + x_offset, mean_val, f'{mean_val*100:.1f}',
-                        ha='left', va='center', fontsize=7,
-                        color=mean_color, fontweight=fontweight)
-            ax_box.text(i + 1 + x_offset, median_val, f'{median_val*100:.1f}',
-                        ha='left', va='center', fontsize=7,
-                        color=median_color, fontweight=fontweight)
+            adj_mean, adj_med = separate_paired_labels(mean_val, median_val, min_gap=0.02)
+            draw_label_with_leader(
+                ax_box, mean_val, adj_mean, box_right,
+                f'{mean_val*100:.1f}', color=mean_color, fontsize=7,
+                fontweight=fontweight)
+            draw_label_with_leader(
+                ax_box, median_val, adj_med, box_right,
+                f'{median_val*100:.1f}', color=median_color, fontsize=7,
+                fontweight=fontweight)
 
         legend_elements = [
             Line2D([0], [0], color=median_color, linewidth=2, linestyle='-', label='Median'),
             Line2D([0], [0], color=mean_color, linewidth=2, linestyle=(0, (3, 2)), label='Mean')
         ]
-        ax_box.legend(handles=legend_elements, loc='upper right', fontsize=7)
+        ax_box.legend(handles=legend_elements, loc='lower right', fontsize=7)
 
     ax_box.set_ylabel('Test Accuracy')
     ax_box.set_title('Accuracy Distribution')
     ax_box.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5)
+    ax_box.set_ylim(accuracy_ylim(task_type, top_pad=0.08))
 
     # =========================================================================
     # Panel 3: 配对对比散点图（支持双配对：当前 vs 历史）
@@ -275,7 +276,7 @@ def generate_combined_plot(
             ax_scatter.set_ylim(lims)
             ax_scatter.set_xlabel(f'{eegnet_baseline.label} Accuracy')
             ax_scatter.set_ylabel('CBraMod Accuracy')
-            ax_scatter.legend(loc='upper left', fontsize=7)
+            ax_scatter.legend(loc='lower right', fontsize=7)
         else:
             ax_scatter.text(0.5, 0.5, 'No common subjects\nfor paired comparison',
                             ha='center', va='center', transform=ax_scatter.transAxes)
@@ -350,16 +351,14 @@ def generate_comparison_plot(
     ax1.set_xticks(x)
     ax1.set_xticklabels(common, rotation=45)
     ax1.legend()
-    ax1.set_ylim([0, 1])
+    ax1.set_ylim(accuracy_ylim(task_type))
     ax1.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5,
                 label=f'Chance ({chance_level*100:.1f}%)')
 
-    for bar, val in zip(bars1, eegnet_accs):
-        ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01,
-                f'{val*100:.1f}', ha='center', va='bottom', fontsize=7)
-    for bar, val in zip(bars2, cbramod_accs):
-        ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01,
-                f'{val*100:.1f}', ha='center', va='bottom', fontsize=7)
+    annotate_bars_with_leaders(
+        ax1,
+        [(bars1, eegnet_accs, True), (bars2, cbramod_accs, True)],
+    )
 
     # =========================================================================
     # Panel 2: Box plot
@@ -383,27 +382,28 @@ def generate_comparison_plot(
     ax2.set_ylabel('Test Accuracy')
     ax2.set_title('Accuracy Distribution')
     ax2.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5)
+    ax2.set_ylim(accuracy_ylim(task_type, top_pad=0.08))
 
     eegnet_mean = np.mean(eegnet_accs)
     eegnet_median = np.median(eegnet_accs)
     cbramod_mean = np.mean(cbramod_accs)
     cbramod_median = np.median(cbramod_accs)
 
-    x_offset = 0.35
-    ax2.text(1 + x_offset, eegnet_mean, f'{eegnet_mean*100:.1f}',
-             ha='left', va='center', fontsize=7, color=mean_color, fontweight='bold')
-    ax2.text(1 + x_offset, eegnet_median, f'{eegnet_median*100:.1f}',
-             ha='left', va='center', fontsize=7, color=median_color, fontweight='bold')
-    ax2.text(2 + x_offset, cbramod_mean, f'{cbramod_mean*100:.1f}',
-             ha='left', va='center', fontsize=7, color=mean_color, fontweight='bold')
-    ax2.text(2 + x_offset, cbramod_median, f'{cbramod_median*100:.1f}',
-             ha='left', va='center', fontsize=7, color=median_color, fontweight='bold')
+    for box_i, (bm, bmed) in enumerate([(eegnet_mean, eegnet_median), (cbramod_mean, cbramod_median)]):
+        box_right = max(v[0] for v in bp['boxes'][box_i].get_path().vertices)
+        adj_mean, adj_med = separate_paired_labels(bm, bmed, min_gap=0.02)
+        draw_label_with_leader(
+            ax2, bm, adj_mean, box_right,
+            f'{bm*100:.1f}', color=mean_color, fontsize=7, fontweight='bold')
+        draw_label_with_leader(
+            ax2, bmed, adj_med, box_right,
+            f'{bmed*100:.1f}', color=median_color, fontsize=7, fontweight='bold')
 
     legend_elements = [
         Line2D([0], [0], color=median_color, linewidth=2, linestyle='-', label='Median'),
         Line2D([0], [0], color=mean_color, linewidth=2, linestyle=(0, (3, 2)), label='Mean')
     ]
-    ax2.legend(handles=legend_elements, loc='upper right', fontsize=7)
+    ax2.legend(handles=legend_elements, loc='lower right', fontsize=7)
 
     # =========================================================================
     # Panel 3: Scatter plot (paired comparison)
@@ -552,6 +552,7 @@ def plot_unified_comparison(
             x_base = np.arange(n_subjects)
 
             model_accs_list = []  # 用于后面计算 mean±std
+            bar_entries = []
 
             for i, m in enumerate(model_names):
                 per_subj = results[m].get('per_subject', {})
@@ -574,16 +575,9 @@ def plot_unified_comparison(
                     color=color, alpha=0.85,
                     edgecolor='black', linewidth=0.8,
                 )
+                bar_entries.append((bars, accs, True))
 
-                # 数值标签
-                for bar, val in zip(bars, accs):
-                    if val > 0:
-                        ax.text(
-                            bar.get_x() + bar.get_width() / 2,
-                            bar.get_height() + 0.008,
-                            f'{val * 100:.1f}',
-                            ha='center', va='bottom', fontsize=6,
-                        )
+            annotate_bars_with_leaders(ax, bar_entries, fontsize=6)
 
             # Chance level 参考线
             ax.axhline(
@@ -613,8 +607,8 @@ def plot_unified_comparison(
             ax.set_title(f"{subtask.capitalize()} — Per-Subject Test Accuracy", fontsize=11)
             ax.set_xticks(x_base)
             ax.set_xticklabels(subjects, rotation=45, ha='right', fontsize=7)
-            ax.set_ylim([0, 1.08])
-            ax.legend(loc='upper left', fontsize=8)
+            ax.set_ylim(accuracy_ylim(subtask))
+            ax.legend(loc='lower right', fontsize=8)
 
     # =========================================================================
     # Row 4: 分组柱状图 — 三任务均值对比
@@ -644,6 +638,8 @@ def plot_unified_comparison(
             alpha=0.4, zorder=0,
         )
 
+    row4_bar_entries = []
+    row4_yerr_entries = []
     for i, m in enumerate(model_names):
         subtask_results = results[m].get('subtask_results', {})
         x_positions = x_tasks + (i - (n_models - 1) / 2) * bar_width_grouped
@@ -673,17 +669,14 @@ def plot_unified_comparison(
             edgecolor='black', linewidth=1.2,
             yerr=stds, capsize=5, error_kw={'linewidth': 1.2},
         )
+        row4_bar_entries.append((bars, means, True))
+        row4_yerr_entries.append(stds)
 
-        # 柱顶数值标签
-        for bar, val, std_val in zip(bars, means, stds):
-            if val > 0:
-                ax_bar.text(
-                    bar.get_x() + bar.get_width() / 2,
-                    bar.get_height() + std_val + 0.01,
-                    f'{val * 100:.1f}%',
-                    ha='center', va='bottom', fontsize=9,
-                    color=color, fontweight='bold',
-                )
+    annotate_bars_with_leaders(
+        ax_bar, row4_bar_entries,
+        fmt='{:.1f}%', fontsize=9,
+        yerr_entries=row4_yerr_entries,
+    )
 
     # 各任务的 chance level 参考线
     for j, subtask in enumerate(subtasks):
@@ -705,8 +698,8 @@ def plot_unified_comparison(
     )
     ax_bar.set_ylabel('Mean Test Accuracy', fontsize=11)
     ax_bar.set_title('Overall Accuracy by Task', fontsize=12)
-    ax_bar.set_ylim([0, 1.15])
-    ax_bar.legend(loc='upper right', fontsize=9)
+    ax_bar.set_ylim(accuracy_ylim('quaternary'))
+    ax_bar.legend(loc='lower right', fontsize=9)
 
     # =========================================================================
     # Row 5: 配对对比散点图（1x3，各 subtask 一个）

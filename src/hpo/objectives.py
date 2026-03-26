@@ -120,7 +120,6 @@ def within_subject_objective(
     data_root: str = 'data',
     save_dir: str = 'checkpoints/hpo',
     cache_only: bool = False,
-    cache_index_path: str = '.cache_index.json',
     n_channels: int = 128,
 ) -> float:
     """
@@ -136,7 +135,6 @@ def within_subject_objective(
         data_root: 数据根目录
         save_dir: 检查点保存目录
         cache_only: 是否仅从缓存加载数据
-        cache_index_path: 缓存索引路径
         n_channels: 通道数
 
     Returns:
@@ -173,7 +171,6 @@ def within_subject_objective(
                     run_tag=run_tag,
                     config_overrides=config_overrides,
                     cache_only=cache_only,
-                    cache_index_path=cache_index_path,
                     cbramod_channels=n_channels,
                     no_wandb=True,
                     verbose=0,
@@ -233,7 +230,6 @@ def cross_subject_objective(
     data_root: str = 'data',
     save_dir: str = 'checkpoints/hpo',
     cache_only: bool = False,
-    cache_index_path: str = '.cache_index.json',
     n_channels: int = 128,
 ) -> float:
     """
@@ -276,7 +272,6 @@ def cross_subject_objective(
             run_tag=run_tag,
             config_overrides=config_overrides,
             cache_only=cache_only,
-            cache_index_path=cache_index_path,
             wandb_enabled=False,
             verbose=0,
         )
@@ -311,7 +306,6 @@ def transfer_objective(
     data_root: str = 'data',
     save_dir: str = 'checkpoints/hpo',
     cache_only: bool = False,
-    cache_index_path: str = '.cache_index.json',
     n_channels: int = 128,
 ) -> float:
     """
@@ -357,7 +351,6 @@ def transfer_objective(
                     task=task,
                     channels=n_channels if n_channels != 128 else None,
                     cache_only=cache_only,
-                    cache_index_path=cache_index_path,
                     no_wandb=True,
                     verbose=0,
                 )

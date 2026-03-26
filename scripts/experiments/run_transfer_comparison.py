@@ -42,7 +42,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.config.constants import FULL_N_CHANNELS, PARADIGM_CONFIG, CacheType
-from src.utils.device import set_seed, check_cuda_available, get_device
+from src.utils.device import set_seed, check_cuda_available, get_device, check_vram_utilization
 from src.utils.logging import SectionLogger, setup_logging
 
 from src.results import (
@@ -158,6 +158,8 @@ Examples:
     # Standard init
     start_time = time.time()
     check_cuda_available(required=True)
+    if not check_vram_utilization():
+        sys.exit(0)
     set_seed(args.seed)
     log_main.info(f"Device: {get_device()}")
 
@@ -170,7 +172,7 @@ Examples:
     # Discover subjects
     subjects = args.subjects or discover_subjects(
         args.data_root, args.paradigm, args.task,
-        cache_only=args.cache_only, cache_index_path=args.cache_index_path)
+        cache_only=args.cache_only)
     if not subjects:
         log_main.error(f"No subjects found in {args.data_root}")
         sys.exit(1)
@@ -256,7 +258,6 @@ Examples:
             wandb_project=args.wandb_project,
             wandb_entity=args.wandb_entity,
             cache_only=args.cache_only,
-            cache_index_path=args.cache_index_path,
             config_overrides=config_overrides,
             db=db,
             db_run_id=db_run_id,

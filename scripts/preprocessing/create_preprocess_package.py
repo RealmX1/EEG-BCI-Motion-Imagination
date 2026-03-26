@@ -238,6 +238,7 @@ dist/
 | `--force` | 强制重新生成缓存 | False |
 | `--tasks` | 任务类型: binary, ternary, all | all |
 | `--models` | 模型类型: eegnet, cbramod, all | all |
+| `--sessions` | Session 范围: standard (Sess01-02), extra (Sess03+), all | standard |
 | `--data-root` | 数据根目录 | data/ (--in-place 时为父目录) |
 | `--cache-dir` | 缓存目录 | caches/preprocessed/ |
 
@@ -492,6 +493,17 @@ python scripts/preprocess_zip.py --subject S01 --preprocess-only --force
 ### 仅生成 CBraMod 缓存
 ```bash
 python scripts/preprocess_zip.py --models cbramod
+```
+
+### 仅预处理额外在线 session (Sess03+)
+```bash
+# 用于被试有 Sess03/04/05 数据的情况（16/21 名被试）
+python scripts/preprocess_zip.py --in-place --sessions extra
+```
+
+### 预处理所有 session (标准 + 额外)
+```bash
+python scripts/preprocess_zip.py --in-place --sessions all
 ```
 
 ### 打包成小于 5GB 的文件

@@ -86,7 +86,6 @@ def discover_subjects(
     paradigm: str = 'imagery',
     task: str = 'binary',
     cache_only: bool = False,
-    cache_index_path: str = ".cache_index.json"
 ) -> List[str]:
     """
     Discover all available subjects.
@@ -96,14 +95,13 @@ def discover_subjects(
         paradigm: 'imagery' or 'movement'
         task: 'binary', 'ternary', or 'quaternary'
         cache_only: If True, discover from cache index instead of filesystem
-        cache_index_path: Path to cache index file (default: .cache_index.json)
 
     Returns:
         List of subject IDs (e.g., ['S01', 'S02', ...])
     """
     if cache_only:
         from src.preprocessing.data_loader import discover_subjects_from_cache_index
-        return discover_subjects_from_cache_index(cache_index_path, paradigm, task)
+        return discover_subjects_from_cache_index(paradigm, task)
     else:
         return discover_available_subjects(data_root, paradigm, task)
 
@@ -135,12 +133,15 @@ def train_and_get_result(
     wandb_entity: Optional[str] = None,
     preprocess_config: Optional[PreprocessConfig] = None,
     cache_only: bool = False,
-    cache_index_path: str = ".cache_index.json",
     config_overrides: Optional[Dict] = None,
     verbose: int = 2,
     # Transfer learning (optional)
     pretrained_path: Optional[str] = None,
     freeze_strategy: Optional[str] = None,
+    # Session override (for extra sessions experiment)
+    session_folders_override: Optional[Dict] = None,
+    # Precomputed data (for fixed test set strategies)
+    precomputed_data: Optional[Dict] = None,
 ) -> TrainingResult:
     """
     Train a model for a single subject and return TrainingResult.
@@ -161,7 +162,6 @@ def train_and_get_result(
         wandb_entity: WandB entity (team/username)
         preprocess_config: Optional custom PreprocessConfig for ML engineering experiments
         cache_only: If True, load data exclusively from cache index
-        cache_index_path: Path to cache index file for cache_only mode
         config_overrides: Config overrides dict (from YAML + CLI merge). Passed to train_subject_simple.
         verbose: Logging verbosity level (0=silent, 1=minimal, 2=full). Default: 2.
         pretrained_path: Path to a pretrained checkpoint for transfer learning.
@@ -182,11 +182,12 @@ def train_and_get_result(
         wandb_entity=wandb_entity,
         preprocess_config=preprocess_config,
         cache_only=cache_only,
-        cache_index_path=cache_index_path,
         config_overrides=config_overrides,
         verbose=verbose,
         pretrained_path=pretrained_path,
         freeze_strategy=freeze_strategy,
+        session_folders_override=session_folders_override,
+        precomputed_data=precomputed_data,
     )
 
     if not result_dict:
@@ -262,7 +263,6 @@ def add_cache_resume_args(parser):
     parser.add_argument('--force-retrain', action='store_true', help='Force retraining, ignore cache')
     parser.add_argument('--skip-training', action='store_true', help='Skip training, load existing results')
     parser.add_argument('--cache-only', action='store_true', help='Load data from cache index only (no filesystem scan)')
-    parser.add_argument('--cache-index-path', type=str, default='.cache_index.json', help='Path to cache index file')
 
 
 def add_channel_args(parser):

@@ -18,11 +18,98 @@ from torch.utils.data import DataLoader, Subset
 
 from ..preprocessing.data_loader import FingerEEGDataset, PreprocessConfig
 from ..preprocessing.discovery import get_session_folders_for_split
-from ..config.constants import TASKS
+from ..config.constants import DEFAULT_CACHE_INDEX_PATH, TASKS
 from ..utils.logging import SectionLogger
 
 logger = logging.getLogger(__name__)
 log_eval = SectionLogger(logger, 'eval')
+
+
+def _get_amp_dtype(device: torch.device) -> torch.dtype:
+    """Return the best AMP dtype for the device (BF16 if supported, else FP16)."""
+    if device.type == 'cuda' and torch.cuda.is_bf16_supported():
+        return torch.bfloat16
+    return torch.float16
+
+
+def build_trial_grouping(
+    dataset: FingerEEGDataset,
+    indices: List[int],
+) -> Dict[int, List[int]]:
+    """Pre-compute trial-to-segment-position mapping for majority voting.
+
+    Returns a dict mapping trial_idx -> list of positions in ``indices``.
+    This can be built once and reused across epochs to avoid repeated
+    O(n) Python iteration.
+
+    Args:
+        dataset: FingerEEGDataset (with trial_infos)
+        indices: Segment indices to group
+
+    Returns:
+        Dict mapping trial_idx -> list of positions (0-based into ``indices``)
+    """
+    trial_to_positions: Dict[int, List[int]] = {}
+    for pos, idx in enumerate(indices):
+        trial_idx = dataset.trial_infos[idx].trial_idx
+        if trial_idx not in trial_to_positions:
+            trial_to_positions[trial_idx] = []
+        trial_to_positions[trial_idx].append(pos)
+    return trial_to_positions
+
+
+def majority_vote_from_predictions(
+    segment_preds,
+    segment_labels,
+    trial_grouping: Dict[int, List[int]],
+) -> Tuple[float, Dict]:
+    """Compute majority-vote accuracy from pre-computed predictions.
+
+    This is a lightweight CPU-only function that takes predictions already
+    produced by a forward pass (e.g. from ``validate()``) and groups them
+    by trial for majority voting.  No model inference is performed.
+
+    Args:
+        segment_preds: Array-like of per-segment predicted class indices
+        segment_labels: Array-like of per-segment true labels
+        trial_grouping: Pre-computed mapping from trial_idx -> list of
+            positions into segment_preds/segment_labels (from
+            ``build_trial_grouping()``)
+
+    Returns:
+        Tuple of (accuracy, detailed_results)
+    """
+    correct = 0
+    total = 0
+    results = {'per_trial': []}
+
+    for trial_idx in sorted(trial_grouping.keys()):
+        positions = trial_grouping[trial_idx]
+        preds = [segment_preds[p] for p in positions]
+        true_label = segment_labels[positions[0]]
+
+        counter = Counter(preds)
+        majority_pred = counter.most_common(1)[0][0]
+
+        is_correct = int(majority_pred == true_label)
+        correct += is_correct
+        total += 1
+
+        results['per_trial'].append({
+            'trial_idx': trial_idx,
+            'n_segments': len(preds),
+            'predictions': [int(p) for p in preds],
+            'majority_pred': int(majority_pred),
+            'true_label': int(true_label),
+            'correct': is_correct,
+        })
+
+    accuracy = correct / total if total > 0 else 0.0
+    results['accuracy'] = accuracy
+    results['correct'] = correct
+    results['total'] = total
+
+    return accuracy, results
 
 
 def majority_vote_accuracy(
@@ -72,12 +159,13 @@ def majority_vote_accuracy(
     segment_labels = []
 
     use_amp = use_amp and device.type == 'cuda'
+    amp_dtype = _get_amp_dtype(device) if use_amp else torch.float16
 
     with torch.no_grad():
         for segments, labels in loader:
             segments = segments.to(device, non_blocking=True)
             if use_amp:
-                with torch.amp.autocast('cuda', dtype=torch.float16):
+                with torch.amp.autocast('cuda', dtype=amp_dtype):
                     outputs = model(segments)
             else:
                 outputs = model(segments)
@@ -113,7 +201,7 @@ def majority_vote_accuracy(
         results['per_trial'].append({
             'trial_idx': trial_idx,
             'n_segments': len(preds),
-            'predictions': preds,
+            'predictions': [int(p) for p in preds],
             'majority_pred': int(majority_pred),
             'true_label': int(true_label),
             'correct': is_correct,
@@ -234,13 +322,14 @@ def majority_vote_accuracy_unified(
     segment_labels = []
 
     use_amp = use_amp and device.type == 'cuda'
+    amp_dtype = _get_amp_dtype(device) if use_amp else torch.float16
     active_indices_tensor = torch.tensor(active_class_indices, device=device)
 
     with torch.no_grad():
         for segments, labels in loader:
             segments = segments.to(device, non_blocking=True)
             if use_amp:
-                with torch.amp.autocast('cuda', dtype=torch.float16):
+                with torch.amp.autocast('cuda', dtype=amp_dtype):
                     outputs = model(segments)
             else:
                 outputs = model(segments)
@@ -279,7 +368,7 @@ def majority_vote_accuracy_unified(
         results['per_trial'].append({
             'trial_idx': trial_idx,
             'n_segments': len(preds),
-            'predictions': preds,
+            'predictions': [int(p) for p in preds],
             'majority_pred': int(majority_pred),
             'true_label': int(true_label),
             'correct': is_correct,
@@ -302,7 +391,6 @@ def unified_model_evaluate(
     paradigm: str,
     device: torch.device,
     cache_only: bool = False,
-    cache_index_path: str = ".cache_index.json",
     train_dataset=None,
     offline_test_indices: Optional[List[int]] = None,
 ) -> Dict:
@@ -324,7 +412,6 @@ def unified_model_evaluate(
         paradigm: 'imagery' or 'movement'
         device: Device to use
         cache_only: If True, load exclusively from cache index
-        cache_index_path: Path to cache index file
         train_dataset: The unified training FingerEEGDataset (needed for
             quaternary eval via ``offline_test_indices``)
         offline_test_indices: Segment indices into ``train_dataset`` that
@@ -380,7 +467,6 @@ def unified_model_evaluate(
             target_classes=subtask_classes,
             elc_path=str(elc_path),
             cache_only=cache_only,
-            cache_index_path=cache_index_path,
             reject_trials=False,
         )
 

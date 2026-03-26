@@ -138,7 +138,6 @@ def load_subject_data(
     config: PreprocessConfig,
     elc_path: Path,
     cache_only: bool = False,
-    cache_index_path: str = ".cache_index.json",
     reject_trials: bool = True,
     unified_mode: bool = False,
 ) -> FingerEEGDataset:
@@ -153,7 +152,6 @@ def load_subject_data(
         config: Preprocessing configuration
         elc_path: Path to ELC file
         cache_only: If True, load exclusively from cache index (default: False)
-        cache_index_path: Path to cache index file (default: '.cache_index.json')
         reject_trials: If True (default), apply amplitude-based trial rejection.
             Set False for test datasets.
         unified_mode: If True, relax n_classes filter to load 2class + 3class
@@ -170,7 +168,6 @@ def load_subject_data(
         target_classes=target_classes,
         elc_path=str(elc_path),
         cache_only=cache_only,
-        cache_index_path=cache_index_path,
         reject_trials=reject_trials,
         unified_mode=unified_mode,
     )
@@ -217,9 +214,12 @@ def create_data_loaders_from_dataset(
         num_workers=num_workers,
         pin_memory=True,
     )
+    # Validation doesn't compute gradients, so use larger batch size
+    # for fewer kernel launches and better GPU utilization
+    val_batch_size = min(512, 4 * batch_size)
     val_loader = DataLoader(
         val_subset,
-        batch_size=batch_size,
+        batch_size=val_batch_size,
         shuffle=False,
         num_workers=num_workers,
         pin_memory=True,
@@ -268,7 +268,6 @@ def train_single_subject(
     preprocess_config: Optional[PreprocessConfig] = None,
     # Cache-only mode (for training without original .mat files)
     cache_only: bool = False,
-    cache_index_path: str = ".cache_index.json",
     # WandB parameters
     no_wandb: bool = False,
     upload_model: bool = False,
@@ -280,6 +279,10 @@ def train_single_subject(
     # ---- Transfer learning (optional) ----
     pretrained_path: Optional[str] = None,
     freeze_strategy: Optional[str] = None,
+    # ---- Session override (for extra sessions experiment) ----
+    session_folders_override: Optional[Dict[str, List[str]]] = None,
+    # ---- Precomputed data (for fixed test set strategies) ----
+    precomputed_data: Optional[Dict] = None,
 ) -> Dict:
     """
     Train model for a single subject.
@@ -304,7 +307,6 @@ def train_single_subject(
             default config for the model type. Used by ML engineering experiments.
         cache_only: If True, load data exclusively from cache index without
             scanning filesystem. Useful when original .mat files are not available.
-        cache_index_path: Path to cache index file for cache_only mode.
         no_wandb: Disable wandb logging
         upload_model: Upload model artifacts (.pt) to WandB (default: False)
         wandb_project: WandB project name
@@ -318,6 +320,10 @@ def train_single_subject(
             When set, replaces the from-scratch model with the pretrained one.
         freeze_strategy: Freeze strategy for transfer learning ('none', 'backbone',
             'partial'). Only used when pretrained_path is set.
+        precomputed_data: Optional dict with pre-built datasets and indices.
+            When provided, skips internal data loading and splitting.
+            Keys: 'train_dataset', 'train_indices', 'val_indices',
+            and optionally 'test_dataset' or 'test_indices'.
 
     Returns:
         Results dict with accuracy and history
@@ -366,109 +372,96 @@ def train_single_subject(
     n_classes = task_config['n_classes']
     is_unified = (config['task'] == 'unified')
 
-    # Get session folders for paper protocol
-    task_patterns = get_task_type_patterns(config['task'], n_classes, paradigm)
+    # Get session folders for paper protocol (or use override for extra sessions experiment)
+    if session_folders_override is not None:
+        missing = {'train', 'test'} - session_folders_override.keys()
+        if missing:
+            raise ValueError(f"session_folders_override missing required keys: {missing}")
+        task_patterns = session_folders_override
+    else:
+        task_patterns = get_task_type_patterns(config['task'], n_classes, paradigm)
     paradigm_desc = "Motor Imagery (MI)" if paradigm == 'imagery' else "Motor Execution (ME)"
 
-    # ========== DATA LOADING ==========
-    if verbose >= 2:
-        print_section_header(f"Data Loading ({paradigm_desc})")
-        print(colored(f"  Train folders: {task_patterns['train']}", Colors.DIM))
-        print(colored(f"  Test folders: {task_patterns['test']}", Colors.DIM))
+    # ========== PRECOMPUTED DATA (fixed test set strategies) ==========
+    test_indices_precomputed = None
 
-    # Select preprocessing config based on model type (unless custom config provided)
-    if preprocess_config is not None:
-        # Use custom config (e.g., from ML engineering experiments)
-        log_data.info(f"Preprocess: Custom config ({preprocess_config.target_fs}Hz, "
-                      f"{preprocess_config.bandpass_low}-{preprocess_config.bandpass_high}Hz)")
+    if precomputed_data is not None:
+        train_dataset = precomputed_data['train_dataset']
+        train_indices = precomputed_data['train_indices']
+        val_indices = precomputed_data['val_indices']
+        test_dataset = precomputed_data.get('test_dataset')
+        test_indices_precomputed = precomputed_data.get('test_indices')
+        offline_test_indices = []
+
         if verbose >= 2:
-            print(colored(f"  Custom preprocessing config provided", Colors.CYAN))
-    elif model_type == 'cbramod':
-        # Check if using 128 channels (ACPE adaptation)
-        use_full_channels = (cbramod_channels == 128)
-        preprocess_config = PreprocessConfig.for_cbramod(full_channels=use_full_channels)
-        if use_full_channels:
-            log_data.info("Preprocess: CBraMod (128ch, 200Hz, 0.3-75Hz) - ACPE adaptation")
-            if verbose >= 2:
-                print(colored(f"  CBraMod 128-channel mode: Using ACPE for channel adaptation", Colors.CYAN))
-        else:
-            log_data.info("Preprocess: CBraMod (19ch, 200Hz, 0.3-75Hz)")
+            print_section_header(f"Data (precomputed, {paradigm_desc})")
+            print_metric("Train segments", len(train_indices), Colors.GREEN)
+            print_metric("Val segments", len(val_indices), Colors.YELLOW)
+            if test_dataset is not None:
+                print_metric("Test segments (separate dataset)", len(test_dataset), Colors.MAGENTA)
+            elif test_indices_precomputed is not None:
+                print_metric("Test segments (index-based)", len(test_indices_precomputed), Colors.MAGENTA)
+
+        # Skip to dataloader creation
     else:
-        preprocess_config = PreprocessConfig.paper_aligned(n_class=n_classes)
-        log_data.info("Preprocess: EEGNet (128ch, 100Hz, 4-40Hz)")
-
-    data_config = config['data']
-    channels = data_config.get('channels')
-    channel_config = data_config.get('channel_config')
-    preprocess_config.apply_channel_overrides(channels=channels, channel_config=channel_config)
-    if 'window_length' in data_config:
-        preprocess_config.trial_duration = data_config['window_length']
-
-    # Load TRAINING data
-    if verbose >= 2:
-        print(colored("\n  Loading training data...", Colors.DIM))
-    with Timer("train_data_loading", print_on_exit=(verbose >= 2)):
-        train_dataset = load_subject_data(
-            data_root, subject_id,
-            session_folders=task_patterns['train'],
-            target_classes=target_classes,
-            config=preprocess_config,
-            elc_path=elc_path,
-            cache_only=cache_only,
-            cache_index_path=cache_index_path,
-            unified_mode=is_unified,
-        )
-
-    if len(train_dataset) == 0:
-        print(colored(f"  ERROR: No training data found for subject {subject_id}", Colors.RED))
-        return {}
-
-    if verbose >= 2:
-        print_metric("Train segments (total)", len(train_dataset), Colors.CYAN)
-        # Show detailed cache status with hit/miss counts
-        if train_dataset.cache:
-            hits = getattr(train_dataset, 'n_cache_hits', 0)
-            misses = getattr(train_dataset, 'n_cache_misses', 0)
-            if misses == 0 and hits > 0:
-                cache_status = f"hit ({hits} files)"
-            elif hits == 0 and misses > 0:
-                cache_status = f"miss ({misses} files)"
-            elif hits > 0 and misses > 0:
-                cache_status = f"partial ({hits} hit, {misses} miss)"
-            else:
-                cache_status = "enabled"
-            print_metric("Cache", cache_status, Colors.GREEN)
-        else:
-            print_metric("Cache", "disabled", Colors.DIM)
-
-    # Load TEST data (Session 2 Finetune - completely held out)
-    # For unified mode, test data is loaded per-subtask during evaluation
-    test_dataset = None
-    if not is_unified:
+        # ========== DATA LOADING ==========
         if verbose >= 2:
-            print(colored("\n  Loading test data (Session 2 Finetune)...", Colors.DIM))
-        with Timer("test_data_loading", print_on_exit=(verbose >= 2)):
-            test_dataset = load_subject_data(
+            print_section_header(f"Data Loading ({paradigm_desc})")
+            print(colored(f"  Train folders: {task_patterns['train']}", Colors.DIM))
+            print(colored(f"  Test folders: {task_patterns['test']}", Colors.DIM))
+
+        # Select preprocessing config based on model type (unless custom config provided)
+        if preprocess_config is not None:
+            # Use custom config (e.g., from ML engineering experiments)
+            log_data.info(f"Preprocess: Custom config ({preprocess_config.target_fs}Hz, "
+                          f"{preprocess_config.bandpass_low}-{preprocess_config.bandpass_high}Hz)")
+            if verbose >= 2:
+                print(colored(f"  Custom preprocessing config provided", Colors.CYAN))
+        elif model_type == 'cbramod':
+            # Check if using 128 channels (ACPE adaptation)
+            use_full_channels = (cbramod_channels == 128)
+            preprocess_config = PreprocessConfig.for_cbramod(full_channels=use_full_channels)
+            if use_full_channels:
+                log_data.info("Preprocess: CBraMod (128ch, 200Hz, 0.3-75Hz) - ACPE adaptation")
+                if verbose >= 2:
+                    print(colored(f"  CBraMod 128-channel mode: Using ACPE for channel adaptation", Colors.CYAN))
+            else:
+                log_data.info("Preprocess: CBraMod (19ch, 200Hz, 0.3-75Hz)")
+        else:
+            preprocess_config = PreprocessConfig.paper_aligned(n_class=n_classes)
+            log_data.info("Preprocess: EEGNet (128ch, 100Hz, 4-40Hz)")
+
+        data_config = config['data']
+        channels = data_config.get('channels')
+        channel_config = data_config.get('channel_config')
+        preprocess_config.apply_channel_overrides(channels=channels, channel_config=channel_config)
+        if 'window_length' in data_config:
+            preprocess_config.trial_duration = data_config['window_length']
+
+        # Load TRAINING data
+        if verbose >= 2:
+            print(colored("\n  Loading training data...", Colors.DIM))
+        with Timer("train_data_loading", print_on_exit=(verbose >= 2)):
+            train_dataset = load_subject_data(
                 data_root, subject_id,
-                session_folders=task_patterns['test'],
+                session_folders=task_patterns['train'],
                 target_classes=target_classes,
                 config=preprocess_config,
                 elc_path=elc_path,
                 cache_only=cache_only,
-                cache_index_path=cache_index_path,
-                reject_trials=False,
+                unified_mode=is_unified,
             )
 
-        if len(test_dataset) == 0:
-            if verbose >= 2:
-                print(colored(f"  WARNING: No test data found for subject {subject_id}", Colors.YELLOW))
+        if len(train_dataset) == 0:
+            print(colored(f"  ERROR: No training data found for subject {subject_id}", Colors.RED))
+            return {}
 
         if verbose >= 2:
-            print_metric("Test segments", len(test_dataset) if test_dataset else 0, Colors.MAGENTA)
-            # Show test data cache status
-            if test_dataset and test_dataset.cache:
-                hits = getattr(test_dataset, 'n_cache_hits', 0)
-                misses = getattr(test_dataset, 'n_cache_misses', 0)
+            print_metric("Train segments (total)", len(train_dataset), Colors.CYAN)
+            # Show detailed cache status with hit/miss counts
+            if train_dataset.cache:
+                hits = getattr(train_dataset, 'n_cache_hits', 0)
+                misses = getattr(train_dataset, 'n_cache_misses', 0)
                 if misses == 0 and hits > 0:
                     cache_status = f"hit ({hits} files)"
                 elif hits == 0 and misses > 0:
@@ -478,33 +471,72 @@ def train_single_subject(
                 else:
                     cache_status = "enabled"
                 print_metric("Cache", cache_status, Colors.GREEN)
-    else:
-        if verbose >= 2:
-            print(colored("\n  Test data: per-subtask evaluation (unified mode)", Colors.CYAN))
+            else:
+                print_metric("Cache", "disabled", Colors.DIM)
 
-    # ========== DATA SPLITTING (Temporal) ==========
-    offline_test_indices = []
-    if verbose >= 2:
-        split_desc = "Temporal - Offline 70/15/15 + Online 80/20" if is_unified else "Temporal - Last 20% for Validation"
-        print_section_header(f"Data Splitting ({split_desc})")
+        # Load TEST data (Session 2 Finetune - completely held out)
+        # For unified mode, test data is loaded per-subtask during evaluation
+        test_dataset = None
+        if not is_unified:
+            if verbose >= 2:
+                print(colored("\n  Loading test data (Session 2 Finetune)...", Colors.DIM))
+            with Timer("test_data_loading", print_on_exit=(verbose >= 2)):
+                test_dataset = load_subject_data(
+                    data_root, subject_id,
+                    session_folders=task_patterns['test'],
+                    target_classes=target_classes,
+                    config=preprocess_config,
+                    elc_path=elc_path,
+                    cache_only=cache_only,
+                    reject_trials=False,
+                )
 
-    with Timer("data_splitting", print_on_exit=(verbose >= 2)):
-        if verbose >= 2:
-            n_trials = len(train_dataset.get_unique_trials())
-            print_metric("Total training trials", n_trials, Colors.CYAN)
+            if len(test_dataset) == 0:
+                if verbose >= 2:
+                    print(colored(f"  WARNING: No test data found for subject {subject_id}", Colors.YELLOW))
 
-        if is_unified:
-            # Unified: 3-way split for offline (70/15/15), 2-way for online (80/20)
-            train_indices, val_indices, offline_test_indices = temporal_split_with_offline_test(
-                train_dataset, group_attr='session_type',
-            )
+            if verbose >= 2:
+                print_metric("Test segments", len(test_dataset) if test_dataset else 0, Colors.MAGENTA)
+                # Show test data cache status
+                if test_dataset and test_dataset.cache:
+                    hits = getattr(test_dataset, 'n_cache_hits', 0)
+                    misses = getattr(test_dataset, 'n_cache_misses', 0)
+                    if misses == 0 and hits > 0:
+                        cache_status = f"hit ({hits} files)"
+                    elif hits == 0 and misses > 0:
+                        cache_status = f"miss ({misses} files)"
+                    elif hits > 0 and misses > 0:
+                        cache_status = f"partial ({hits} hit, {misses} miss)"
+                    else:
+                        cache_status = "enabled"
+                    print_metric("Cache", cache_status, Colors.GREEN)
         else:
-            # Stratified temporal split: split within each session to ensure
-            # similar distributions (prevents validation set from being 100%
-            # one session type).
-            train_indices, val_indices = temporal_split_by_group(
-                train_dataset, group_attr='session_type', val_ratio=0.2,
-            )
+            if verbose >= 2:
+                print(colored("\n  Test data: per-subtask evaluation (unified mode)", Colors.CYAN))
+
+        # ========== DATA SPLITTING (Temporal) ==========
+        offline_test_indices = []
+        if verbose >= 2:
+            split_desc = "Temporal - Offline 70/15/15 + Online 80/20" if is_unified else "Temporal - Last 20% for Validation"
+            print_section_header(f"Data Splitting ({split_desc})")
+
+        with Timer("data_splitting", print_on_exit=(verbose >= 2)):
+            if verbose >= 2:
+                n_trials = len(train_dataset.get_unique_trials())
+                print_metric("Total training trials", n_trials, Colors.CYAN)
+
+            if is_unified:
+                # Unified: 3-way split for offline (70/15/15), 2-way for online (80/20)
+                train_indices, val_indices, offline_test_indices = temporal_split_with_offline_test(
+                    train_dataset, group_attr='session_type',
+                )
+            else:
+                # Stratified temporal split: split within each session to ensure
+                # similar distributions (prevents validation set from being 100%
+                # one session type).
+                train_indices, val_indices = temporal_split_by_group(
+                    train_dataset, group_attr='session_type', val_ratio=0.2,
+                )
 
     # Pre-compute per-subtask val groups for unified mode
     unified_val_groups = None
@@ -800,7 +832,7 @@ def train_single_subject(
         with Timer("unified_test_evaluation", print_on_exit=(verbose >= 1)):
             subtask_results = unified_model_evaluate(
                 model, data_root, [subject_id], preprocess_config, elc_path,
-                paradigm, device, cache_only, cache_index_path,
+                paradigm, device, cache_only,
                 train_dataset=train_dataset,
                 offline_test_indices=offline_test_indices,
             )
@@ -819,6 +851,22 @@ def train_single_subject(
             mean_color = Colors.BRIGHT_GREEN if test_acc > 0.7 else (Colors.YELLOW if test_acc > 0.5 else Colors.RED)
             print(f"  {colored('TEST Mean (unified):', Colors.WHITE, bold=True)} "
                   f"{colored(f'{test_acc:.2%}', mean_color, bold=True)}")
+    elif test_indices_precomputed is not None and len(test_indices_precomputed) > 0:
+        # Index-based test evaluation (fixed_combined strategy: test in same dataset)
+        with Timer("test_evaluation", print_on_exit=(verbose >= 1)):
+            test_acc, test_results = majority_vote_accuracy(
+                model, train_dataset, test_indices_precomputed, device
+            )
+            n_test_trials = len(set(
+                train_dataset.trial_infos[i].trial_idx
+                for i in test_indices_precomputed
+            ))
+
+        if verbose >= 1:
+            test_color = Colors.BRIGHT_GREEN if test_acc > 0.7 else (Colors.YELLOW if test_acc > 0.5 else Colors.RED)
+            print(f"  {colored('TEST Accuracy (fixed test set):', Colors.WHITE, bold=True)} "
+                  f"{colored(f'{test_acc:.4f}', test_color, bold=True)}")
+            print(f"  {colored(f'Test trials: {n_test_trials}', Colors.DIM)}")
     elif test_dataset is not None and len(test_dataset) > 0:
         with Timer("test_evaluation", print_on_exit=(verbose >= 1)):
             # Get all test indices
@@ -858,7 +906,7 @@ def train_single_subject(
 
                 ms_subtask_results = unified_model_evaluate(
                     model, data_root, [subject_id], preprocess_config, elc_path,
-                    paradigm, device, cache_only, cache_index_path,
+                    paradigm, device, cache_only,
                     train_dataset=train_dataset,
                     offline_test_indices=offline_test_indices,
                 )
@@ -899,6 +947,49 @@ def train_single_subject(
                 if best_path.exists():
                     best_checkpoint = torch.load(best_path, map_location=device, weights_only=True)
                     model.load_state_dict(best_checkpoint['model_state_dict'])
+
+        elif test_indices_precomputed is not None and len(test_indices_precomputed) > 0:
+            # Index-based milestone evaluation (fixed_combined strategy)
+            if verbose >= 1:
+                print_section_header(f"Milestone Evaluation ({len(milestones)} checkpoints)")
+
+            test_indices_ms = test_indices_precomputed
+
+            for ms in milestones:
+                ms_path = Path(ms['path'])
+                if not ms_path.exists():
+                    log_train.warning(f"Milestone checkpoint not found: {ms_path}")
+                    continue
+
+                ms_checkpoint = torch.load(ms_path, map_location=device, weights_only=True)
+                model.load_state_dict(ms_checkpoint['model_state_dict'])
+
+                ms_test_acc, _ = majority_vote_accuracy(
+                    model, train_dataset, test_indices_ms, device
+                )
+
+                milestone_test_results.append({
+                    'epoch': ms['epoch'],
+                    'combined_score': ms['combined_score'],
+                    'val_acc': ms.get('val_acc', 0),
+                    'val_majority_acc': ms.get('val_majority_acc', 0),
+                    'test_accuracy': ms_test_acc,
+                })
+
+                if verbose >= 1:
+                    test_color = Colors.BRIGHT_GREEN if ms_test_acc > 0.7 else (
+                        Colors.YELLOW if ms_test_acc > 0.5 else Colors.RED
+                    )
+                    print(f"  Epoch {ms['epoch']:3d}: "
+                          f"val_combined={ms['combined_score']:.4f}  "
+                          f"test_acc={colored(f'{ms_test_acc:.4f}', test_color)}")
+
+            # Restore best model after milestone evaluation
+            if (subject_save_dir / 'best.pt').exists():
+                best_ckpt = torch.load(subject_save_dir / 'best.pt', map_location=device, weights_only=True)
+                model.load_state_dict(best_ckpt['model_state_dict'])
+            elif trainer.best_state is not None:
+                model.load_state_dict(trainer.best_state)
 
         elif test_dataset is not None and len(test_dataset) > 0:
             # Non-unified milestone evaluation (existing logic)
@@ -949,6 +1040,16 @@ def train_single_subject(
     total_time = time.perf_counter() - total_start
     if verbose >= 2:
         Timer.print_summary(f"Timing Summary - {subject_id}")
+
+    # Write timing breakdown to CSV log for future pipeline analysis
+    timing_log = save_dir / 'timing_breakdown.csv'
+    Timer.append_to_log(str(timing_log), metadata={
+        'subject_id': subject_id,
+        'model_type': model_type,
+        'task': config['task'],
+        'paradigm': paradigm,
+        'total_time': f"{total_time:.2f}",
+    })
 
     # Save results
     epochs_trained = len(history['train_loss'])
@@ -1068,7 +1169,6 @@ def train_subject_simple(
     config_overrides: Optional[Dict] = None,
     # Cache-only mode
     cache_only: bool = False,
-    cache_index_path: str = ".cache_index.json",
     # WandB parameters
     no_wandb: bool = False,
     upload_model: bool = False,
@@ -1080,6 +1180,10 @@ def train_subject_simple(
     # ---- Transfer learning (optional) ----
     pretrained_path: Optional[str] = None,
     freeze_strategy: Optional[str] = None,
+    # ---- Session override (for extra sessions experiment) ----
+    session_folders_override: Optional[Dict[str, List[str]]] = None,
+    # ---- Precomputed data (for fixed test set strategies) ----
+    precomputed_data: Optional[Dict] = None,
 ) -> Dict:
     """
     Simplified training function for programmatic use.
@@ -1100,7 +1204,6 @@ def train_subject_simple(
         preprocess_config: Optional custom PreprocessConfig. If None, uses
             default config for the model type. Used by ML engineering experiments.
         cache_only: If True, load data exclusively from cache index without filesystem
-        cache_index_path: Path to cache index file for cache_only mode
         no_wandb: Disable wandb logging
         upload_model: Upload model artifacts (.pt) to WandB (default: False)
         wandb_project: WandB project name
@@ -1172,7 +1275,6 @@ def train_subject_simple(
         preprocess_config=preprocess_config,
         # Cache-only mode
         cache_only=cache_only,
-        cache_index_path=cache_index_path,
         # WandB parameters
         no_wandb=no_wandb,
         upload_model=upload_model,
@@ -1183,4 +1285,8 @@ def train_subject_simple(
         # Transfer learning
         pretrained_path=pretrained_path,
         freeze_strategy=freeze_strategy,
+        # Session override
+        session_folders_override=session_folders_override,
+        # Precomputed data
+        precomputed_data=precomputed_data,
     )

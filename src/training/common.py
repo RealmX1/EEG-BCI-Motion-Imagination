@@ -47,6 +47,12 @@ def setup_performance_optimizations(
     if device.type != 'cuda':
         return
 
+    # Reset deterministic mode that set_seed(deterministic=True) may have enabled.
+    # use_deterministic_algorithms(True) forces slower kernels for scatter/gather/etc.
+    if hasattr(torch, 'use_deterministic_algorithms'):
+        log_train.debug("Disabling deterministic algorithms for performance optimization")
+        torch.use_deterministic_algorithms(False)
+
     # cuDNN auto-tuning - finds optimal algorithms for specific input sizes
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.deterministic = False
@@ -192,7 +198,7 @@ def create_two_phase_loaders(
     exploration_batch_size = scheduler_config.get('exploration_batch_size', 32)
 
     # Create exploration loader (small batch for loss landscape exploration)
-    exploration_loader, val_loader = create_data_loaders_from_dataset(
+    exploration_loader, _ = create_data_loaders_from_dataset(
         dataset, train_indices, val_indices,
         batch_size=exploration_batch_size,
         num_workers=num_workers,
@@ -200,7 +206,7 @@ def create_two_phase_loaders(
     )
 
     # Create main loader (normal batch for stable training)
-    main_train_loader, _ = create_data_loaders_from_dataset(
+    main_train_loader, val_loader = create_data_loaders_from_dataset(
         dataset, train_indices, val_indices,
         batch_size=main_batch_size,
         num_workers=num_workers,

@@ -14,7 +14,10 @@ import numpy as np
 from ..config.constants import MODEL_COLORS
 from ..results.dataclasses import ComparisonResult, PlotDataSource, TrainingResult
 from ..utils.logging import SectionLogger
-from .plots import CHANCE_LEVELS
+from .plots import (
+    CHANCE_LEVELS, annotate_bars_with_leaders, accuracy_ylim,
+    separate_paired_labels, draw_label_with_leader,
+)
 
 logger = logging.getLogger(__name__)
 log_plot = SectionLogger(logger, 'plot')
@@ -114,7 +117,7 @@ def generate_cross_subject_single_plot(
         bar_width = 0.35
 
         # 历史数据（半透明，斜线填充）
-        ax_bar.bar(
+        bars_hist = ax_bar.bar(
             x - bar_width/2, hist_accs, bar_width,
             label=f'{model_type.upper()} (within-subj)',
             color=colors[model_type],
@@ -125,7 +128,7 @@ def generate_cross_subject_single_plot(
         )
 
         # 当前运行（实心）
-        bars = ax_bar.bar(
+        bars_curr = ax_bar.bar(
             x + bar_width/2, current_accs, bar_width,
             label=f'{model_type.upper()} (cross-subj)',
             color=colors[model_type],
@@ -134,14 +137,10 @@ def generate_cross_subject_single_plot(
             linewidth=1.5,
         )
 
-        # 添加数值标签
-        for bar, val in zip(bars, current_accs):
-            ax_bar.text(
-                bar.get_x() + bar.get_width()/2,
-                bar.get_height() + 0.01,
-                f'{val*100:.1f}',
-                ha='center', va='bottom', fontsize=7
-            )
+        annotate_bars_with_leaders(
+            ax_bar,
+            [(bars_hist, hist_accs, False), (bars_curr, current_accs, True)],
+        )
     else:
         # 单组柱子
         bars = ax_bar.bar(
@@ -153,13 +152,7 @@ def generate_cross_subject_single_plot(
             linewidth=1.5,
         )
 
-        for bar, val in zip(bars, current_accs):
-            ax_bar.text(
-                bar.get_x() + bar.get_width()/2,
-                bar.get_height() + 0.01,
-                f'{val*100:.1f}',
-                ha='center', va='bottom', fontsize=7
-            )
+        annotate_bars_with_leaders(ax_bar, [(bars, current_accs, True)])
 
     # 添加均值线
     mean_acc = np.mean(current_accs)
@@ -176,8 +169,8 @@ def generate_cross_subject_single_plot(
     ax_bar.set_xticklabels(subjects, rotation=45, ha='right')
     ax_bar.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5,
                    label=f'Chance ({chance_level*100:.1f}%)')
-    ax_bar.set_ylim([0, 1.05])
-    ax_bar.legend(loc='upper right', fontsize=8)
+    ax_bar.set_ylim(accuracy_ylim(task_type))
+    ax_bar.legend(loc='lower right', fontsize=8)
 
     # =========================================================================
     # Panel 2: 箱线图
@@ -214,22 +207,25 @@ def generate_cross_subject_single_plot(
     for i, accs_list in enumerate(box_data):
         mean_val = np.mean(accs_list)
         median_val = np.median(accs_list)
-        x_offset = 0.35
-
-        ax_box.text(i + 1 + x_offset, mean_val, f'{mean_val*100:.1f}',
-                    ha='left', va='center', fontsize=7, color=mean_color)
-        ax_box.text(i + 1 + x_offset, median_val, f'{median_val*100:.1f}',
-                    ha='left', va='center', fontsize=7, color=median_color)
+        box_right = max(v[0] for v in bp['boxes'][i].get_path().vertices)
+        adj_mean, adj_med = separate_paired_labels(mean_val, median_val, min_gap=0.02)
+        draw_label_with_leader(
+            ax_box, mean_val, adj_mean, box_right,
+            f'{mean_val*100:.1f}', color=mean_color, fontsize=7)
+        draw_label_with_leader(
+            ax_box, median_val, adj_med, box_right,
+            f'{median_val*100:.1f}', color=median_color, fontsize=7)
 
     legend_elements = [
         Line2D([0], [0], color=median_color, linewidth=2, linestyle='-', label='Median'),
         Line2D([0], [0], color=mean_color, linewidth=2, linestyle=(0, (3, 2)), label='Mean')
     ]
-    ax_box.legend(handles=legend_elements, loc='upper right', fontsize=7)
+    ax_box.legend(handles=legend_elements, loc='lower right', fontsize=7)
 
     ax_box.set_ylabel('Test Accuracy')
     ax_box.set_title('Accuracy Distribution')
     ax_box.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5)
+    ax_box.set_ylim(accuracy_ylim(task_type, top_pad=0.08))
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
@@ -331,23 +327,13 @@ def generate_config_comparison_plot(
         yerr=cbramod_stds, capsize=4, error_kw={'linewidth': 1.2},
     )
 
-    # 柱顶均值标签
-    for bar, val in zip(bars_eeg, eegnet_means):
-        if val > 0:
-            ax_bar.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + max(eegnet_stds) + 0.005,
-                f'{val * 100:.1f}%', ha='center', va='bottom', fontsize=7.5,
-                color=colors['eegnet'], fontweight='bold',
-            )
-    for bar, val in zip(bars_cbr, cbramod_means):
-        if val > 0:
-            ax_bar.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + max(cbramod_stds) + 0.005,
-                f'{val * 100:.1f}%', ha='center', va='bottom', fontsize=7.5,
-                color=colors['cbramod'], fontweight='bold',
-            )
+    # 柱顶均值标签（leader-line 风格）
+    annotate_bars_with_leaders(
+        ax_bar,
+        [(bars_eeg, eegnet_means, True), (bars_cbr, cbramod_means, True)],
+        fmt='{:.1f}%', fontsize=7.5,
+        yerr_entries=[eegnet_stds, cbramod_stds],
+    )
 
     # 基线参考线（128ch 全通道）
     if baseline_accs:
@@ -384,13 +370,13 @@ def generate_config_comparison_plot(
     ax_bar.set_xticks(x)
     ax_bar.set_xticklabels(config_labels, fontsize=10)
     ax_bar.set_ylabel('Mean Test Accuracy', fontsize=11)
-    ax_bar.set_ylim([0, min(1.05, max(max(eegnet_means), max(cbramod_means)) + 0.15)])
+    ax_bar.set_ylim(accuracy_ylim(task_type))
     ax_bar.set_title(
         f'{n_channels}-Channel Configuration Comparison — {paradigm.title()} {task_type.title()}\n'
         f'(bars show mean ± std across {len(list(config_results[configs[0]].get("cbramod", {}).keys()))} subjects)',
         fontsize=12,
     )
-    ax_bar.legend(loc='upper right', fontsize=8, ncol=2)
+    ax_bar.legend(loc='lower right', fontsize=8, ncol=2)
 
     # =========================================================================
     # Panel 2 & 3: 箱线图（CBraMod / EEGNet）
@@ -423,15 +409,18 @@ def generate_config_comparison_plot(
             median.set_color(median_color)
             median.set_linewidth(2)
 
-        # 均值 / 中位数标注
-        x_offset = 0.32
+        # 均值 / 中位数标注 (leader starts at box right edge)
         for i, accs in enumerate(valid_data):
             mean_val = np.mean(accs)
             median_val = np.median(accs)
-            ax.text(i + 1 + x_offset, mean_val, f'{mean_val * 100:.1f}',
-                    ha='left', va='center', fontsize=6.5, color=mean_color)
-            ax.text(i + 1 + x_offset, median_val, f'{median_val * 100:.1f}',
-                    ha='left', va='center', fontsize=6.5, color=median_color)
+            box_right = max(v[0] for v in bp['boxes'][i].get_path().vertices)
+            adj_mean, adj_med = separate_paired_labels(mean_val, median_val, min_gap=0.02)
+            draw_label_with_leader(
+                ax, mean_val, adj_mean, box_right,
+                f'{mean_val * 100:.1f}', color=mean_color, fontsize=6.5)
+            draw_label_with_leader(
+                ax, median_val, adj_med, box_right,
+                f'{median_val * 100:.1f}', color=median_color, fontsize=6.5)
 
         ax.axhline(y=chance_level, color='gray', linestyle=':', alpha=0.6)
 
@@ -457,14 +446,14 @@ def generate_config_comparison_plot(
 
         ax.set_ylabel('Test Accuracy', fontsize=10)
         ax.set_title(f'{model_label} — Distribution by Config', fontsize=10)
-        ax.set_ylim([0, 1.05])
+        ax.set_ylim(accuracy_ylim(task_type, top_pad=0.08))
         ax.tick_params(axis='x', labelsize=8.5)
 
         legend_elements = [
             Line2D([0], [0], color=median_color, linewidth=2, linestyle='-', label='Median'),
             Line2D([0], [0], color=mean_color, linewidth=2, linestyle=(0, (3, 2)), label='Mean'),
         ] + baseline_legend
-        ax.legend(handles=legend_elements, loc='upper right', fontsize=7)
+        ax.legend(handles=legend_elements, loc='lower right', fontsize=7)
 
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     log_plot.info(f"Config comparison plot saved: {output_path}")

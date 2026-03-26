@@ -38,7 +38,7 @@ from .schedulers import (
     CosineAnnealingWarmupDecay,
     visualize_lr_schedule,
 )
-from .evaluation import majority_vote_accuracy
+from .evaluation import majority_vote_accuracy, build_trial_grouping, majority_vote_from_predictions
 from .trainer import WithinSubjectTrainer as _WithinSubjectTrainer  # Alias to avoid conflict
 
 # Shared training utilities
@@ -63,6 +63,8 @@ __all__ = [
     'visualize_lr_schedule',
     # Evaluation
     'majority_vote_accuracy',
+    'build_trial_grouping',
+    'majority_vote_from_predictions',
     # Shared utilities
     'setup_performance_optimizations',
     'maybe_compile_model',

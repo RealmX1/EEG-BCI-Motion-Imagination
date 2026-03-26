@@ -61,6 +61,12 @@ Usage:
     # Force re-preprocessing (ignore existing caches)
     uv run python scripts/preprocess_zip.py --force
 
+    # Preprocess only extra online sessions (Sess03+) for subjects that have them
+    uv run python scripts/preprocess_zip.py --in-place --sessions extra
+
+    # Preprocess all sessions (standard + extra)
+    uv run python scripts/preprocess_zip.py --in-place --sessions all
+
     # Process only specific models/tasks
     uv run python scripts/preprocess_zip.py --models cbramod --tasks binary
 """
@@ -77,7 +83,12 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 # Add project root to path
-PROJECT_ROOT = Path(__file__).parent.parent.parent
+# In main repo: scripts/preprocessing/preprocess_zip.py → 3 levels up
+# In distribution package: scripts/preprocess_zip.py → 2 levels up
+_candidate_root = Path(__file__).parent.parent.parent
+if not (_candidate_root / 'src').exists():
+    _candidate_root = Path(__file__).parent.parent
+PROJECT_ROOT = _candidate_root
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.preprocessing.data_loader import (
@@ -87,6 +98,7 @@ from src.preprocessing.data_loader import (
     get_session_folders_for_split,
 )
 from src.preprocessing.cache_manager import get_cache
+from src.config.constants import CACHE_DIR, CACHE_DIR_MOVEMENT
 
 
 # Paradigm configuration (aligned with run_within_subject_comparison.py)
@@ -368,35 +380,49 @@ def delete_extracted_folder(subject_id: str, data_root: Path, logger: logging.Lo
 def get_all_session_folders_for_task(
     subject_dir: Path,
     paradigm: str,
-    task: str
+    task: str,
+    session_scope: str = 'standard',
 ) -> List[str]:
     """
-    Get all session folders for a given paradigm and task type.
-
-    Combines train and test folders to cache all relevant data.
-    Uses get_session_folders_for_split from data_loader.py for consistency.
+    Get session folders for a given paradigm, task, and scope.
 
     Args:
         subject_dir: Path to subject directory
         paradigm: 'imagery' or 'movement'
         task: Task type ('binary', 'ternary', 'quaternary')
+        session_scope: Which sessions to include:
+            'standard' - Offline + Sess01 + Sess02 (default, paper protocol)
+            'extra'    - Only Sess03+ (Base and Finetune)
+            'all'      - Standard + extra sessions
 
     Returns:
         List of available session folder names
     """
-    # Get both train and test folders
-    train_folders = get_session_folders_for_split(paradigm, task, 'train')
-    test_folders = get_session_folders_for_split(paradigm, task, 'test')
-
-    # Combine and deduplicate
-    all_patterns = list(dict.fromkeys(train_folders + test_folders))
-
-    # Filter to existing folders
     available = []
-    for pattern in all_patterns:
-        folder = subject_dir / pattern
-        if folder.exists():
-            available.append(pattern)
+
+    if session_scope in ('standard', 'all'):
+        # Standard: train + test folders from paper protocol
+        train_folders = get_session_folders_for_split(paradigm, task, 'train')
+        test_folders = get_session_folders_for_split(paradigm, task, 'test')
+        standard_patterns = list(dict.fromkeys(train_folders + test_folders))
+        for pattern in standard_patterns:
+            if (subject_dir / pattern).exists():
+                available.append(pattern)
+
+    if session_scope in ('extra', 'all'):
+        # Extra: scan for Sess03+ folders
+        paradigm_prefix = 'Imagery' if paradigm == 'imagery' else 'Movement'
+        online_prefix = f'Online{paradigm_prefix}'
+        task_to_nclass = {'binary': '2class', 'ternary': '3class'}
+        n_class = task_to_nclass.get(task)
+
+        if n_class:
+            for sess_num in range(3, 10):
+                for phase in ('Base', 'Finetune'):
+                    folder_name = f'{online_prefix}_Sess0{sess_num}_{n_class}_{phase}'
+                    if (subject_dir / folder_name).exists():
+                        if folder_name not in available:
+                            available.append(folder_name)
 
     return available
 
@@ -410,6 +436,8 @@ def generate_caches(
     force: bool = False,
     tasks: List[str] = None,
     models: List[str] = None,
+    session_scope: str = 'standard',
+    parallel_workers: int = 0,
 ) -> dict:
     """
     Generate preprocessing caches for a subject.
@@ -501,7 +529,7 @@ def generate_caches(
         logger.info(f"Generating cache: {subject_id} / {paradigm_desc} / {model} / {task}")
 
         # Get available session folders for this paradigm and task
-        session_folders = get_all_session_folders_for_task(subject_dir, paradigm, task)
+        session_folders = get_all_session_folders_for_task(subject_dir, paradigm, task, session_scope)
 
         if not session_folders:
             logger.warning(f"  No session folders found for {paradigm}/{task}, skipping")
@@ -512,6 +540,18 @@ def generate_caches(
         try:
             # Create dataset - this triggers cache generation
             # v3.0: Caches trials (not segments), ~6.6x size reduction
+            #
+            # IMPORTANT — reject_trials=False is an intentional design choice:
+            #   Raw (unrejected) trials are stored in the cache so that trial
+            #   rejection can be applied at training time with different thresholds
+            #   without requiring a full cache rebuild.
+            #
+            # Cache compatibility warning:
+            #   Caches generated BEFORE this change (when reject_trials defaulted
+            #   to True) already have bad trials removed and cannot be mixed with
+            #   caches generated after this change.  If you are unsure which policy
+            #   a cache was built with, regenerate all caches from scratch to ensure
+            #   consistency.
             dataset = FingerEEGDataset(
                 data_root=str(data_root),
                 subjects=[subject_id],
@@ -521,7 +561,8 @@ def generate_caches(
                 elc_path=str(elc_path),
                 use_cache=True,
                 cache_dir=str(cache_dir),
-                parallel_workers=0,  # Auto-detect
+                parallel_workers=parallel_workers,
+                reject_trials=False,  # Raw trials cached; rejection deferred to training time
             )
 
             n_segments = len(dataset)
@@ -540,6 +581,7 @@ def generate_caches(
                 'sessions': session_folders,
                 'cache_hits': cache_hits,
                 'cache_misses': cache_misses,
+                'reject_trials_at_cache': False,  # Raw trials stored; rejection deferred to training time
             })
             stats['segments_total'] += n_segments
 
@@ -575,7 +617,14 @@ def main() -> int:
     parser.add_argument(
         '--subject',
         type=str,
-        help='Subject ID to preprocess (use with --preprocess-only)',
+        help='(Deprecated: use --subjects) Single subject ID to preprocess',
+    )
+
+    parser.add_argument(
+        '--subjects',
+        nargs='+',
+        type=str,
+        help='Subject IDs or ranges to preprocess (e.g., S08 S09 or S08-S21)',
     )
 
     parser.add_argument(
@@ -595,8 +644,9 @@ def main() -> int:
     parser.add_argument(
         '--cache-dir',
         type=Path,
-        default=PROJECT_ROOT / 'caches' / 'preprocessed',
-        help='Cache directory (default: caches/preprocessed/)',
+        default=None,
+        help='Cache directory (default: caches/preprocessed/ for imagery, '
+             'caches/preprocessed_movement/ for movement)',
     )
 
     parser.add_argument(
@@ -653,15 +703,37 @@ def main() -> int:
         help='Experiment paradigm: imagery (MI) or movement (ME) (default: imagery)',
     )
 
+    parser.add_argument(
+        '--sessions',
+        type=str,
+        default='standard',
+        choices=['standard', 'extra', 'all'],
+        help='Session scope: standard (Sess01-02), extra (Sess03+), all (default: standard)',
+    )
+
+    parser.add_argument(
+        '--workers',
+        type=int,
+        default=0,
+        help='Parallel workers for preprocessing: 0=auto (cpu_count-1), -1=serial (default: 0)',
+    )
+
     args = parser.parse_args()
+
+    # Resolve cache-dir default based on paradigm
+    if args.cache_dir is None:
+        cache_subdir = CACHE_DIR_MOVEMENT if args.paradigm == 'movement' else CACHE_DIR
+        args.cache_dir = PROJECT_ROOT / cache_subdir
 
     logger = setup_logging()
 
     paradigm_desc = PARADIGM_CONFIG[args.paradigm]['description']
 
+    session_scope_desc = {'standard': 'Sess01-02 (standard)', 'extra': 'Sess03+ (extra only)', 'all': 'All sessions'}
     logger.info("=" * 60)
     logger.info("ZIP to Preprocessed Cache Converter")
     logger.info(f"Paradigm: {paradigm_desc}")
+    logger.info(f"Sessions: {session_scope_desc[args.sessions]}")
     if args.in_place:
         logger.info("Mode: IN-PLACE (package inside data folder)")
     elif args.preprocess_only:
@@ -679,6 +751,32 @@ def main() -> int:
     args.data_root.mkdir(parents=True, exist_ok=True)
     args.cache_dir.mkdir(parents=True, exist_ok=True)
 
+    # Resolve --subjects / --subject into a list
+    # --subjects supports ranges like S08-S21
+    def _parse_subject_specs(specs: List[str]) -> List[str]:
+        """Parse subject specs, expanding ranges like S08-S21."""
+        result = []
+        for spec in specs:
+            if '-' in spec and spec.count('-') == 1:
+                parts = spec.split('-')
+                try:
+                    prefix = ''.join(c for c in parts[0] if c.isalpha())
+                    start = int(''.join(c for c in parts[0] if c.isdigit()))
+                    end = int(''.join(c for c in parts[1] if c.isdigit()))
+                    for i in range(start, end + 1):
+                        result.append(f'{prefix}{i:02d}')
+                except (ValueError, IndexError):
+                    result.append(spec)  # Not a range, use as-is
+            else:
+                result.append(spec)
+        return result
+
+    explicit_subjects = None
+    if args.subjects:
+        explicit_subjects = _parse_subject_specs(args.subjects)
+    elif args.subject:
+        explicit_subjects = [args.subject]
+
     subjects_to_process = []
     freshly_extracted = set()  # Track which subjects were freshly extracted
 
@@ -689,10 +787,9 @@ def main() -> int:
         args.data_root = PROJECT_ROOT / 'data'
         logger.info(f"In-place mode: using {args.data_root} as data root")
 
-        if args.subject:
-            subjects_to_process = [args.subject]
+        if explicit_subjects:
+            subjects_to_process = explicit_subjects
         else:
-            # Discover subjects in the parent directory
             subjects_to_process = discover_available_subjects(
                 str(args.data_root),
                 paradigm=args.paradigm,
@@ -708,11 +805,9 @@ def main() -> int:
 
     # Handle preprocess-only mode
     elif args.preprocess_only:
-        if args.subject:
-            subjects_to_process = [args.subject]
+        if explicit_subjects:
+            subjects_to_process = explicit_subjects
         else:
-            # Find all available subjects for this paradigm
-            # Use 'binary' as default task since most subjects have binary data
             subjects_to_process = discover_available_subjects(
                 str(args.data_root),
                 paradigm=args.paradigm,
@@ -777,6 +872,8 @@ def main() -> int:
             force=args.force,
             tasks=args.tasks,
             models=args.models,
+            session_scope=args.sessions,
+            parallel_workers=args.workers,
         )
         all_stats.append(stats)
 
