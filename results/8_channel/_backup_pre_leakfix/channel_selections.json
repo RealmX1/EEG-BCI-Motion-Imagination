@@ -1,0 +1,38 @@
+{
+  "metadata": {
+    "created_at": "2026-03-02T03:18:14.289569",
+    "paradigm": "imagery",
+    "task": "binary",
+    "n_channels_selected": 8,
+    "n_subjects": 21,
+    "n_trials_total": 15663,
+    "methods": [
+      "attention"
+    ]
+  },
+  "configs": {
+    "attention": {
+      "indices": [
+        15,
+        33,
+        54,
+        71,
+        111,
+        113,
+        114,
+        123
+      ],
+      "scores": {
+        "15": 0.41277726739645004,
+        "33": 0.44340553134679794,
+        "54": 0.6067833080887794,
+        "71": 0.6181451827287674,
+        "111": 0.5117967873811722,
+        "113": 0.7713096439838409,
+        "114": 0.4804716408252716,
+        "123": 0.5236378759145737
+      },
+      "description": "Model attention — EEGNet spatial_conv weights + CBraMod input gradient"
+    }
+  }
+}

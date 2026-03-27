@@ -35,7 +35,18 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # Data Loading
 # ============================================================================
 
-def load_all_trials(cache_index_path, paradigm, task, model='eegnet'):
+def _get_train_session_folders(paradigm, task):
+    """Get the set of session folders that belong to the training split.
+
+    Uses the canonical split definition from discovery.py to ensure
+    channel selection only uses training data (no test leakage).
+    """
+    from src.preprocessing.discovery import get_session_folders_for_split
+    return set(get_session_folders_for_split(paradigm, task, split='train'))
+
+
+def load_all_trials(cache_index_path, paradigm, task, model='eegnet',
+                    train_only=True):
     """Load all trials from HDF5 cache for analysis.
 
     Args:
@@ -43,6 +54,8 @@ def load_all_trials(cache_index_path, paradigm, task, model='eegnet'):
         paradigm: 'imagery' or 'movement'
         task: 'binary', 'ternary', or 'quaternary'
         model: 'eegnet' or 'cbramod_128ch'
+        train_only: If True (default), only load training-split sessions
+                    to prevent test data leakage into channel selection.
 
     Returns:
         X: np.ndarray [N, 128, T] — all trials concatenated
@@ -56,9 +69,12 @@ def load_all_trials(cache_index_path, paradigm, task, model='eegnet'):
     task_map = {'binary': 2, 'ternary': 3, 'quaternary': 4}
     n_classes = task_map[task]
 
+    train_sessions = _get_train_session_folders(paradigm, task) if train_only else None
+
     all_trials = []
     all_labels = []
     loaded_files = 0
+    skipped_sessions = set()
 
     entries = index.get('entries', index)  # v3.0 has 'entries' key
     for key, meta in entries.items():
@@ -71,6 +87,13 @@ def load_all_trials(cache_index_path, paradigm, task, model='eegnet'):
         if meta.get('n_classes') != n_classes:
             continue
 
+        # Filter by training sessions to prevent test data leakage
+        if train_sessions is not None:
+            session_folder = meta.get('session_folder', '')
+            if session_folder not in train_sessions:
+                skipped_sessions.add(session_folder)
+                continue
+
         h5_path = f"caches/preprocessed/{key}.h5"
         try:
             with h5py.File(h5_path, 'r') as f:
@@ -81,6 +104,9 @@ def load_all_trials(cache_index_path, paradigm, task, model='eegnet'):
             loaded_files += 1
         except Exception as e:
             print(f"  Warning: Failed to load {h5_path}: {e}")
+
+    if skipped_sessions:
+        print(f"  Excluded non-training sessions: {sorted(skipped_sessions)}")
 
     if not all_trials:
         raise RuntimeError(
