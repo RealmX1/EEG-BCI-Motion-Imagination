@@ -45,9 +45,20 @@ def _get_train_session_folders(paradigm, task):
     return set(get_session_folders_for_split(paradigm, task, split='train'))
 
 
+TASK_TARGET_CLASSES = {
+    'binary': [1, 4],       # Thumb vs Pinky
+    'ternary': [1, 3, 4],   # Thumb vs Middle vs Pinky
+    'quaternary': [1, 2, 3, 4],
+}
+
+
 def load_all_trials(cache_index_path, paradigm, task, model='eegnet',
                     train_only=True):
     """Load all trials from HDF5 cache for analysis.
+
+    Includes OfflineImagery data (n_classes=None in cache) by filtering
+    to target classes after loading. This ensures channel selection uses
+    the same training data as the actual training pipeline.
 
     Args:
         cache_index_path: Path to .cache_index.json
@@ -59,7 +70,7 @@ def load_all_trials(cache_index_path, paradigm, task, model='eegnet',
 
     Returns:
         X: np.ndarray [N, 128, T] — all trials concatenated
-        y: np.ndarray [N] — labels
+        y: np.ndarray [N] — labels (raw class indices, e.g. 1/4 for binary)
     """
     import h5py
 
@@ -68,12 +79,14 @@ def load_all_trials(cache_index_path, paradigm, task, model='eegnet',
 
     task_map = {'binary': 2, 'ternary': 3, 'quaternary': 4}
     n_classes = task_map[task]
+    target_classes = TASK_TARGET_CLASSES[task]
 
     train_sessions = _get_train_session_folders(paradigm, task) if train_only else None
 
     all_trials = []
     all_labels = []
     loaded_files = 0
+    offline_files = 0
     skipped_sessions = set()
 
     entries = index.get('entries', index)  # v3.0 has 'entries' key
@@ -84,7 +97,10 @@ def load_all_trials(cache_index_path, paradigm, task, model='eegnet',
             continue
         if meta.get('subject_task_type') != paradigm:
             continue
-        if meta.get('n_classes') != n_classes:
+
+        # Accept matching n_classes (Online) or None (Offline, contains all 4 classes)
+        entry_n_classes = meta.get('n_classes')
+        if entry_n_classes is not None and entry_n_classes != n_classes:
             continue
 
         # Filter by training sessions to prevent test data leakage
@@ -99,6 +115,16 @@ def load_all_trials(cache_index_path, paradigm, task, model='eegnet',
             with h5py.File(h5_path, 'r') as f:
                 trials = f['trials'][:]  # [n_trials, 128, n_samples]
                 labels = f['labels'][:]
+
+            # Offline data: filter to target classes
+            if entry_n_classes is None:
+                mask = np.isin(labels, target_classes)
+                if mask.sum() == 0:
+                    continue
+                trials = trials[mask]
+                labels = labels[mask]
+                offline_files += 1
+
             all_trials.append(trials)
             all_labels.append(labels)
             loaded_files += 1
@@ -114,7 +140,7 @@ def load_all_trials(cache_index_path, paradigm, task, model='eegnet',
             f"paradigm={paradigm}, task={task} (n_classes={n_classes})"
         )
 
-    print(f"  Loaded {loaded_files} cache files (model={model})")
+    print(f"  Loaded {loaded_files} cache files ({offline_files} Offline, model={model})")
 
     X = np.concatenate(all_trials, axis=0)
     y = np.concatenate(all_labels, axis=0)
@@ -198,13 +224,20 @@ def compute_csp_scores(X, y):
 # Method 3: Attention / Gradient
 # ============================================================================
 
-def _find_best_checkpoint(model_type, paradigm, task):
-    """Auto-discover the most recent 128ch cross-subject checkpoint.
+def _find_best_checkpoint(model_type, paradigm, task, checkpoint_tag='baseline'):
+    """Auto-discover a 128ch cross-subject checkpoint.
 
     Search order:
-    1. Timestamped dirs: checkpoints/cross_subject/YYYYMMDD_HHMM_{model}_{paradigm}_{task}/best.pt
+    1. Timestamped dirs: checkpoints/cross_subject/YYYYMMDD_HHMM_{tag}_{model}_{paradigm}_{task}/best.pt
        (only 128ch — skip dirs whose config.json shows n_channels != 128)
     2. Legacy dir: checkpoints/cross_subject/{model}_{paradigm}_{task}/best.pt
+
+    Args:
+        model_type: 'eegnet' or 'cbramod'
+        paradigm: 'imagery' or 'movement'
+        task: 'binary' or 'ternary'
+        checkpoint_tag: Tag to match in directory name (default: 'baseline').
+                       Use 'any' to accept any checkpoint (newest first).
 
     Returns:
         Path to best.pt, or None if not found.
@@ -214,6 +247,14 @@ def _find_best_checkpoint(model_type, paradigm, task):
 
     # Timestamped dirs — sorted descending so newest first
     candidates = sorted(base.glob(f'*_{suffix}'), reverse=True)
+
+    # Filter by tag: skip extra-sessions checkpoints (sess03/sess04/sess05)
+    # unless explicitly requested
+    if checkpoint_tag != 'any':
+        tagged = [d for d in candidates if f'_{checkpoint_tag}_' in d.name]
+        # Fall back to all candidates if no tagged match
+        candidates = tagged if tagged else candidates
+
     for d in candidates:
         best_pt = d / 'best.pt'
         if not best_pt.exists():
@@ -238,7 +279,8 @@ def _find_best_checkpoint(model_type, paradigm, task):
     return None
 
 
-def compute_attention_scores(X, y, cache_index_path=None, paradigm='imagery', task='binary'):
+def compute_attention_scores(X, y, cache_index_path=None, paradigm='imagery',
+                             task='binary', checkpoint_tag='baseline'):
     """Combine EEGNet spatial_conv weights + CBraMod input gradient.
 
     EEGNet: Extract spatial_conv.weight from trained checkpoint.
@@ -246,7 +288,7 @@ def compute_attention_scores(X, y, cache_index_path=None, paradigm='imagery', ta
              using CBraMod-preprocessed cache data (200 Hz, 0.3-75 Hz, ÷100).
     Average both scores (normalize each to [0,1] first).
 
-    Checkpoints are auto-discovered (most recent 128ch cross-subject).
+    Checkpoints are auto-discovered (most recent 128ch cross-subject baseline).
     """
     import torch
 
@@ -256,7 +298,7 @@ def compute_attention_scores(X, y, cache_index_path=None, paradigm='imagery', ta
     n_sources = 0
 
     # --- EEGNet spatial_conv weights ---
-    eegnet_path = _find_best_checkpoint('eegnet', paradigm, task)
+    eegnet_path = _find_best_checkpoint('eegnet', paradigm, task, checkpoint_tag)
     if eegnet_path:
         try:
             ckpt = torch.load(str(eegnet_path), map_location='cpu', weights_only=False)
@@ -272,7 +314,7 @@ def compute_attention_scores(X, y, cache_index_path=None, paradigm='imagery', ta
         print(f"    Warning: No EEGNet checkpoint found for {paradigm}/{task}")
 
     # --- CBraMod input gradient ---
-    cbramod_path = _find_best_checkpoint('cbramod', paradigm, task)
+    cbramod_path = _find_best_checkpoint('cbramod', paradigm, task, checkpoint_tag)
     if cbramod_path:
         try:
             from src.models.cbramod_adapter import CBraModForFingerBCI
@@ -483,6 +525,11 @@ Examples:
         '--cache-index-path', type=str, default='caches/preprocessed/.cache_index.json',
         help='Path to cache index file (default: caches/preprocessed/.cache_index.json)',
     )
+    parser.add_argument(
+        '--checkpoint-tag', type=str, default='baseline',
+        help='Checkpoint tag for attention method (default: baseline). '
+             'Use "any" to pick the newest checkpoint regardless of tag.',
+    )
     args = parser.parse_args()
 
     # Auto-derive output path from --n-channels if not explicitly set
@@ -537,6 +584,7 @@ Examples:
                     cache_index_path=args.cache_index_path,
                     paradigm=args.paradigm,
                     task=args.task,
+                    checkpoint_tag=args.checkpoint_tag,
                 )
             else:
                 scores = method_info['fn'](X, y)
@@ -562,7 +610,7 @@ Examples:
         print("\nNo methods succeeded. Exiting.")
         sys.exit(1)
 
-    # Count unique subjects
+    # Count unique subjects (including Offline entries with n_classes=None)
     with open(args.cache_index_path, 'r') as f:
         index = json.load(f)
     task_map = {'binary': 2, 'ternary': 3, 'quaternary': 4}
@@ -573,7 +621,7 @@ Examples:
             continue
         if (meta.get('model') == 'eegnet' and
                 meta.get('subject_task_type') == args.paradigm and
-                meta.get('n_classes') == task_map[args.task]):
+                meta.get('n_classes') in (task_map[args.task], None)):
             subjects.add(meta.get('subject', ''))
 
     # Build output JSON

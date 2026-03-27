@@ -1,39 +1,41 @@
 {
   "metadata": {
-    "created_at": "2026-03-27T13:57:28.340885",
+    "created_at": "2026-03-27T14:57:57.115143",
     "paradigm": "imagery",
     "task": "binary",
     "n_channels_selected": 8,
     "n_subjects": 21,
-    "n_trials_total": 11743,
+    "n_trials_total": 18103,
     "methods": [
       "fdr",
       "attention"
     ],
     "train_only": true,
-    "note": "Recomputed with train-only data (excludes Sess02_Finetune test set and Sess03+ extra sessions)"
+    "includes_offline": true,
+    "checkpoint_tag": "baseline",
+    "note": "Train-only data (no test leakage), includes OfflineImagery, baseline checkpoints for attention"
   },
   "configs": {
     "fdr": {
       "indices": [
-        60,
-        68,
-        69,
-        70,
-        71,
+        81,
+        92,
+        98,
         101,
-        102,
-        103
+        114,
+        117,
+        118,
+        122
       ],
       "scores": {
-        "60": 0.022249072790145874,
-        "68": 0.02361447550356388,
-        "69": 0.027740875259041786,
-        "70": 0.028831271454691887,
-        "71": 0.02045578509569168,
-        "101": 0.02349521964788437,
-        "102": 0.02403009496629238,
-        "103": 0.028213314712047577
+        "81": 0.00013665066217072308,
+        "92": 0.00013212482735980302,
+        "98": 0.00012438269914127886,
+        "101": 0.00012962135951966047,
+        "114": 0.00012030883954139426,
+        "117": 0.00012178342149127275,
+        "118": 0.00013323311577551067,
+        "122": 0.00012588211393449455
       },
       "description": "Fisher Discriminant Ratio — top 8 channels by inter-class separability"
     },
@@ -49,14 +51,14 @@
         102
       ],
       "scores": {
-        "15": 0.6148729920387268,
-        "52": 0.5392754599452019,
-        "70": 0.5320309996604919,
-        "71": 0.8228061497211456,
-        "78": 0.5675809383392334,
-        "79": 0.6844150722026825,
-        "93": 0.7008015513420105,
-        "102": 0.6721248924732208
+        "15": 0.8126288652420044,
+        "52": 0.5572366043925285,
+        "70": 0.6637875586748123,
+        "71": 0.8335149586200714,
+        "78": 0.6035382002592087,
+        "79": 0.7229209840297699,
+        "93": 0.8414714634418488,
+        "102": 0.665481686592102
       },
       "description": "Model attention — EEGNet spatial_conv weights + CBraMod input gradient"
     }
