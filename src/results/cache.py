@@ -1312,16 +1312,26 @@ def find_compatible_within_subject_results(
             with open(file_path, 'r', encoding='utf-8') as f:
                 raw_data = json.load(f)
 
-            # 必须是新格式缓存文件
+            # 必须包含 results 字典
             if 'results' not in raw_data or not isinstance(raw_data['results'], dict):
                 continue
 
-            # 检查 is_complete
+            # 检查 is_complete（兼容旧格式：无 metadata 时用数据完整性推断）
             metadata = raw_data.get('metadata', {})
-            if not metadata.get('is_complete', False):
-                continue
+            is_complete = metadata.get('is_complete', False)
 
-            timestamp = metadata.get('timestamp')
+            if not is_complete:
+                # Legacy heuristic: 若双模型均有足够被试数据，视为完整
+                results_data = raw_data.get('results', {})
+                has_both_models = (
+                    len(results_data.get('eegnet', {})) >= len(subjects)
+                    and len(results_data.get('cbramod', {})) >= len(subjects)
+                )
+                if not has_both_models:
+                    continue
+
+            # Timestamp fallback: metadata.timestamp → raw_data.last_updated
+            timestamp = metadata.get('timestamp') or raw_data.get('last_updated')
             if not timestamp:
                 continue
 

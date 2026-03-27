@@ -109,3 +109,4 @@ tmp/
 # Binary documents (track .md source only)
 *.pdf
 *.pptx
+/data/OnlineImagery_Sess*

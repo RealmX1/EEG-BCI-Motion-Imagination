@@ -71,3 +71,9 @@ EEGNet ternary 在所有实验类型 (within_subject / cross_subject / transfer)
 4. 根据结果决定是否实施 P3.10 subject 级 data prefetch
 
 **Status**: Pending — 等待下次完整实验运行后收集数据
+
+
+
+
+## 
+ablation test?

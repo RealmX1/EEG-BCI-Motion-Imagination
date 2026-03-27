@@ -42,6 +42,9 @@ Usage:
 
     # Use Muon optimizer for CBraMod (via YAML config)
     uv run python scripts/run_cross_subject_comparison.py --config configs/cbramod_muon.yaml
+
+    # Re-generate plots for a finished run (no training, no DB writes)
+    uv run python scripts/experiments/run_cross_subject_comparison.py --replot 20260321_0934
 """
 
 import argparse
@@ -82,6 +85,8 @@ from _training_utils import (
     add_cache_resume_args,
     add_channel_args,
     add_training_config_args,
+    add_replot_arg,
+    load_replot_context,
     resolve_run_tag,
     init_db_run,
     finalize_db_run,
@@ -95,6 +100,164 @@ logger = logging.getLogger(__name__)
 log_main = SectionLogger(logger, 'main')
 log_stats = SectionLogger(logger, 'stats')
 log_io = SectionLogger(logger, 'io')
+
+
+def _generate_plots(
+    results_by_model,
+    raw_results,
+    task,
+    paradigm,
+    subjects,
+    models,
+    run_tag,
+    results_dir,
+    n_channels,
+    channel_config,
+    db,
+    db_run_id,
+    no_within_subject_historical=False,
+    no_cross_subject_historical=False,
+):
+    """
+    生成 cross-subject 对比图（提取自 main 以支持 replot）.
+
+    Args:
+        results_by_model: {model_type: List[TrainingResult]} — 用于 data_sources
+        raw_results: {model_type: training_result_dict} — 用于 unified subtask 数据
+        task, paradigm, subjects, models, run_tag, results_dir: 实验参数
+        n_channels, channel_config: 通道配置
+        db: ExperimentDB 实例 (read-only for historical queries)
+        db_run_id: DB run ID (None for replot → skips DB writes)
+        no_within_subject_historical: 是否禁用 within-subject 历史叠加
+        no_cross_subject_historical: 是否禁用 cross-subject 历史叠加
+    """
+    from pathlib import Path
+
+    # Unified task: use plot_unified_comparison with per-subtask breakdown
+    if task == 'unified':
+        unified_plot_data = {}
+        for model_type, model_results in raw_results.items():
+            sr = model_results.get('subtask_results')
+            if sr and 'per_subject' in sr:
+                import numpy as np
+                per_subject = {}
+                for sid, subj_data in sr['per_subject'].items():
+                    per_subject[sid] = {}
+                    for st in ('binary', 'ternary', 'quaternary', 'mean_accuracy'):
+                        if st in subj_data:
+                            per_subject[sid][st] = subj_data[st]
+
+                subtask_results = {}
+                for st in ('binary', 'ternary', 'quaternary'):
+                    if st in sr:
+                        subtask_results[st] = sr[st]
+                subtask_results['mean_accuracy'] = sr.get('mean_accuracy', 0)
+
+                unified_plot_data[model_type] = {
+                    'subtask_results': subtask_results,
+                    'per_subject': per_subject,
+                }
+            else:
+                log_io.info(f"{model_type}: no per-subject subtask data for unified plot")
+
+        if unified_plot_data:
+            plot_filename = generate_result_filename(
+                'unified_comparison', paradigm, task, 'png', run_tag, is_cross_subject=True
+            )
+            plot_path = Path(results_dir) / plot_filename
+            fig = plot_unified_comparison(
+                results=unified_plot_data,
+                save_path=str(plot_path),
+                title=f"Unified Model — Cross-Subject Comparison ({paradigm.capitalize()}, {len(subjects)} Subjects)",
+            )
+            if fig:
+                import matplotlib.pyplot as plt
+                plt.close(fig)
+                log_io.info(f"Unified comparison plot saved: {plot_path}")
+        else:
+            log_io.info("No subtask data for unified plot")
+        return
+
+    # Non-unified: standard combined plot
+    data_sources = []
+    subjects_set = set(subjects)
+    channel_config_filter = channel_config if n_channels != FULL_N_CHANNELS else None
+
+    # 1 & 2: Historical within-subject baselines (per-model, best accuracy)
+    if not no_within_subject_historical:
+        for model_type in ['eegnet', 'cbramod']:
+            ws_result = db.find_best_within_subject_results(
+                paradigm=paradigm,
+                task=task,
+                model_type=model_type,
+                n_channels=n_channels,
+                channel_config=channel_config_filter,
+                subjects=subjects_set,
+                return_run_id=True,
+            )
+            if ws_result is not None:
+                hist_results, ws_run_id = ws_result
+                if db_run_id and ws_run_id:
+                    db.add_baseline_ref(db_run_id, ws_run_id, 'within_subject_baseline', model_type)
+                data_sources.append(PlotDataSource(
+                    model_type=model_type,
+                    results=hist_results,
+                    is_current_run=False,
+                    label=f'{model_type.upper()} (Within)',
+                    hatch='///',
+                ))
+
+    # 3 & 4: Current cross-subject results
+    for model_type in ['eegnet', 'cbramod']:
+        training_results = results_by_model.get(model_type, [])
+        if training_results:
+            data_sources.append(PlotDataSource(
+                model_type=model_type,
+                results=training_results,
+                is_current_run=True,
+                label=f'{model_type.upper()} (Cross)',
+            ))
+
+    # 5: (Optional) Historical cross-subject data
+    if not no_cross_subject_historical:
+        search_model = 'cbramod' if 'cbramod' in models else models[0]
+        cs_result = db.find_best_cross_subject_results(
+            paradigm=paradigm,
+            task=task,
+            model_type=search_model,
+            n_channels=n_channels,
+            channel_config=channel_config_filter,
+            subjects=subjects_set,
+            exclude_run_id=db_run_id,
+            return_run_id=True,
+        )
+        if cs_result is not None:
+            hist_cross, cs_run_id = cs_result
+            if db_run_id and cs_run_id:
+                db.add_baseline_ref(db_run_id, cs_run_id, 'cross_subject_baseline', search_model)
+            data_sources.append(PlotDataSource(
+                model_type=search_model,
+                results=hist_cross,
+                is_current_run=False,
+                label=f'{search_model.upper()} (Cross-Hist)',
+                hatch='...',
+            ))
+
+    if data_sources:
+        plot_filename = generate_result_filename(
+            'combined', paradigm, task, 'png', run_tag, is_cross_subject=True
+        )
+        plot_path = Path(results_dir) / plot_filename
+
+        generate_combined_plot(
+            data_sources=data_sources,
+            output_path=str(plot_path),
+            task_type=task,
+            paradigm=paradigm,
+        )
+        log_io.info(f"Comparison plot saved: {plot_path}")
+    else:
+        log_io.warning("No data sources available for plotting")
 
 
 def main():
@@ -171,6 +334,9 @@ Examples:
 
     add_wandb_args(parser)
 
+    # Replot argument
+    add_replot_arg(parser)
+
     # Verbosity arguments
     parser.add_argument(
         '--verbose', '-v', type=int, default=2,
@@ -191,6 +357,44 @@ Examples:
     # Auto-redirect results to results/{n}_channel/{config}/ when using reduced channel mode
     if args.channels != FULL_N_CHANNELS and args.results_dir == 'results':
         args.results_dir = f'results/{args.channels}_channel/{args.channel_config}'
+
+    # --replot: re-generate plots for a finished run, skip training entirely
+    if args.replot:
+        ctx = load_replot_context(
+            args.replot, 'cross_subject',
+            results_dir_override=args.results_dir if args.results_dir != 'results' else None,
+        )
+
+        # For unified tasks: load subtask data from cache
+        raw_results = {}
+        if ctx['task'] == 'unified':
+            cache, _ = load_cache(
+                ctx['results_dir'], ctx['paradigm'], ctx['task'],
+                run_tag=ctx['run_tag'], cache_type=CacheType.CROSS_SUBJECT,
+            )
+            for mt in ctx['models']:
+                if mt in cache:
+                    raw_results[mt] = cache[mt]
+
+        _generate_plots(
+            results_by_model=ctx['results_by_model'],
+            raw_results=raw_results,
+            task=ctx['task'],
+            paradigm=ctx['paradigm'],
+            subjects=ctx['subjects'],
+            models=ctx['models'],
+            run_tag=ctx['run_tag'],
+            results_dir=ctx['results_dir'],
+            n_channels=ctx['n_channels'],
+            channel_config=ctx['channel_config'],
+            db=ctx['db'],
+            db_run_id=None,
+            no_within_subject_historical=args.no_within_subject_historical,
+            no_cross_subject_historical=args.no_cross_subject_historical,
+        )
+        ctx['db'].close()
+        log_main.info(f"Replot complete for {args.replot}")
+        return 0
 
     # Start timer
     start_time = time.time()
@@ -370,134 +574,22 @@ Examples:
 
     # Generate visualization
     if not args.no_plot:
-        # Unified task: use plot_unified_comparison with per-subtask breakdown
-        if args.task == 'unified':
-            unified_plot_data = {}
-            for model_type, model_results in results.items():
-                sr = model_results.get('subtask_results')
-                if sr and 'per_subject' in sr:
-                    # Full subtask data available from training
-                    import numpy as np
-                    per_subject = {}
-                    for sid, subj_data in sr['per_subject'].items():
-                        per_subject[sid] = {}
-                        for st in ('binary', 'ternary', 'quaternary', 'mean_accuracy'):
-                            if st in subj_data:
-                                per_subject[sid][st] = subj_data[st]
-
-                    subtask_results = {}
-                    for st in ('binary', 'ternary', 'quaternary'):
-                        if st in sr:
-                            subtask_results[st] = sr[st]
-                    subtask_results['mean_accuracy'] = sr.get('mean_accuracy', 0)
-
-                    unified_plot_data[model_type] = {
-                        'subtask_results': subtask_results,
-                        'per_subject': per_subject,
-                    }
-                else:
-                    log_io.info(f"{model_type}: no per-subject subtask data for unified plot")
-
-            if unified_plot_data:
-                plot_filename = generate_result_filename(
-                    'unified_comparison', args.paradigm, args.task, 'png', run_tag, is_cross_subject=True
-                )
-                plot_path = Path(args.results_dir) / plot_filename
-                fig = plot_unified_comparison(
-                    results=unified_plot_data,
-                    save_path=str(plot_path),
-                    title=f"Unified Model — Cross-Subject Comparison ({args.paradigm.capitalize()}, {len(subjects)} Subjects)",
-                )
-                if fig:
-                    import matplotlib.pyplot as plt
-                    plt.close(fig)
-                    log_io.info(f"Unified comparison plot saved: {plot_path}")
-            else:
-                log_io.info("No subtask data for unified plot, falling back to standard plot")
-        else:
-            # Non-unified: standard combined plot
-            data_sources = []
-            subjects_set = set(subjects)
-            channel_config_filter = args.channel_config if args.channels != FULL_N_CHANNELS else None
-
-            # 1 & 2: Historical within-subject baselines (per-model, best accuracy)
-            for model_type in ['eegnet', 'cbramod']:
-                ws_result = db.find_best_within_subject_results(
-                    paradigm=args.paradigm,
-                    task=args.task,
-                    model_type=model_type,
-                    n_channels=args.channels,
-                    channel_config=channel_config_filter,
-                    subjects=subjects_set,
-                    return_run_id=True,
-                )
-                if ws_result is not None:
-                    hist_results, ws_run_id = ws_result
-                    if db_run_id and ws_run_id:
-                        db.add_baseline_ref(db_run_id, ws_run_id, 'within_subject_baseline', model_type)
-                    data_sources.append(PlotDataSource(
-                        model_type=model_type,
-                        results=hist_results,
-                        is_current_run=False,
-                        label=f'{model_type.upper()} (Within)',
-                        hatch='///',
-                    ))
-
-            # 3 & 4: Current cross-subject results
-            for model_type in ['eegnet', 'cbramod']:
-                if model_type not in results:
-                    continue
-                training_results = cross_subject_result_to_training_results(
-                    results[model_type], model_type, args.task
-                )
-                if training_results:
-                    data_sources.append(PlotDataSource(
-                        model_type=model_type,
-                        results=training_results,
-                        is_current_run=True,
-                        label=f'{model_type.upper()} (Cross)',
-                    ))
-
-            # 5: (Optional) Historical cross-subject data
-            if not args.no_cross_subject_historical:
-                search_model = 'cbramod' if 'cbramod' in args.models else args.models[0]
-                cs_result = db.find_best_cross_subject_results(
-                    paradigm=args.paradigm,
-                    task=args.task,
-                    model_type=search_model,
-                    n_channels=args.channels,
-                    channel_config=channel_config_filter,
-                    subjects=subjects_set,
-                    exclude_run_id=db_run_id,
-                    return_run_id=True,
-                )
-                if cs_result is not None:
-                    hist_cross, cs_run_id = cs_result
-                    if db_run_id and cs_run_id:
-                        db.add_baseline_ref(db_run_id, cs_run_id, 'cross_subject_baseline', search_model)
-                    data_sources.append(PlotDataSource(
-                        model_type=search_model,
-                        results=hist_cross,
-                        is_current_run=False,
-                        label=f'{search_model.upper()} (Cross-Hist)',
-                        hatch='...',
-                    ))
-
-            if data_sources:
-                plot_filename = generate_result_filename(
-                    'combined', args.paradigm, args.task, 'png', run_tag, is_cross_subject=True
-                )
-                plot_path = Path(args.results_dir) / plot_filename
-
-                generate_combined_plot(
-                    data_sources=data_sources,
-                    output_path=str(plot_path),
-                    task_type=args.task,
-                    paradigm=args.paradigm,
-                )
-                log_io.info(f"Comparison plot saved: {plot_path}")
-            else:
-                log_io.warning("No data sources available for plotting")
+        _generate_plots(
+            results_by_model=results_as_training,
+            raw_results=results,
+            task=args.task,
+            paradigm=args.paradigm,
+            subjects=subjects,
+            models=args.models,
+            run_tag=run_tag,
+            results_dir=args.results_dir,
+            n_channels=args.channels,
+            channel_config=args.channel_config,
+            db=db,
+            db_run_id=db_run_id,
+            no_within_subject_historical=args.no_within_subject_historical,
+            no_cross_subject_historical=args.no_cross_subject_historical,
+        )
 
     # Save comparison to DB, mark complete, and close
     finalize_db_run(db, db_run_id, comparison, len(subjects))

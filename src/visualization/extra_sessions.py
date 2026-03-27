@@ -213,7 +213,7 @@ def generate_extra_sessions_combined_plot(
         x_positions = x_base + (i - (n_sources - 1) / 2) * bar_width
 
         result_by_subj = {r.subject_id: r.test_acc_majority for r in source.results}
-        accs = [result_by_subj.get(s, 0) for s in subjects]
+        accs = [result_by_subj.get(s, float('nan')) for s in subjects]
 
         hatch = source.hatch if source.hatch is not None else ('' if source.is_current_run else '///')
         alpha = _HATCH_ALPHA.get(hatch, 1.0 if source.is_current_run else 0.4)
@@ -251,7 +251,7 @@ def generate_extra_sessions_combined_plot(
     n_steps = len(step_labels)
     x_steps = np.arange(n_steps)
 
-    model_mean_data = {}  # {model_type: (step_means, color)}
+    model_mean_data = {}  # {model_type: (step_means, step_ns, color)}
     for model_type in models:
         model_steps = step_accs[model_type]
         color = colors[model_type]
@@ -265,12 +265,14 @@ def generate_extra_sessions_combined_plot(
         # Mean ± SE (bold line — like current run)
         step_means = []
         step_ses = []
+        step_ns = []
         for si in range(n_steps):
             vals = [v for v in list(model_steps.values())[si] if not np.isnan(v)]
             mean = np.mean(vals) if vals else float('nan')
             se = np.std(vals) / np.sqrt(len(vals)) if len(vals) > 1 else 0
             step_means.append(mean)
             step_ses.append(se)
+            step_ns.append(len(vals))
 
         step_means_arr = np.array(step_means)
         step_ses_arr = np.array(step_ses)
@@ -281,28 +283,29 @@ def generate_extra_sessions_combined_plot(
         ax_line.fill_between(x_steps, step_means_arr - step_ses_arr,
                              step_means_arr + step_ses_arr,
                              color=color, alpha=0.15)
-        model_mean_data[model_type] = (step_means, color)
+        model_mean_data[model_type] = (step_means, step_ns, color)
 
     # Annotate mean values: higher model above, lower model below
     _label_pad = 0.015
     _label_bbox = dict(facecolor='white', alpha=0.75, edgecolor='none', pad=1.5)
     for xi in range(n_steps):
-        entries = [(model_mean_data[m][0][xi], model_mean_data[m][1], m)
+        entries = [(model_mean_data[m][0][xi], model_mean_data[m][1][xi],
+                    model_mean_data[m][2], m)
                    for m in models if not np.isnan(model_mean_data[m][0][xi])]
         if len(entries) == 2:
             # Sort: higher value first
             entries_sorted = sorted(entries, key=lambda e: e[0], reverse=True)
-            hi_mv, hi_clr, _ = entries_sorted[0]
-            lo_mv, lo_clr, _ = entries_sorted[1]
-            ax_line.text(xi, hi_mv + _label_pad, f'{hi_mv:.1%}',
+            hi_mv, hi_n, hi_clr, _ = entries_sorted[0]
+            lo_mv, lo_n, lo_clr, _ = entries_sorted[1]
+            ax_line.text(xi, hi_mv + _label_pad, f'{hi_mv:.1%} (n={hi_n})',
                          ha='center', va='bottom', fontsize=8,
                          color=hi_clr, fontweight='bold', bbox=_label_bbox)
-            ax_line.text(xi, lo_mv - _label_pad, f'{lo_mv:.1%}',
+            ax_line.text(xi, lo_mv - _label_pad, f'{lo_mv:.1%} (n={lo_n})',
                          ha='center', va='top', fontsize=8,
                          color=lo_clr, fontweight='bold', bbox=_label_bbox)
         else:
-            for mv, clr, _ in entries:
-                ax_line.text(xi, mv + _label_pad, f'{mv:.1%}',
+            for mv, n_valid, clr, _ in entries:
+                ax_line.text(xi, mv + _label_pad, f'{mv:.1%} (n={n_valid})',
                              ha='center', va='bottom', fontsize=8,
                              color=clr, fontweight='bold', bbox=_label_bbox)
 
@@ -346,7 +349,8 @@ def generate_extra_sessions_combined_plot(
         for i, source in enumerate(data_sources):
             parts = source.label.split(maxsplit=1)
             step_name = parts[1] if len(parts) > 1 else parts[0]
-            step_only_labels.append(step_name)
+            n_subj = len(box_data[i]) if i < len(box_data) else 0
+            step_only_labels.append(f'{step_name}\n(n={n_subj})')
             mt = source.model_type
             if mt not in model_spans:
                 model_spans[mt] = [i, i]
@@ -534,8 +538,14 @@ def generate_extra_sessions_combined_plot(
 
     # ====== Save ======
     paradigm_label = 'Motor Imagery' if paradigm == 'imagery' else 'Motor Execution'
+    # Compute actual session range from subjects_with_sessions
+    all_sess_nums = sorted(set(s for ss in subjects_with_sessions.values() for s in ss))
+    if all_sess_nums:
+        sess_range = f"sessions {min(all_sess_nums)}-{max(all_sess_nums)}"
+    else:
+        sess_range = "extra sessions"
     fig.suptitle(f'Extra Online Sessions — {paradigm_label}, {task.title()}\n'
-                 f'({n_subjects} subjects with sessions 3-5)',
+                 f'({n_subjects} subjects with {sess_range})',
                  fontsize=14, fontweight='bold', y=0.99)
 
     plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')

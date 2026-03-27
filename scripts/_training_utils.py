@@ -485,3 +485,105 @@ def validate_checkpoint_compatibility(pretrained_paths, task):
         except Exception:
             classifier_types[model_type] = 'unknown'
     return classifier_types
+
+
+# ============================================================================
+# Replot Helpers
+# ============================================================================
+
+def add_replot_arg(parser):
+    """Add --replot argument to comparison scripts."""
+    parser.add_argument(
+        '--replot', type=str, default=None, metavar='RUN_TAG',
+        help='Re-generate plots for a completed run (no training, no DB writes). '
+             'Requires a run tag (e.g., 20260322_1116).'
+    )
+
+
+def load_replot_context(
+    run_tag: str,
+    experiment_type: str,
+    results_dir_override: Optional[str] = None,
+) -> Dict:
+    """
+    查找已完成的实验 run 并加载其结果用于 replot.
+
+    从 ExperimentDB 读取 run 元数据和 per-subject 结果，
+    不创建任何新的 DB 条目。
+
+    Args:
+        run_tag: 实验运行标识 (e.g., '20260322_1116')
+        experiment_type: 'within_subject', 'cross_subject', 'transfer'
+        results_dir_override: 可选的输出目录覆盖
+
+    Returns:
+        dict with keys: run_tag, run_id, paradigm, task, n_channels,
+        channel_config, models, subjects, results_by_model, results_dir, db
+
+    Raises:
+        SystemExit: 找不到 run 或结果为空时退出
+    """
+    from src.config.constants import FULL_N_CHANNELS
+    from src.results import ExperimentDB
+
+    logger = logging.getLogger(__name__)
+    db = ExperimentDB()
+
+    # 查找 run
+    run = db.find_run_by_tag(run_tag, experiment_type=experiment_type)
+    if run is None:
+        logger.error(
+            f"Run '{run_tag}' not found in ExperimentDB "
+            f"(experiment_type={experiment_type})"
+        )
+        db.close()
+        sys.exit(1)
+
+    run_id = run['run_id']
+    if not run['is_complete']:
+        logger.warning(f"Run '{run_tag}' is not marked complete — replotting anyway")
+
+    # 加载 per-subject 结果
+    results_by_model = db.get_results_by_model(run_id)
+    if not results_by_model:
+        logger.error(f"No subject results found for run '{run_tag}' (run_id={run_id})")
+        db.close()
+        sys.exit(1)
+
+    models = sorted(results_by_model.keys())
+    subjects = sorted({
+        r.subject_id
+        for rs in results_by_model.values()
+        for r in rs
+    })
+
+    # 计算 results_dir
+    n_channels = run.get('n_channels', FULL_N_CHANNELS)
+    channel_config = run.get('channel_config')
+
+    if results_dir_override:
+        results_dir = results_dir_override
+    elif n_channels != FULL_N_CHANNELS and channel_config:
+        results_dir = f'results/{n_channels}_channel/{channel_config}'
+    else:
+        results_dir = 'results'
+
+    logger.info(
+        f"Replot context: run_tag={run_tag}, paradigm={run['paradigm']}, "
+        f"task={run['task']}, models={models}, {len(subjects)} subjects, "
+        f"results_dir={results_dir}"
+    )
+
+    return {
+        'run_tag': run_tag,
+        'run_id': run_id,
+        'paradigm': run['paradigm'],
+        'task': run['task'],
+        'n_channels': n_channels,
+        'channel_config': channel_config,
+        'models': models,
+        'subjects': subjects,
+        'results_by_model': results_by_model,
+        'results_dir': results_dir,
+        'db': db,
+    }

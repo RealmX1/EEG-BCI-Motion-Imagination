@@ -28,6 +28,9 @@ Usage:
 
     # Motor Execution paradigm, ternary task
     uv run python scripts/experiments/run_transfer_comparison.py --paradigm movement --task ternary --cache-only
+
+    # Re-generate plots for a finished run (no training, no DB writes)
+    uv run python scripts/experiments/run_transfer_comparison.py --replot 20260321_0934
 """
 
 import argparse
@@ -70,6 +73,8 @@ from _training_utils import (
     add_channel_args,
     add_training_config_args,
     add_transfer_args,
+    add_replot_arg,
+    load_replot_context,
     resolve_output_dir,
     resolve_run_tag,
     init_db_run,
@@ -87,6 +92,112 @@ logger = logging.getLogger(__name__)
 log_main = SectionLogger(logger, 'main')
 log_train = SectionLogger(logger, 'train')
 log_io = SectionLogger(logger, 'io')
+
+
+# ============================================================================
+# Plotting
+# ============================================================================
+
+def _generate_plots(
+    results_by_model,
+    task, paradigm, subjects, models,
+    run_tag, results_dir, n_channels, channel_config,
+    db, db_run_id,
+    no_cross_subject_baseline=False,
+):
+    """
+    生成 transfer comparison 6-way 对比图（提取自 main 以支持 replot）.
+
+    Args:
+        results_by_model: {model_type: List[TrainingResult]} — transfer 结果
+        task, paradigm, subjects, models: 实验参数
+        run_tag, results_dir: 输出标识和目录
+        n_channels, channel_config: 通道配置
+        db: ExperimentDB 实例 (read-only for historical queries)
+        db_run_id: DB run ID (None for replot → skips DB writes)
+        no_cross_subject_baseline: 是否禁用 cross-subject baseline
+    """
+    subjects_set = set(subjects)
+    channel_config_filter = channel_config if n_channels != FULL_N_CHANNELS else None
+    data_sources = []
+
+    # 1 & 2: Within-subject baselines (per model, from DB, hatch='///')
+    for mt in ['eegnet', 'cbramod']:
+        ws_result = db.find_best_within_subject_results(
+            paradigm=paradigm,
+            task=task,
+            model_type=mt,
+            n_channels=n_channels,
+            channel_config=channel_config_filter,
+            subjects=subjects_set,
+            return_run_id=True,
+        )
+        if ws_result is not None:
+            ws_results, ws_run_id = ws_result
+            if db_run_id and ws_run_id:
+                db.add_baseline_ref(db_run_id, ws_run_id, 'within_subject_baseline', mt)
+            mean_acc = sum(r.test_acc_majority for r in ws_results) / len(ws_results)
+            log_io.info(f"Within-subject baseline for {mt}: mean={mean_acc:.1%}")
+            data_sources.append(PlotDataSource(
+                model_type=mt,
+                results=ws_results,
+                is_current_run=False,
+                label=f'{mt.upper()} (Within)',
+                hatch='///',
+            ))
+
+    # 3 & 4: Cross-subject baselines (per model, from DB, hatch='...')
+    if not no_cross_subject_baseline:
+        for mt in ['eegnet', 'cbramod']:
+            cs_result = db.find_best_cross_subject_results(
+                paradigm=paradigm,
+                task=task,
+                model_type=mt,
+                n_channels=n_channels,
+                channel_config=channel_config_filter,
+                subjects=subjects_set,
+                return_run_id=True,
+            )
+            if cs_result is not None:
+                cross_results, cs_run_id = cs_result
+                if db_run_id and cs_run_id:
+                    db.add_baseline_ref(db_run_id, cs_run_id, 'cross_subject_baseline', mt)
+                mean_acc = sum(r.test_acc_majority for r in cross_results) / len(cross_results)
+                log_io.info(f"Cross-subject baseline for {mt}: mean={mean_acc:.1%}")
+                data_sources.append(PlotDataSource(
+                    model_type=mt,
+                    results=cross_results,
+                    is_current_run=False,
+                    label=f'{mt.upper()} (Cross)',
+                    hatch='...',
+                ))
+
+    # 5 & 6: Transfer results (current run)
+    for mt in ['eegnet', 'cbramod']:
+        model_results = results_by_model.get(mt, [])
+        filtered = [r for r in model_results if r.subject_id in subjects_set]
+        if filtered:
+            data_sources.append(PlotDataSource(
+                model_type=mt,
+                results=filtered,
+                is_current_run=True,
+                label=f'{mt.upper()} (Transfer)',
+            ))
+
+    if data_sources:
+        plot_filename = generate_result_filename(
+            'transfer_combined', paradigm, task, 'png', run_tag)
+        plot_path = Path(results_dir) / plot_filename
+
+        generate_combined_plot(
+            data_sources=data_sources,
+            output_path=str(plot_path),
+            task_type=task,
+            paradigm=paradigm,
+        )
+        log_io.info(f"Transfer comparison plot saved: {plot_path}")
+    else:
+        log_io.warning("No data sources available for plotting")
 
 
 # ============================================================================
@@ -112,6 +223,9 @@ Examples:
 
   # Resume a previous run
   uv run python scripts/experiments/run_transfer_comparison.py --resume --cache-only
+
+  # Re-generate plots for a finished run (no training, no DB writes)
+  uv run python scripts/experiments/run_transfer_comparison.py --replot 20260321_0934
 '''
     )
 
@@ -121,6 +235,7 @@ Examples:
     add_training_config_args(parser)
     add_transfer_args(parser)
     add_wandb_args(parser)
+    add_replot_arg(parser)
 
     # Transfer-specific args (beyond shared builders)
     parser.add_argument('--models', nargs='+', default=['eegnet', 'cbramod'],
@@ -150,6 +265,30 @@ Examples:
 
     # Resolve output directory (auto-redirect for reduced channel mode)
     output_dir = resolve_output_dir(args)
+
+    # --replot: re-generate plots for a finished run, skip training entirely
+    if args.replot:
+        ctx = load_replot_context(
+            args.replot, 'transfer',
+            results_dir_override=output_dir if output_dir != 'results' else None,
+        )
+        _generate_plots(
+            results_by_model=ctx['results_by_model'],
+            task=ctx['task'],
+            paradigm=ctx['paradigm'],
+            subjects=ctx['subjects'],
+            models=ctx['models'],
+            run_tag=ctx['run_tag'],
+            results_dir=ctx['results_dir'],
+            n_channels=ctx['n_channels'],
+            channel_config=ctx['channel_config'],
+            db=ctx['db'],
+            db_run_id=None,
+            no_cross_subject_baseline=args.no_cross_subject_baseline,
+        )
+        ctx['db'].close()
+        log_main.info(f"Replot complete for {args.replot}")
+        return 0
 
     # Resolve run tag (handle --resume or start new)
     run_tag = resolve_run_tag(args, args.paradigm, args.task, output_dir,
@@ -330,87 +469,20 @@ Examples:
     # Generate 6-way visualization (BEFORE finalize_db_run which closes DB)
     # ======================================================================
     if not args.no_plot and results:
-        subjects_set = set(subjects)
-        channel_config_filter = args.channel_config if args.channels != FULL_N_CHANNELS else None
-        data_sources = []
-
-        # 1 & 2: Within-subject baselines (per model, from DB, hatch='///')
-        for mt in ['eegnet', 'cbramod']:
-            ws_result = db.find_best_within_subject_results(
-                paradigm=args.paradigm,
-                task=args.task,
-                model_type=mt,
-                n_channels=args.channels,
-                channel_config=channel_config_filter,
-                subjects=subjects_set,
-                return_run_id=True,
-            )
-            if ws_result is not None:
-                ws_results, ws_run_id = ws_result
-                if db_run_id and ws_run_id:
-                    db.add_baseline_ref(db_run_id, ws_run_id, 'within_subject_baseline', mt)
-                mean_acc = sum(r.test_acc_majority for r in ws_results) / len(ws_results)
-                log_io.info(f"Within-subject baseline for {mt}: mean={mean_acc:.1%}")
-                data_sources.append(PlotDataSource(
-                    model_type=mt,
-                    results=ws_results,
-                    is_current_run=False,
-                    label=f'{mt.upper()} (Within)',
-                    hatch='///',
-                ))
-
-        # 3 & 4: Cross-subject baselines (per model, from DB, hatch='...')
-        if not args.no_cross_subject_baseline:
-            for mt in ['eegnet', 'cbramod']:
-                cs_result = db.find_best_cross_subject_results(
-                    paradigm=args.paradigm,
-                    task=args.task,
-                    model_type=mt,
-                    n_channels=args.channels,
-                    channel_config=channel_config_filter,
-                    subjects=subjects_set,
-                    return_run_id=True,
-                )
-                if cs_result is not None:
-                    cross_results, cs_run_id = cs_result
-                    if db_run_id and cs_run_id:
-                        db.add_baseline_ref(db_run_id, cs_run_id, 'cross_subject_baseline', mt)
-                    mean_acc = sum(r.test_acc_majority for r in cross_results) / len(cross_results)
-                    log_io.info(f"Cross-subject baseline for {mt}: mean={mean_acc:.1%}")
-                    data_sources.append(PlotDataSource(
-                        model_type=mt,
-                        results=cross_results,
-                        is_current_run=False,
-                        label=f'{mt.upper()} (Cross)',
-                        hatch='...',
-                    ))
-
-        # 5 & 6: Transfer results (current run)
-        for mt in ['eegnet', 'cbramod']:
-            model_results = results.get(mt, [])
-            filtered = [r for r in model_results if r.subject_id in subjects_set]
-            if filtered:
-                data_sources.append(PlotDataSource(
-                    model_type=mt,
-                    results=filtered,
-                    is_current_run=True,
-                    label=f'{mt.upper()} (Transfer)',
-                ))
-
-        if data_sources:
-            plot_filename = generate_result_filename(
-                'transfer_combined', args.paradigm, args.task, 'png', run_tag)
-            plot_path = Path(output_dir) / plot_filename
-
-            generate_combined_plot(
-                data_sources=data_sources,
-                output_path=str(plot_path),
-                task_type=args.task,
-                paradigm=args.paradigm,
-            )
-            log_io.info(f"Transfer comparison plot saved: {plot_path}")
-        else:
-            log_io.warning("No data sources available for plotting")
+        _generate_plots(
+            results_by_model=results,
+            task=args.task,
+            paradigm=args.paradigm,
+            subjects=subjects,
+            models=args.models,
+            run_tag=run_tag,
+            results_dir=output_dir,
+            n_channels=args.channels,
+            channel_config=args.channel_config,
+            db=db,
+            db_run_id=db_run_id,
+            no_cross_subject_baseline=args.no_cross_subject_baseline,
+        )
 
     # ======================================================================
     # DB finalize (save comparison + transfer config + mark complete + close)

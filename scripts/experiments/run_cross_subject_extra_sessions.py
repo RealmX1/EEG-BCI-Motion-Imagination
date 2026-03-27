@@ -160,6 +160,10 @@ def main():
         help='Only include subjects with extra sessions in training pool '
              '(default: include ALL subjects for training, evaluate only extra-session subjects)'
     )
+    parser.add_argument(
+        '--batch-size', type=int, default=None,
+        help='Batch size (default: model-specific)'
+    )
     add_common_args(parser)
     add_cache_resume_args(parser)
     add_wandb_args(parser)
@@ -204,13 +208,25 @@ def main():
 
     eval_subjects = sorted(subjects_with_sessions.keys())
 
-    # Determine common extra sessions across eval subjects
+    # Determine ALL extra sessions across eval subjects (union, not intersection).
+    # Subjects missing test data for a specific session step will be skipped
+    # from evaluation at that step, but training proceeds for all available data.
     all_session_sets = [set(sessions) for sessions in subjects_with_sessions.values()]
-    common_sessions = sorted(set.intersection(*all_session_sets)) if all_session_sets else []
+    all_sessions = sorted(set.union(*all_session_sets)) if all_session_sets else []
 
-    if not common_sessions:
-        log_main.error("No common extra sessions across eval subjects")
+    if not all_sessions:
+        log_main.error("No extra sessions found across any eval subject")
         sys.exit(1)
+
+    # Warn about subjects with incomplete session coverage
+    for sess_num in all_sessions:
+        subjects_with = [s for s in eval_subjects if sess_num in subjects_with_sessions[s]]
+        subjects_without = [s for s in eval_subjects if sess_num not in subjects_with_sessions[s]]
+        if subjects_without:
+            log_main.warning(
+                f"Sess{sess_num:02d}: {len(subjects_without)} subject(s) lack Finetune (test) data "
+                f"and will be skipped from evaluation: {subjects_without}"
+            )
 
     # Training subject pool: all subjects (default) or extra-only
     if args.extra_only:
@@ -229,7 +245,7 @@ def main():
                       f"({len(eval_subjects)} with extra sessions + {len(non_extra)} standard-only: {non_extra})")
 
     log_main.info(f"Eval subjects ({len(eval_subjects)}): {eval_subjects}")
-    log_main.info(f"Common extra sessions: {common_sessions}")
+    log_main.info(f"Extra sessions (union): {all_sessions}")
 
     # ====== Load existing cache (for resume) ======
     existing_cache = None
@@ -245,7 +261,7 @@ def main():
     all_results: Dict[str, Dict[str, dict]] = {}
 
     # Steps: baseline + each extra session
-    step_definitions = [('baseline', 2)] + [(f'sess{s:02d}', s) for s in common_sessions]
+    step_definitions = [('baseline', 2)] + [(f'sess{s:02d}', s) for s in all_sessions]
 
     for model_type in args.models:
         log_main.info(f"{'='*50} {model_type.upper()} {'='*50}")
@@ -300,21 +316,32 @@ def main():
                     verbose=1,
                     session_folders_override=session_folders_override,
                     resume_checkpoint=True,
+                    batch_size=args.batch_size,
                 )
 
                 # Filter test results to eval subjects only.
                 # For baseline step, train_cross_subject evaluates ALL train_subjects
                 # (including those without extra sessions), but we only keep
                 # eval_subjects for fair comparison across steps.
+                # For non-baseline steps, subjects missing Finetune data for the
+                # target session will naturally be absent from per_subject_test_acc.
                 all_tested = set(result['per_subject_test_acc'].keys())
                 eval_test_acc = {
                     s: acc for s, acc in result['per_subject_test_acc'].items()
                     if s in eval_subjects
                 }
-                excluded = all_tested - set(eval_test_acc.keys())
-                if excluded:
+                excluded_non_eval = all_tested - set(eval_test_acc.keys())
+                if excluded_non_eval:
                     log_train.info(f"  Eval filter: kept {len(eval_test_acc)}/{len(all_tested)} "
-                                   f"subjects (excluded {sorted(excluded)} from metrics)")
+                                   f"subjects (excluded {sorted(excluded_non_eval)} from metrics)")
+
+                # Warn about eval subjects that had no test data for this step
+                missing_eval = set(eval_subjects) - all_tested
+                if missing_eval and step_key != 'baseline':
+                    log_train.warning(
+                        f"  {step_key}: {sorted(missing_eval)} had no test data "
+                        f"(missing Sess{up_to_session:02d} Finetune) — skipped from evaluation"
+                    )
                 eval_mean = float(np.mean(list(eval_test_acc.values()))) if eval_test_acc else 0.0
                 eval_std = float(np.std(list(eval_test_acc.values()))) if eval_test_acc else 0.0
 
@@ -370,7 +397,8 @@ def main():
             mean_acc = step.get('mean_test_acc', 0)
             delta = mean_acc - baseline_acc if baseline_acc and step_key != 'baseline' else 0
             delta_str = f" (Δ={delta:+.2%})" if step_key != 'baseline' else ""
-            print(f"    {step_key}: {mean_acc:.2%} ± {step.get('std_test_acc', 0):.2%}{delta_str}")
+            n_eval = step.get('n_eval_subjects', '?')
+            print(f"    {step_key}: {mean_acc:.2%} ± {step.get('std_test_acc', 0):.2%}{delta_str}  [{n_eval} subjects]")
 
             # Per-subject detail
             per_subj = step.get('per_subject_test_acc', {})
@@ -402,8 +430,8 @@ def main():
                         'test_acc_majority': acc,
                     }
 
-        # Build subjects_with_sessions from common_sessions
-        plot_subjects_with_sessions = {s: common_sessions for s in eval_subjects}
+        # Build subjects_with_sessions from actual per-subject availability
+        plot_subjects_with_sessions = {s: subjects_with_sessions[s] for s in eval_subjects}
 
         plot_filename = f'{run_tag}_cross_subject_extra_sessions_{args.paradigm}_{args.task}.png'
         plot_path = Path(output_dir) / plot_filename

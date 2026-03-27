@@ -53,6 +53,28 @@ results/               # 实验结果 (experiments.db + JSON + PNG)
 - **必须使用 NVIDIA GPU**，CPU 模式已禁用
 - CBraMod 128 通道模式建议 12GB+ 显存
 
+## ExperimentDB 使用指引
+
+```python
+from src.results.experiment_db import ExperimentDB
+db = ExperimentDB()  # 默认 results/experiments.db
+```
+
+主要表：`runs`（实验运行）、`subject_results`（被试级结果）、`summaries`（汇总统计）、`baseline_refs`（基线引用）。
+
+常用 API（不支持裸 SQL `.query()` 方法）：
+```python
+db.get_run(run_tag)                          # 按 run_tag 查单次运行
+db.find_runs(paradigm=..., task=..., ...)    # 条件搜索运行列表
+db.get_results(run_tag)                      # 获取某次运行的被试级结果
+db.get_summary(run_tag)                      # 获取汇总统计
+db.find_run_by_tag(run_tag)                  # 按 tag 精确查找
+db.get_best_run(paradigm, task, model, exp)  # 查最佳运行
+db.find_baseline_run(model, task, exp)       # 查 baseline 运行
+```
+
+注意：extra sessions 实验结果目前只写入 JSON cache，不写入 ExperimentDB。查询 extra sessions 数据请直接读取 `results/` 下的 JSON 文件。
+
 ## 实验结果引用规范
 
 **任何时候引用实验数据（对话、文档、分析报告中），都必须标注数据来源**，包括：
@@ -87,7 +109,7 @@ cross-subject 准确率 88.10% (来源: `results/32_channel/fdr/20260221_0445_tr
 **引用 SQLite 查询结果时**：
 
 ```markdown
-> **数据来源**: ExperimentDB 查询 — `SELECT * FROM experiments WHERE channel_config='fdr' AND task='binary' AND paradigm='imagery'`
+> **数据来源**: ExperimentDB 查询 — `SELECT * FROM runs WHERE channel_config='fdr' AND task='binary' AND paradigm='imagery'`
 ```
 
 ### 命名约定
