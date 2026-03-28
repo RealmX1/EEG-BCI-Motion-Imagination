@@ -310,7 +310,7 @@ class FingerEEGDataset(Dataset):
             files_to_process = self._build_file_list_from_cache_index()
 
             if not files_to_process:
-                log_load.error(f"Cache-only mode: No cached files found for subjects {self.subjects}")
+                log_load.warning(f"Cache-only mode: No cached files found for subjects {self.subjects}")
                 return
         else:
             # 传统模式：扫描文件系统

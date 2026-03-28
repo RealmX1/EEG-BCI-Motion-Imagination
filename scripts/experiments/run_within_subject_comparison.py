@@ -11,7 +11,7 @@ Data Split (follows paper protocol):
 - Test: Session 2 Finetune (completely held out)
 
 Features:
-- Uses run_single_model.py for individual model training
+- Uses run_within_subject.py for individual model training
 - Performs statistical comparison between models
 - Generates comparison visualizations
 
@@ -98,7 +98,7 @@ from _training_utils import (
     finalize_db_run,
     build_config_overrides,
 )
-from run_single_model import run_single_model
+from run_within_subject import run_within_subject
 
 
 setup_logging('compare')
@@ -445,12 +445,12 @@ Examples:
         if args.resume is not None:
             log_main.info("Resuming from cache (--force-retrain to overwrite)")
 
-        # Run training for each model using run_single_model
+        # Run training for each model using run_within_subject
         results = {}
         for model_type in args.models:
             log_main.info(f"{'='*50} {model_type.upper()} {'='*50}")
 
-            model_results, stats = run_single_model(
+            model_results, stats = run_within_subject(
                 model_type=model_type,
                 data_root=args.data_root,
                 subject_ids=subjects,

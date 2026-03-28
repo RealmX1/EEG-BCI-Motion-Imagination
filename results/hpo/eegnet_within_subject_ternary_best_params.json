@@ -1,0 +1,17 @@
+{
+  "study_name": "eegnet_within_subject_ternary",
+  "best_trial_number": 10,
+  "best_value": 0.6557539682539681,
+  "best_params": {
+    "F1": 8,
+    "D": 4,
+    "learning_rate": 0.0017643967683381545,
+    "weight_decay": 0.00021066486017042195,
+    "dropout_rate": 0.23177917514301183,
+    "batch_size": 128,
+    "kernel_length": 64
+  },
+  "n_trials": 31,
+  "n_complete": 3,
+  "n_pruned": 27
+}

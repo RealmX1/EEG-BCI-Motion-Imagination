@@ -49,7 +49,7 @@
     ],
     "n_train_subjects": 21,
     "n_eval_subjects": 16,
-    "timestamp": "2026-03-27T06:31:09.044973"
+    "timestamp": "2026-03-29T00:55:18.333249"
   },
   "results": {
     "cbramod": {
@@ -82,6 +82,35 @@
         "model_path": "checkpoints\\cross_subject\\20260327_0303_baseline_cbramod_imagery_ternary\\best.pt",
         "n_train_subjects": 21,
         "n_eval_subjects": 16
+      },
+      "sess03": {
+        "step": "sess03",
+        "up_to_session": 3,
+        "per_subject_test_acc": {
+          "S02": 0.9083333333333333,
+          "S03": 0.8791666666666667,
+          "S04": 0.9416666666666667,
+          "S06": 0.8833333333333333,
+          "S08": 0.725,
+          "S09": 0.8833333333333333,
+          "S10": 0.475,
+          "S11": 0.7666666666666667,
+          "S13": 0.6958333333333333,
+          "S14": 0.8,
+          "S15": 0.8416666666666667,
+          "S16": 0.8375,
+          "S17": 0.825,
+          "S18": 0.7916666666666666,
+          "S19": 0.9791666666666666
+        },
+        "mean_test_acc": 0.8155555555555554,
+        "std_test_acc": 0.11760994331021549,
+        "val_acc": 0.47602125126601397,
+        "best_epoch": 17,
+        "training_time": 2482.548155799999,
+        "model_path": "checkpoints\\cross_subject\\20260327_0303_sess03_cbramod_imagery_ternary\\best.pt",
+        "n_train_subjects": 21,
+        "n_eval_subjects": 15
       },
       "sess04": {
         "step": "sess04",

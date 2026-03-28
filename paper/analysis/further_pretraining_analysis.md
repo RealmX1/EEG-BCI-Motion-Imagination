@@ -329,7 +329,7 @@ Binary cross-subject 是唯一 V2 优于 V1 的组合 (88.84% → 89.43%)。这�
 
 尽管下游效果有限，本实验贡献了以下可复用的基础设施：
 
-1. **`--pretrained-weights` CLI flag**: `run_single_model.py` 和 `run_cross_subject.py` 新增自定义权重路径支持，便于后续 A/B 对比实验
+1. **`--pretrained-weights` CLI flag**: `run_within_subject.py` 和 `run_cross_subject_comparison.py` 新增自定义权重路径支持，便于后续 A/B 对比实验
 2. **MI 数据预处理管线**: `preprocess_mi_datasets.py` + `dataset_metadata.json`，支持 10 个 MOABB 数据集的标准化预处理
 3. **`further_pretrain.py`**: CBraMod masked autoencoding further pre-training 训练器，支持多数据集混合、动态通道适配 (ACPE)
 4. **单位归一化研究**: 发现并修正 Cho2017 的 MOABB 单位错误（nV 被误认为 µV）

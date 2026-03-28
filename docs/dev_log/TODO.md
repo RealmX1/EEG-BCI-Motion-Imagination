@@ -75,5 +75,30 @@ EEGNet ternary 在所有实验类型 (within_subject / cross_subject / transfer)
 
 
 
-## 
-ablation test?
+## Ablation Testing
+
+**Date Added**: 2026-03-27
+
+对 CBraMod 和 EEGNet 进行消融实验，系统性地评估各组件/超参数对最终性能的贡献。
+
+**待定内容**:
+- 具体消融维度（预训练权重、数据增强、滤波范围、归一化方式等）
+- 实验范围（within-subject / cross-subject / transfer）
+- 评估指标与对比基准
+
+**Status**: Pending — 需进一步确定消融方案
+
+---
+
+## Reduced Channel Extra Sessions 实验
+
+**Date Added**: 2026-03-27
+
+在 extra sessions 实验中测试降通道配置（4ch / 8ch / 32ch）的表现，验证通道选择策略在额外 session 数据上的泛化能力。
+
+**动机**:
+- 当前 extra sessions 实验仅在 128 通道上运行
+- 需要验证 FDR 等通道选择方法在 extra sessions 场景下是否仍然有效
+- 对比降通道在标准实验与 extra sessions 实验中的性能差异
+
+**Status**: Pending

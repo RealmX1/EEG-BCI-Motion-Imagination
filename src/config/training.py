@@ -38,7 +38,7 @@ from .constants import TASKS
 # are absolute values decoupled from max_epochs, so the LR schedule is unaffected by the ceiling.
 # These values can be overridden by user-specified config_overrides.
 # Early stopping patience is computed automatically in WithinSubjectTrainer.train():
-#   CAWD: 2 * phase_epochs | others: 10
+#   CAWD: 1 * phase_epochs | others: 10
 SCHEDULER_PRESETS: Dict[str, Dict[str, Any]] = {
     'plateau': {
         # ReduceLROnPlateau - 靠 LR 衰减收敛 (metric-driven, no epoch dependency)
@@ -149,7 +149,7 @@ def get_default_config(model_type: str, task: str, n_channels: int = None) -> di
     Used by:
     - train_subject_simple(): Simplified API for external callers
     - scripts/run_within_subject_comparison.py: Batch training
-    - scripts/run_single_model.py: Single model training
+    - scripts/run_within_subject.py: Within-subject single model training
 
     Args:
         model_type: 'eegnet' or 'cbramod'

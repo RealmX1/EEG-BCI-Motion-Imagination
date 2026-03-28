@@ -183,7 +183,7 @@ class WandbLogger:
         import wandb
 
         # Interactive mode: prompt for run details (skip if called directly with single subject)
-        # Note: For batch training, prompting is handled at the batch level in run_single_model()
+        # Note: For batch training, prompting is handled at the batch level in run_within_subject()
         # and metadata is passed via create_wandb_logger(). This branch is for direct WandbLogger usage.
         if interactive and sys.stdin.isatty():
             run_details = _prompt_run_details(

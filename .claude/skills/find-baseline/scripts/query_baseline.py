@@ -32,7 +32,7 @@ def query_top_results(args):
     db = sqlite3.connect(str(DB_PATH))
     db.row_factory = sqlite3.Row
 
-    has_baseline = _has_column(db, "runs", "is_baseline")
+    has_baseline = _has_column(db, "model_summaries", "is_baseline")
 
     conditions = [
         "ms.model_type = ?",
@@ -55,14 +55,14 @@ def query_top_results(args):
         params.append(POST_HPO_DATE)
 
     if args.baseline_only and has_baseline:
-        conditions.append("r.is_baseline = 1")
+        conditions.append("ms.is_baseline = 1")
 
     if not args.include_unified and args.task != 'unified':
         conditions.append("r.task != 'unified'")
 
     where = " AND ".join(conditions)
 
-    baseline_col = ", r.is_baseline" if has_baseline else ""
+    baseline_col = ", ms.is_baseline" if has_baseline else ""
     query = f"""
         SELECT r.run_tag, r.experiment_type, r.n_channels, r.created_at,
                ms.mean_acc, ms.std_acc, ms.n_subjects{baseline_col}
@@ -153,7 +153,7 @@ def query_run_detail(run_tag):
     db = sqlite3.connect(str(DB_PATH))
     db.row_factory = sqlite3.Row
 
-    has_baseline = _has_column(db, "runs", "is_baseline")
+    has_baseline = _has_column(db, "model_summaries", "is_baseline")
 
     # Find the run
     cursor = db.execute(
@@ -180,8 +180,10 @@ def query_run_detail(run_tag):
 
     print(f"\n{'='*80}")
     run_label = f"  Run: {run_tag}"
-    if has_baseline and run['is_baseline']:
-        run_label += "  [BASELINE]"
+    if has_baseline:
+        bl_models = [s['model_type'] for s in summaries if s['is_baseline']]
+        if bl_models:
+            run_label += f"  [BASELINE: {', '.join(sorted(bl_models))}]"
     print(run_label)
     print(f"  Type: {run['experiment_type']} | Task: {run['task']} | "
           f"Paradigm: {run['paradigm']} | Channels: {run['n_channels']}")

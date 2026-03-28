@@ -54,6 +54,7 @@ results/               # 实验结果 (experiments.db + JSON + PNG)
 - CBraMod 128 通道模式建议 12GB+ 显存
 
 ## ExperimentDB 使用指引
+ExperimentDB 包含了大部分训练和实验的记录。是检索历史训练、实验记录信息的首选对象。
 
 ```python
 from src.results.experiment_db import ExperimentDB
@@ -73,7 +74,17 @@ db.get_best_run(paradigm, task, model, exp)  # 查最佳运行
 db.find_baseline_run(model, task, exp)       # 查 baseline 运行
 ```
 
+如果出现错误，使用sql获取最新schema并对相关api进行订正
+
 注意：extra sessions 实验结果目前只写入 JSON cache，不写入 ExperimentDB。查询 extra sessions 数据请直接读取 `results/` 下的 JSON 文件。
+
+### 被试数过滤默认值
+
+查询实验结果时，默认只关注覆盖完整被试范围的运行：
+- **常规实验**（within_subject / cross_subject / transfer）：**n_subjects = 21**
+- **Extra sessions 实验**：**n_subjects = 15**（仅 15 个被试有额外 session 数据）
+
+部分被试的运行（如早期调试运行）不具备统计代表性，除非明确需要否则应过滤掉。
 
 ## 实验结果引用规范
 
@@ -116,6 +127,15 @@ cross-subject 准确率 88.10% (来源: `results/32_channel/fdr/20260221_0445_tr
 
 结果文件遵循格式：`{timestamp}_{experiment_type}_{paradigm}_{task}.json`，其中 timestamp 为 `YYYYMMDD_HHMM`，是唯一标识一次运行的关键字段。
 
+## 运行类别 (Run Category)
+
+"类别"指由以下三个维度组成的分类：
+- **model**: eegnet / cbramod
+- **task**: binary / ternary / quaternary / unified （technically speaking, this is not part of the default category, but an extension experiment type that goes a step further than the cross_subject/transfer learning)
+- **experiment_type**: within_subject / cross_subject / transfer
+
+例如 "eegnet + ternary + within_subject" 构成一个类别。Extra sessions、通道数配置等属于实验变体，不属于默认类别维度。
+
 ## Baseline 管理规范
 
 Baseline 是每个类别 (model + task + experiment_type) 的标准参考运行，通过 ExperimentDB `is_baseline` 列标记。当前 baseline 注册表见 `docs/dev_log/experiments/baseline_registry.md`。
@@ -134,3 +154,10 @@ Baseline 是每个类别 (model + task + experiment_type) 的标准参考运行�
 
 - 数据集论文: "EEG-based brain-computer interface enables real-time robotic hand control at individual finger level"
 - CBraMod: "CBraMod: A Criss-Cross Brain Foundation Model for EEG Decoding" (ICLR 2025)
+
+## 变更记录
+
+### 2026-03-29: 脚本重命名与清理
+- `run_single_model.py` → `run_within_subject.py`（含函数名 `run_single_model()` → `run_within_subject()`）
+- 删除独立的 `run_cross_subject.py`，其功能已被 `run_cross_subject_comparison.py` 完全覆盖
+- `--freeze-strategy` 默认值恢复为 `none`（原值 `backbone` 从未在实际使用中生效）

@@ -198,7 +198,7 @@ def main():
         print()
         print("[NEXT STEPS]")
         print("1. Verify cache with: python scripts/cache_helper.py --stats")
-        print("2. Test training with: python scripts/run_single_model.py --subject S01 --model cbramod --task ternary")
+        print("2. Test training with: python scripts/run_within_subject.py --subject S01 --model cbramod --task ternary")
     else:
         print()
         print("Use --execute to actually preprocess the data")

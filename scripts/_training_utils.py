@@ -288,8 +288,8 @@ def add_training_config_args(parser):
 def add_transfer_args(parser):
     """Add transfer learning arguments."""
     parser.add_argument('--pretrained', type=str, default=None, help='Path to pretrained checkpoint for transfer learning')
-    parser.add_argument('--freeze-strategy', type=str, default='backbone', choices=['none', 'backbone', 'partial'],
-                        help='Freeze strategy for fine-tuning (default: backbone)')
+    parser.add_argument('--freeze-strategy', type=str, default='none', choices=['none', 'backbone', 'partial'],
+                        help='Freeze strategy for fine-tuning (default: none)')
 
 
 # ============================================================================

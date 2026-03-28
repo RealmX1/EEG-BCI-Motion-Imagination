@@ -20,8 +20,8 @@ uv run python scripts/run_within_subject_comparison.py --skip-training    # 仅�
 uv run python scripts/run_within_subject_comparison.py --paradigm movement  # Motor Execution
 
 # 单模型训练 (WandB 默认启用)
-uv run python scripts/run_single_model.py --subject S01 --model eegnet --task binary
-uv run python scripts/run_single_model.py --subject S01 --model cbramod --no-wandb  # 禁用 WandB
+uv run python scripts/run_within_subject.py --subject S01 --model eegnet --task binary
+uv run python scripts/run_within_subject.py --subject S01 --model cbramod --no-wandb  # 禁用 WandB
 
 # 数据预处理 (ZIP -> 缓存)
 uv run python scripts/preprocess_zip.py                               # Motor Imagery
@@ -32,8 +32,6 @@ uv run python scripts/cache_helper.py --stats
 uv run python scripts/cache_helper.py --model cbramod --execute
 
 # 跨被试训练与模型对比
-uv run python scripts/run_cross_subject.py --model eegnet                # 单模型跨被试预训练
-uv run python scripts/run_cross_subject.py --model cbramod --subjects S01 S02 S03 S04 S05
 uv run python scripts/run_cross_subject_comparison.py                    # 双模型对比 (EEGNet + CBraMod)
 uv run python scripts/run_cross_subject_comparison.py --paradigm movement  # Motor Execution
 uv run python scripts/run_cross_subject_comparison.py --no-within-subject-historical  # 无历史对比
@@ -47,11 +45,11 @@ uv run python scripts/run_transfer_comparison.py \
     --pretrained-eegnet checkpoints/cross_subject/.../best.pt \
     --pretrained-cbramod checkpoints/cross_subject/.../best.pt             # 手动指定检查点
 
-# 迁移学习 (单模型, 通过 run_single_model --pretrained)
-uv run python scripts/run_single_model.py --model eegnet \
+# 迁移学习 (单模型, 通过 run_within_subject --pretrained)
+uv run python scripts/run_within_subject.py --model eegnet \
     --pretrained checkpoints/cross_subject/eegnet_imagery_binary/best.pt \
     --freeze-strategy backbone --subjects S01
-uv run python scripts/run_single_model.py --model cbramod \
+uv run python scripts/run_within_subject.py --model cbramod \
     --pretrained checkpoints/cross_subject/cbramod_imagery_binary/best.pt \
     --freeze-strategy none --cache-only
 
@@ -100,9 +98,8 @@ scripts/
 │   ├── run_32ch_config_comparison.py   # 32ch 6 配置对比
 │   ├── run_reduced_channel_experiment.py  # N-ch 全量实验 (任意通道数)
 │   ├── run_8ch_experiment.py           # 8ch 全量实验
-│   ├── run_single_model.py     # 单模型训练 (被试内)
-│   ├── run_cross_subject.py    # 单模型跨被试预训练
-│   └── (run_finetune.py 已废弃, 功能由 run_single_model.py --pretrained 吸收)
+│   ├── run_within_subject.py    # 单模型训练 (被试内)
+│   └── (run_finetune.py 已废弃, 功能由 run_within_subject.py --pretrained 吸收)
 ├── preprocessing/              # 数据预处理脚本
 │   ├── preprocess_zip.py       # ZIP 解压和预处理
 │   ├── cache_helper.py         # 缓存管理

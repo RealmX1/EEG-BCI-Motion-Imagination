@@ -103,7 +103,7 @@ def main():
     print()
     print("后续步骤:")
     print("  1. 验证缓存: python scripts/cache_helper.py --stats")
-    print("  2. 测试训练: python scripts/run_single_model.py --subject S01 --model cbramod --task ternary")
+    print("  2. 测试训练: python scripts/run_within_subject.py --subject S01 --model cbramod --task ternary")
     print()
 
     return 0

@@ -7,7 +7,7 @@ on individual subjects and compares the transfer learning performance of EEGNet 
 
 Workflow:
 1. Auto-discovers (or accepts manual) best cross-subject pretrained checkpoints
-2. Fine-tunes each model on each individual subject via run_single_model()
+2. Fine-tunes each model on each individual subject via run_within_subject()
 3. Compares fine-tuned EEGNet vs CBraMod (statistical tests)
 4. Generates 6-way combined plot: within baseline + cross baseline + transfer results
 
@@ -83,7 +83,7 @@ from _training_utils import (
     find_best_checkpoint_path,
     validate_checkpoint_compatibility,
 )
-from run_single_model import run_single_model
+from run_within_subject import run_within_subject
 
 
 setup_logging('transfer_comparison')
@@ -373,7 +373,7 @@ Examples:
     classifier_types = validate_checkpoint_compatibility(pretrained_paths, args.task)
 
     # ======================================================================
-    # Fine-tune each model via run_single_model()
+    # Fine-tune each model via run_within_subject()
     # ======================================================================
     results = {}
 
@@ -383,7 +383,7 @@ Examples:
 
         log_main.info(f"{'='*50} {model_type.upper()} TRANSFER {'='*50}")
 
-        model_results, stats = run_single_model(
+        model_results, stats = run_within_subject(
             model_type=model_type,
             data_root=args.data_root,
             subject_ids=subjects,

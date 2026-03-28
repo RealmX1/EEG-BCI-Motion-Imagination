@@ -30,7 +30,7 @@ Usage (programmatic API):
     results = train_subject_simple('S01', 'eegnet', 'binary', paradigm='movement')
 
 For batch training across subjects, use the scripts:
-    uv run python scripts/run_single_model.py --model eegnet
+    uv run python scripts/run_within_subject.py --model eegnet
     uv run python scripts/run_within_subject_comparison.py
 """
 

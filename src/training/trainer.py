@@ -815,7 +815,7 @@ class WithinSubjectTrainer:
         patience = self.scheduler_config.get('patience', None)
         if patience is None:
             if self.scheduler_type == 'cosine_annealing_warmup_decay':
-                patience = 2 * self.phase_epochs
+                patience = 1 * self.phase_epochs  # Reduced from 2x: one full cosine phase without improvement suffices for early stopping
             else:
                 patience = 10
 

@@ -17,8 +17,8 @@ scripts/
 ├── _training_utils.py          # 共享工具
 ├── _wandb_setup.py             # WandB 设置
 ├── run_full_comparison.py      # 混在根目录
-├── run_single_model.py
-├── run_cross_subject.py
+├── run_single_model.py         # (已更名为 run_within_subject.py)
+├── run_cross_subject.py        # (已删除)
 ├── run_finetune.py
 ├── preprocess_zip.py
 ├── cache_helper.py
@@ -37,8 +37,8 @@ scripts/
 ├── run_*.py                    # Wrapper 脚本 (向后兼容)
 ├── experiments/                # 训练实验脚本 (4 个)
 │   ├── run_full_comparison.py
-│   ├── run_single_model.py
-│   ├── run_cross_subject.py
+│   ├── run_single_model.py     # (已更名为 run_within_subject.py)
+│   ├── run_cross_subject.py    # (已删除)
 │   └── run_finetune.py
 ├── preprocessing/              # 数据预处理脚本 (4 个)
 │   ├── preprocess_zip.py

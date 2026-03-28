@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_DB_PATH = 'results/experiments.db'
 
 # Schema version for future migrations
-_SCHEMA_VERSION = 7
+_SCHEMA_VERSION = 8
 
 _SCHEMA_SQL = """
 -- Schema version tracking
@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS runs (
     legacy_source   TEXT,   -- original JSON filename, e.g. '20260205_0116_comparison_cache_imagery_binary.json'
     command         TEXT,   -- full terminal command used to launch this run (sys.argv)
     preprocessing_version TEXT,  -- e.g., 'v1.0', 'v2.0'; tracks data filtering/cleaning version
-    is_baseline     INTEGER NOT NULL DEFAULT 0  -- 1 = designated baseline for this category
+    is_baseline     INTEGER NOT NULL DEFAULT 0  -- intent flag; authoritative baseline is on model_summaries
 );
 
 -- Transfer learning specific configuration
@@ -118,6 +118,7 @@ CREATE TABLE IF NOT EXISTS model_summaries (
     min_acc    REAL,
     max_acc    REAL,
     n_subjects INTEGER,
+    is_baseline INTEGER NOT NULL DEFAULT 0,  -- 1 = designated baseline for (model_type, task, experiment_type)
     UNIQUE(run_id, model_type)
 );
 
@@ -257,6 +258,8 @@ class ExperimentDB:
                 self._migrate_to_v6(conn)
             if current_version < 7:
                 self._migrate_to_v7(conn)
+            if current_version < 8:
+                self._migrate_to_v8(conn)
 
             conn.execute(
                 "INSERT OR REPLACE INTO schema_info (key, value) VALUES (?, ?)",
@@ -385,6 +388,48 @@ class ExperimentDB:
         )
         logger.info("Schema migration v7: created run_baseline_refs table + indexes")
 
+    def _migrate_to_v8(self, conn: sqlite3.Connection):
+        """v7 -> v8: Move is_baseline from runs to model_summaries."""
+        cols = {row[1] for row in conn.execute(
+            "PRAGMA table_info(model_summaries)"
+        ).fetchall()}
+        if 'is_baseline' not in cols:
+            conn.execute(
+                "ALTER TABLE model_summaries "
+                "ADD COLUMN is_baseline INTEGER NOT NULL DEFAULT 0"
+            )
+            logger.info("Schema migration v8: added model_summaries.is_baseline")
+
+        # Propagate: mark all model_summaries for baseline runs
+        n_propagated = conn.execute(
+            "UPDATE model_summaries SET is_baseline = 1 "
+            "WHERE run_id IN (SELECT run_id FROM runs WHERE is_baseline = 1) "
+            "AND is_baseline = 0"
+        ).rowcount
+        if n_propagated:
+            logger.info(
+                f"Schema migration v8: propagated baseline flag to "
+                f"{n_propagated} model_summaries"
+            )
+
+        # Detect orphan baseline intents (runs with no model_summaries)
+        orphans = conn.execute(
+            "SELECT run_tag FROM runs WHERE is_baseline = 1 "
+            "AND run_id NOT IN (SELECT DISTINCT run_id FROM model_summaries)"
+        ).fetchall()
+        if orphans:
+            tags = [r[0] for r in orphans]
+            logger.warning(
+                f"Schema migration v8: {len(orphans)} baseline runs have no "
+                f"model_summaries (intent not propagated): {tags}"
+            )
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_summaries_baseline "
+            "ON model_summaries(is_baseline, model_type)"
+        )
+        logger.info("Schema migration v8: baseline authority moved to model_summaries")
+
     def close(self):
         """Close the database connection."""
         if self._conn is not None:
@@ -446,7 +491,8 @@ class ExperimentDB:
             preprocessing_version: Override for preprocessing version string.
                 If None, auto-populated from PREPROCESSING_VERSION constant
                 (new runs) or left as None (legacy runs).
-            is_baseline: Mark this run as a designated baseline (default False).
+            is_baseline: Baseline intent flag (default False). Propagated to
+                model_summaries when save_summary() is called.
 
         Returns:
             run_id: Unique identifier for this run
@@ -574,8 +620,46 @@ class ExperimentDB:
                 (now, run_id),
             )
 
+    def _warn_existing_baseline(
+        self,
+        conn: sqlite3.Connection,
+        model_type: str,
+        task: str,
+        experiment_type: str,
+        n_channels: int,
+        current_run_tag: str,
+        paradigm: str = 'imagery',
+    ):
+        """Log warning if a baseline already exists for this category."""
+        existing = conn.execute(
+            """SELECT ms.mean_acc, ms.std_acc, r.run_tag, r.created_at
+               FROM model_summaries ms
+               JOIN runs r ON ms.run_id = r.run_id
+               WHERE ms.is_baseline = 1
+                 AND ms.model_type = ? AND r.task = ?
+                 AND r.experiment_type = ? AND r.n_channels = ?
+                 AND r.paradigm = ?
+               ORDER BY r.created_at DESC""",
+            (model_type, task, experiment_type, n_channels, paradigm),
+        ).fetchall()
+        for row in existing:
+            if row['run_tag'] != current_run_tag:
+                acc = row['mean_acc']
+                std = row['std_acc']
+                acc_str = f"{acc * 100:.2f}%" if acc is not None else "N/A"
+                std_str = f"{std * 100:.2f}%" if std is not None else "N/A"
+                logger.warning(
+                    f"Existing baseline for {model_type}/{task}/{experiment_type}: "
+                    f"run_tag={row['run_tag']} mean_acc={acc_str} "
+                    f"std_acc={std_str} ({row['created_at'][:16]}). "
+                    f"New baseline being added from run_tag={current_run_tag}."
+                )
+
     def save_summary(self, run_id: str, model_type: str, stats: Dict[str, Any]):
         """Save model-level summary statistics (upsert).
+
+        If the parent run has is_baseline=1 (intent flag), the baseline flag
+        is propagated to this model_summary row.
 
         Args:
             run_id: Run identifier
@@ -583,11 +667,27 @@ class ExperimentDB:
             stats: Dict with keys: mean, std, median, min, max, n_subjects
         """
         with self._connection() as conn:
+            # Check if parent run has baseline intent
+            run_row = conn.execute(
+                "SELECT is_baseline, paradigm, task, experiment_type, "
+                "n_channels, run_tag "
+                "FROM runs WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            baseline_val = 0
+            if run_row and run_row['is_baseline']:
+                baseline_val = 1
+                self._warn_existing_baseline(
+                    conn, model_type, run_row['task'],
+                    run_row['experiment_type'], run_row['n_channels'],
+                    run_row['run_tag'], run_row['paradigm'],
+                )
+
             conn.execute(
                 """INSERT INTO model_summaries
                    (run_id, model_type, mean_acc, std_acc, median_acc,
-                    min_acc, max_acc, n_subjects)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    min_acc, max_acc, n_subjects, is_baseline)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(run_id, model_type)
                    DO UPDATE SET
                        mean_acc = excluded.mean_acc,
@@ -595,10 +695,12 @@ class ExperimentDB:
                        median_acc = excluded.median_acc,
                        min_acc = excluded.min_acc,
                        max_acc = excluded.max_acc,
-                       n_subjects = excluded.n_subjects""",
+                       n_subjects = excluded.n_subjects,
+                       is_baseline = MAX(model_summaries.is_baseline, excluded.is_baseline)""",
                 (run_id, model_type,
                  stats.get('mean'), stats.get('std'), stats.get('median'),
-                 stats.get('min'), stats.get('max'), stats.get('n_subjects')),
+                 stats.get('min'), stats.get('max'), stats.get('n_subjects'),
+                 baseline_val),
             )
 
     def save_comparison(self, run_id: str, comparison: ComparisonResult):
@@ -702,23 +804,79 @@ class ExperimentDB:
                 (n_subjects, now, run_id),
             )
 
-    def set_baseline(self, run_id: str, is_baseline: bool = True):
-        """Set or clear the baseline flag for a run.
+    def set_baseline(
+        self,
+        run_id: str,
+        model_type: Optional[str] = None,
+        is_baseline: bool = True,
+    ):
+        """Set or clear the baseline flag on model_summaries.
 
         Args:
             run_id: Run identifier
+            model_type: Specific model to mark. If None, marks ALL
+                model_summaries for this run (backward-compatible).
             is_baseline: True to mark as baseline, False to un-mark
         """
         now = datetime.now().isoformat()
         with self._connection() as conn:
-            n = conn.execute(
-                "UPDATE runs SET is_baseline = ?, updated_at = ? WHERE run_id = ?",
+            # Warn about existing baselines in the same category
+            if is_baseline:
+                run_row = conn.execute(
+                    "SELECT paradigm, task, experiment_type, n_channels, "
+                    "run_tag FROM runs WHERE run_id = ?",
+                    (run_id,),
+                ).fetchone()
+                if run_row:
+                    types_to_warn = (
+                        [model_type] if model_type
+                        else [r['model_type'] for r in conn.execute(
+                            "SELECT model_type FROM model_summaries "
+                            "WHERE run_id = ?", (run_id,),
+                        ).fetchall()]
+                    )
+                    for mt in types_to_warn:
+                        self._warn_existing_baseline(
+                            conn, mt, run_row['task'],
+                            run_row['experiment_type'],
+                            run_row['n_channels'], run_row['run_tag'],
+                            run_row['paradigm'],
+                        )
+
+            # Update model_summaries (authoritative)
+            if model_type:
+                n = conn.execute(
+                    "UPDATE model_summaries SET is_baseline = ? "
+                    "WHERE run_id = ? AND model_type = ?",
+                    (int(is_baseline), run_id, model_type),
+                ).rowcount
+            else:
+                n = conn.execute(
+                    "UPDATE model_summaries SET is_baseline = ? "
+                    "WHERE run_id = ?",
+                    (int(is_baseline), run_id),
+                ).rowcount
+
+            # Keep runs.is_baseline in sync (intent flag)
+            conn.execute(
+                "UPDATE runs SET is_baseline = ?, updated_at = ? "
+                "WHERE run_id = ?",
                 (int(is_baseline), now, run_id),
-            ).rowcount
+            )
+
             if n == 0:
-                raise ValueError(f"Run not found: {run_id}")
+                # No model_summaries yet (e.g. run just created, training
+                # hasn't started). The runs.is_baseline intent flag is already
+                # set above and will propagate via save_summary() later.
+                mt_suffix = f", model_type={model_type}" if model_type else ""
+                logger.warning(
+                    f"No model_summaries found for run_id={run_id}{mt_suffix}; "
+                    f"baseline intent saved on runs table, will propagate "
+                    f"when save_summary() is called."
+                )
+        mt_label = f" ({model_type})" if model_type else " (all models)"
         action = "marked as baseline" if is_baseline else "baseline flag cleared"
-        logger.info(f"Run {action}: {run_id}")
+        logger.info(f"Model summary {action}: {run_id}{mt_label}")
 
     def add_baseline_ref(
         self,
@@ -1105,13 +1263,13 @@ class ExperimentDB:
             Dict with run info + 'baseline_source' key ('explicit' or 'heuristic'),
             or None if no baseline found.
         """
-        # Priority 1: Explicit baseline
+        # Priority 1: Explicit baseline (authoritative on model_summaries)
         with self._connection() as conn:
             row = conn.execute(
                 """SELECT r.*, ms.mean_acc AS best_mean_acc
                    FROM runs r
                    JOIN model_summaries ms ON r.run_id = ms.run_id
-                   WHERE r.is_baseline = 1
+                   WHERE ms.is_baseline = 1
                      AND r.paradigm = ? AND r.task = ?
                      AND r.experiment_type = ? AND r.n_channels = ?
                      AND ms.model_type = ?

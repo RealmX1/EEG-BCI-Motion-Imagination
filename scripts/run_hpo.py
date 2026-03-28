@@ -25,6 +25,13 @@ Optuna HPO 入口脚本。
       --n-trials 2 \\
       --subjects S01 S02 \\
       --pruner none
+
+  # 仅查看已有 study 摘要，不启动新 trial
+  uv run python scripts/run_hpo.py \\
+      --paradigm within_subject \\
+      --model eegnet \\
+      --task ternary \\
+      --inspect-study
 """
 
 import argparse
@@ -33,6 +40,7 @@ import logging
 import sys
 from functools import partial
 from pathlib import Path
+from typing import Optional
 
 # 添加项目根目录到 sys.path
 project_root = Path(__file__).resolve().parent.parent
@@ -47,6 +55,11 @@ from src.hpo.objectives import (
     within_subject_objective,
 )
 from src.hpo.pruner import ProbabilisticSubjectPruner
+from src.results.hpo_report import (
+    collect_study_report,
+    generate_hpo_report_plot,
+    render_study_report,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -78,7 +91,7 @@ def parse_args():
 
     # 任务配置
     parser.add_argument('--task', default='binary',
-                        choices=['binary', 'ternary', 'quaternary'])
+                        choices=['binary', 'ternary', 'quaternary', 'unified'])
     parser.add_argument('--eeg-paradigm', default='imagery',
                         choices=['imagery', 'movement'],
                         help='EEG 范式 (default: imagery)')
@@ -116,6 +129,8 @@ def parse_args():
                         help='检查点保存目录')
     parser.add_argument('--cache-only', action='store_true',
                         help='仅从缓存加载数据')
+    parser.add_argument('--inspect-study', action='store_true',
+                        help='仅输出当前 category 的 HPO trial 摘要，不启动优化')
 
     return parser.parse_args()
 
@@ -179,11 +194,84 @@ def _reenqueue_interrupted_trials(study: optuna.Study) -> None:
         )
 
 
+def _build_study_name(args) -> str:
+    """Study 名称约定：{model}_{paradigm}_{task}。"""
+    return args.study_name or f"{args.model}_{args.paradigm}_{args.task}"
+
+
+def _resolve_storage_url(args, *, create_dir: bool) -> str:
+    """解析 storage URL；inspect 模式不主动创建默认目录。"""
+    if args.storage is not None:
+        return args.storage
+
+    hpo_dir = Path('results/hpo')
+    if create_dir:
+        hpo_dir.mkdir(parents=True, exist_ok=True)
+    return f"sqlite:///{hpo_dir / 'hpo.db'}"
+
+
+def _sqlite_path_from_storage(storage_url: str) -> Optional[Path]:
+    """从 sqlite:///... storage URL 提取本地路径。"""
+    prefix = 'sqlite:///'
+    if not storage_url.startswith(prefix):
+        return None
+    return Path(storage_url[len(prefix):])
+
+
+def _load_existing_study(study_name: str, storage_url: str) -> optuna.Study:
+    """读取已存在的 study；inspect 模式下绝不创建新 study。"""
+    sqlite_path = _sqlite_path_from_storage(storage_url)
+    if sqlite_path is not None and not sqlite_path.exists():
+        raise FileNotFoundError(f"HPO storage not found: {sqlite_path}")
+
+    return optuna.load_study(study_name=study_name, storage=storage_url)
+
+
 def main():
     args = parse_args()
+    study_name = _build_study_name(args)
+    storage_url = _resolve_storage_url(args, create_dir=not args.inspect_study)
+
+    if args.inspect_study:
+        try:
+            study = _load_existing_study(study_name, storage_url)
+        except FileNotFoundError as exc:
+            print(f"Error: {exc}")
+            sys.exit(1)
+        except KeyError:
+            print(
+                f"Error: study '{study_name}' not found in storage '{storage_url}'"
+            )
+            sys.exit(1)
+
+        report = collect_study_report(
+            study,
+            model=args.model,
+            paradigm=args.paradigm,
+            task=args.task,
+            n_channels=args.n_channels,
+            explicit_subjects=args.subjects,
+        )
+        print(render_study_report(
+            report,
+            model=args.model,
+            paradigm=args.paradigm,
+            task=args.task,
+            storage_url=storage_url,
+        ))
+
+        # Generate supplementary dashboard plot
+        plot_path = generate_hpo_report_plot(report)
+        if plot_path is not None:
+            print(f"\n  Dashboard plot saved to: {plot_path}")
+
+        return
 
     # 验证 transfer 参数
     if args.paradigm == 'transfer':
+        if args.task == 'unified':
+            print("Error: transfer HPO does not support unified task")
+            sys.exit(1)
         if args.pretrained_path is None:
             print("Error: --pretrained-path is required for transfer paradigm")
             sys.exit(1)
@@ -206,16 +294,6 @@ def main():
             cache_only=args.cache_only,
         )
     log.info(f"Subjects ({len(subjects)}): {subjects}")
-
-    # Study 名称
-    study_name = args.study_name or f"{args.model}_{args.paradigm}_{args.task}"
-
-    # Storage
-    storage_url = args.storage
-    if storage_url is None:
-        hpo_dir = Path('results/hpo')
-        hpo_dir.mkdir(parents=True, exist_ok=True)
-        storage_url = f"sqlite:///{hpo_dir / 'hpo.db'}"
 
     # Pruner (cross_subject 不用被试级剪枝)
     if args.paradigm == 'cross_subject':
@@ -325,7 +403,7 @@ def print_results(study: optuna.Study, args):
         if importances:
             print("\n  Parameter importance:")
             for param, imp in importances.items():
-                bar = '█' * int(imp * 30)
+                bar = '#' * int(imp * 30)
                 print(f"    {param:30s} {imp:.4f} {bar}")
     except Exception as e:
         log.debug(f"Could not compute param importances: {e}")

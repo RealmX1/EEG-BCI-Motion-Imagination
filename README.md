@@ -134,19 +134,19 @@ uv run python scripts/run_within_subject_comparison.py --wandb
 
 ```bash
 # 训练 EEGNet
-uv run python scripts/run_single_model.py --model eegnet
+uv run python scripts/run_within_subject.py --model eegnet
 
 # 训练 CBraMod
-uv run python scripts/run_single_model.py --model cbramod
+uv run python scripts/run_within_subject.py --model cbramod
 
 # 指定被试和任务
-uv run python scripts/run_single_model.py --model eegnet --subjects S01 S02 --task ternary
+uv run python scripts/run_within_subject.py --model eegnet --subjects S01 S02 --task ternary
 
 # 启用 WandB (交互式提示)
-uv run python scripts/run_single_model.py --model eegnet --wandb
+uv run python scripts/run_within_subject.py --model eegnet --wandb
 
 # 禁用交互式提示
-uv run python scripts/run_single_model.py --model eegnet --wandb --no-wandb-interactive
+uv run python scripts/run_within_subject.py --model eegnet --wandb --no-wandb-interactive
 ```
 
 ### 数据预处理
@@ -361,8 +361,8 @@ EEG-BCI/
 ├── scripts/
 │   ├── experiments/               # 训练实验脚本
 │   │   ├── run_within_subject_comparison.py # 被试内模型对比
-│   │   ├── run_single_model.py    # 单模型训练
-│   │   └── run_cross_subject.py   # 跨被试预训练
+│   │   ├── run_within_subject.py   # 单模型训练 (被试内)
+│   │   └── run_cross_subject_comparison.py  # 跨被试模型对比
 │   ├── preprocessing/             # 数据预处理脚本
 │   │   ├── preprocess_zip.py      # ZIP 解压 + 缓存生成
 │   │   └── cache_helper.py        # 缓存管理工具
@@ -393,13 +393,13 @@ EEG-BCI/
 wandb login
 
 # 启用追踪 (默认交互式提示)
-uv run python scripts/run_single_model.py --model eegnet --wandb
+uv run python scripts/run_within_subject.py --model eegnet --wandb
 
 # 禁用交互式提示
-uv run python scripts/run_single_model.py --model eegnet --wandb --no-wandb-interactive
+uv run python scripts/run_within_subject.py --model eegnet --wandb --no-wandb-interactive
 
 # 上传模型文件 (默认不上传以节省带宽)
-uv run python scripts/run_single_model.py --model eegnet --wandb --upload-model
+uv run python scripts/run_within_subject.py --model eegnet --wandb --upload-model
 ```
 
 **交互式模式字段**:

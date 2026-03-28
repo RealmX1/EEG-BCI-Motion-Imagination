@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 """
-Single Model Training Script for EEG-BCI Project.
+Within-Subject Training Script for EEG-BCI Project.
 
-This script trains and evaluates a single model (EEGNet or CBraMod) on all
-available subjects, generating statistics, cache, and visualizations.
+This script performs within-subject training and evaluation for a single model
+(EEGNet or CBraMod) on all available subjects, generating statistics, cache,
+and visualizations.
 
 Features:
 - Trains one model type across all subjects
@@ -13,19 +14,19 @@ Features:
 
 Usage:
     # Train EEGNet on all subjects
-    uv run python scripts/run_single_model.py --model eegnet
+    uv run python scripts/run_within_subject.py --model eegnet
 
     # Train CBraMod with specific subjects
-    uv run python scripts/run_single_model.py --model cbramod --subjects S01 S02 S03
+    uv run python scripts/run_within_subject.py --model cbramod --subjects S01 S02 S03
 
     # Start a new experiment (preserves old results)
-    uv run python scripts/run_single_model.py --model eegnet --new-run
+    uv run python scripts/run_within_subject.py --model eegnet --new-run
 
     # Skip training, just load existing results
-    uv run python scripts/run_single_model.py --model eegnet --skip-training
+    uv run python scripts/run_within_subject.py --model eegnet --skip-training
 
     # Suppress plot generation
-    uv run python scripts/run_single_model.py --model eegnet --no-plot
+    uv run python scripts/run_within_subject.py --model eegnet --no-plot
 """
 
 import argparse
@@ -85,7 +86,7 @@ from _training_utils import (
 )
 
 
-setup_logging('single_model')
+setup_logging('within_subject')
 logger = logging.getLogger(__name__)
 log_main = SectionLogger(logger, 'main')
 log_train = SectionLogger(logger, 'train')
@@ -96,7 +97,7 @@ log_io = SectionLogger(logger, 'io')
 # Core Training Function
 # ============================================================================
 
-def run_single_model(
+def run_within_subject(
     model_type: str,
     data_root: str,
     subject_ids: List[str],
@@ -121,7 +122,7 @@ def run_single_model(
     cache_type = None,  # CacheType enum, None defaults to within-subject
 ) -> Tuple[List[TrainingResult], Dict]:
     """
-    Train a single model on all specified subjects.
+    Run within-subject training for one model type on all specified subjects.
 
     Args:
         model_type: 'eegnet' or 'cbramod'
@@ -310,24 +311,24 @@ def run_single_model(
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Single model training for EEG-BCI (EEGNet or CBraMod)',
+        description='Within-subject training for EEG-BCI (EEGNet or CBraMod)',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 Examples:
   # Train EEGNet on all subjects
-  uv run python scripts/run_single_model.py --model eegnet
+  uv run python scripts/run_within_subject.py --model eegnet
 
   # Train CBraMod on specific subjects
-  uv run python scripts/run_single_model.py --model cbramod --subjects S01 S02
+  uv run python scripts/run_within_subject.py --model cbramod --subjects S01 S02
 
   # Resume the most recent run
-  uv run python scripts/run_single_model.py --model eegnet --resume
+  uv run python scripts/run_within_subject.py --model eegnet --resume
 
   # Resume a specific run by datetime substring
-  uv run python scripts/run_single_model.py --model eegnet --resume 20260205
+  uv run python scripts/run_within_subject.py --model eegnet --resume 20260205
 
   # Load existing results only (no training)
-  uv run python scripts/run_single_model.py --model eegnet --skip-training
+  uv run python scripts/run_within_subject.py --model eegnet --skip-training
 '''
     )
 
@@ -442,7 +443,7 @@ Examples:
             log_main.info("Resuming from cache (--force-retrain to overwrite)")
 
         # Run training
-        results, stats = run_single_model(
+        results, stats = run_within_subject(
             model_type=args.model,
             data_root=args.data_root,
             subject_ids=subjects,
@@ -501,7 +502,7 @@ Examples:
                     historical_timestamp=hist_timestamp,
                 )
             else:
-                # No historical data, use single model plot
+                # No historical data, use within-subject single model plot
                 plot_filename = generate_result_filename(args.model, args.paradigm, args.task, 'png', run_tag)
                 plot_path = Path(args.output_dir) / plot_filename
                 generate_single_model_plot(

@@ -4,8 +4,8 @@
 =================================================
 已废弃：请改用标准训练脚本的 --pretrained-weights flag：
 
-    uv run python scripts/run_single_model.py --model cbramod --pretrained-weights path/to/weights.pth
-    uv run python scripts/run_cross_subject.py --model cbramod --pretrained-weights path/to/weights.pth
+    uv run python scripts/run_within_subject.py --model cbramod --pretrained-weights path/to/weights.pth
+    uv run python scripts/run_cross_subject_comparison.py --model cbramod --pretrained-weights path/to/weights.pth
 
 本脚本通过临时替换预训练权重文件来评估，存在文件锁/竞态条件等问题。
 
