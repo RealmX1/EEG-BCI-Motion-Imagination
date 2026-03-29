@@ -1236,29 +1236,6 @@ def train_subject_simple(
         n_ch = None
     config = get_default_config(model_type, task, n_channels=n_ch)
 
-    # Apply finetune-specific defaults when pretrained_path is set
-    # (applied before user config_overrides so user overrides win)
-    if pretrained_path is not None:
-        from src.training.finetune_utils import get_default_finetune_config
-        effective_freeze = freeze_strategy or 'none'
-        n_ch_ft = config_overrides.get('data', {}).get('channels') if config_overrides else None
-        ft_defaults = get_default_finetune_config(model_type, effective_freeze, n_ch_ft)
-
-        # Build finetune override config (only for keys user didn't explicitly set)
-        ft_overrides = {'training': {}}
-        user_training = config_overrides.get('training', {}) if config_overrides else {}
-        if 'epochs' not in user_training:
-            ft_overrides['training']['epochs'] = ft_defaults['epochs']
-        if 'learning_rate' not in user_training:
-            ft_overrides['training']['learning_rate'] = ft_defaults['learning_rate']
-        if 'batch_size' not in user_training:
-            ft_overrides['training']['batch_size'] = ft_defaults['batch_size']
-        if 'scheduler' not in user_training:
-            ft_overrides['training']['scheduler'] = ft_defaults['scheduler_type']
-
-        # Apply finetune defaults first, then user overrides on top
-        config = apply_config_overrides(config, ft_overrides)
-
     # Apply config overrides with scheduler preset support
     config = apply_config_overrides(config, config_overrides)
 

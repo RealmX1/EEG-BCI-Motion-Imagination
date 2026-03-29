@@ -102,3 +102,32 @@ EEGNet ternary 在所有实验类型 (within_subject / cross_subject / transfer)
 - 对比降通道在标准实验与 extra sessions 实验中的性能差异
 
 **Status**: Pending
+
+---
+
+## Leave-One-Out Transfer Learning 实验
+
+**Date Added**: 2026-03-29
+
+使用 leave-one-out cross-subject 训练 → 对目标被试进行 transfer learning 的范式。对每个被试，用其余 20 个被试的数据训练 cross-subject 模型，然后对该被试进行 per-subject 微调。
+
+**动机**:
+- 当前 transfer learning 使用包含目标被试的 cross-subject checkpoint——目标被试的数据同时参与了预训练和微调，存在间接信息泄露风险
+- Leave-one-out 是更严格的 transfer learning 评估方案：预训练模型完全未见过目标被试的 EEG 数据
+- 对比当前方案（含目标被试预训练）vs leave-one-out（排除目标被试预训练），量化信息泄露对 transfer 性能的影响
+
+**设计思路**:
+1. 对每个被试 S_i，使用其余 20 个被试训练 cross-subject 模型
+2. 用该模型作为 S_i 的 transfer learning 初始化权重
+3. 对 S_i 进行标准 within-subject 微调
+4. 可复用现有 cross-subject extra sessions 的 `+Sess05` checkpoint 作为近似方案（该 checkpoint 在 21 subjects 的标准数据 + 16 subjects 的 extra sessions 上训练，包含更多泛化信息但非严格 leave-one-out）
+
+**实现路径**:
+- 需新增脚本或修改 `run_cross_subject_comparison.py` 支持 `--leave-out SUBJECT` 参数
+- 或利用已有的 cross-subject extra sessions `+Sess05` checkpoint（`20260326_1409_sess05_cbramod_imagery_binary/best.pt`）作为近似 leave-one-out 预训练
+
+**预期结果**:
+- 如果当前 transfer 与 leave-one-out 差异很小（<1pp），说明 cross-subject 预训练中目标被试的贡献被其他 20 人稀释，信息泄露风险可忽略
+- 如果差异显著，需在论文中明确声明 transfer learning 的评估局限性
+
+**Status**: Pending — 可使用 `run_extra_sessions.py --pretrained-run` 快速运行近似版本

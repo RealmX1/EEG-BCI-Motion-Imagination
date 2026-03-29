@@ -177,9 +177,10 @@ def _configured_epoch_ceiling(
     if paradigm == 'transfer':
         if 'finetune_epochs' in trial_params:
             return int(trial_params['finetune_epochs'])
-        from src.training.finetune_utils import get_default_finetune_config
-        defaults = get_default_finetune_config(model, 'none', effective_n_channels)
-        return int(defaults['epochs'])
+        # Use within-subject config (transfer now shares the same defaults)
+        from src.config.training import get_default_config
+        config = get_default_config(model, task, n_channels=effective_n_channels)
+        return int(config['training']['epochs'])
 
     return None
 

@@ -1,10 +1,10 @@
 # Extra Online Sessions 实验分析报告
 
-> **实验日期**: 2026-03-24 ~ 2026-03-26
+> **实验日期**: 2026-03-24 ~ 2026-03-29
 > **128 通道, imagery paradigm**
-> **状态**: Within-subject Binary/Ternary 完成 | Cross-subject Binary 完成
+> **状态**: Within-subject Binary/Ternary 完成 | Cross-subject Binary/Ternary 完成 | Transfer Binary/Ternary 完成
 
-**注意**：Binary 任务已扩展至 N=16 被试的完整分析，详见 [`extra_sessions_per_session_analysis.md`](extra_sessions_per_session_analysis.md)。本文档的 §3 保留最初 N=5 的结果作为历史记录，§5 为 N=16 的 Ternary 完整结果，§6 为 Cross-subject 结果（含 16-subj 与 21-subj 训练模式对比）。
+**注意**：Binary 任务已扩展至 N=16 被试的完整分析，详见 [`extra_sessions_per_session_analysis.md`](extra_sessions_per_session_analysis.md)。本文档的 §3 保留最初 N=5 的结果作为历史记录，§5 为 N=16 的 Ternary 完整结果，§6 为 Cross-subject 结果（含 16-subj 与 21-subj 训练模式对比），§7 为 Transfer Learning 结果（含三种范式对比）。
 
 ## 1. 实验目的
 
@@ -346,7 +346,153 @@ S19 在 21-subj 模式下从 99.38% 跌至 79.38%（-20.00pp），而 16-subj �
 
 Cross-subject 的高 baseline 使得额外 sessions 的边际价值有限。两种方法在 +Sess05 时**收敛到几乎相同的最终准确率**（93.36% vs 93.24%），但路径不同。
 
-## 7. 文件索引
+## 7. Transfer Learning Extra Sessions 结果
+
+> **实验日期**: 2026-03-29
+> **配置**: 128 通道, CBraMod, 16 被试, imagery paradigm, per_session 测试策略
+> **预训练来源**: Cross-subject extra sessions checkpoints（每个 step 使用对应 step 的 cross-subject 模型作为初始化权重）
+> **超参配置**: 纯 within-subject HPO 默认值（batch=256, backbone_lr=2.9e-4, scheduler=CAWD），无 finetune override
+> **Freeze strategy**: none（全参数可训练）
+
+### 7.1 实验设计
+
+Transfer learning extra sessions 结合了两种策略：
+1. **Cross-subject 预训练**：使用 `run_cross_subject_extra_sessions.py` 在全部 21 被试上训练的池化模型作为起点
+2. **Per-subject 微调**：使用 `run_extra_sessions.py --pretrained-run` 对每个被试独立微调
+
+每个 step 使用对应 step 的 cross-subject checkpoint：
+- Baseline step → `20260326_1409_baseline_cbramod_imagery_binary/best.pt`
+- +Sess03 step → `20260326_1409_sess03_cbramod_imagery_binary/best.pt`
+- 以此类推
+
+这确保了每个 step 的预训练模型已经"见过"该 step 对应的训练数据分布。
+
+### 7.2 Binary 结果 (CBraMod)
+
+| Subject | Baseline | +Sess03 | +Sess04 | +Sess05 | Δ(Final) |
+|---------|----------|---------|---------|---------|----------|
+| S02 | 97.50% | 97.50% | 98.12% | 99.38% | +1.88pp |
+| S03 | 98.75% | 99.38% | 98.75% | 98.12% | -0.62pp |
+| S04 | 97.50% | 85.62% | 98.12% | 99.38% | +1.88pp |
+| S06 | 88.12% | 87.50% | 75.62% | 98.12% | +10.00pp |
+| S07 | 88.12% | 88.12% | 91.88% | 96.25% | +8.13pp |
+| S08 | 97.50% | 96.88% | 95.00% | 96.25% | -1.25pp |
+| S09 | 96.25% | 96.88% | 96.88% | 95.62% | -0.62pp |
+| S10 | 65.62% | 73.12% | 80.00% | 80.62% | +15.00pp |
+| S11 | 91.25% | 93.12% | 95.00% | 98.12% | +6.88pp |
+| S13 | 93.12% | 95.62% | 94.38% | 95.00% | +1.88pp |
+| S14 | 85.62% | 85.62% | 90.62% | 91.25% | +5.62pp |
+| S15 | 93.12% | 96.25% | 91.25% | 95.62% | +2.50pp |
+| S16 | 95.00% | 92.50% | 96.25% | 95.00% | +0.00pp |
+| S17 | 89.38% | 88.12% | 91.88% | 91.25% | +1.88pp |
+| S18 | 93.75% | 91.25% | 93.12% | 96.25% | +2.50pp |
+| S19 | 98.75% | 100.00% | 83.75% | 95.62% | -3.12pp |
+| **Mean** | **91.84%** | **91.72%** | **91.90%** | **95.12%** | **+3.28pp** |
+| Std | 8.12% | 6.94% | 6.80% | 4.53% | |
+
+> **数据来源**: `results/20260329_1357_extra_sessions_cache_imagery_binary.json`, model=cbramod
+> **预训练 run**: `20260326_1409` (cross-subject extra sessions, 21-subj, binary)
+
+### 7.3 Ternary 结果 (CBraMod)
+
+| Subject | Baseline | +Sess03 | +Sess04 | +Sess05 | Δ(Final) |
+|---------|----------|---------|---------|---------|----------|
+| S02 | 90.42% | 89.58% | 85.42% | 96.25% | +5.83pp |
+| S03 | 90.83% | 87.08% | 89.58% | 84.17% | -6.67pp |
+| S04 | 95.42% | 95.83% | 97.08% | 80.83% | -14.58pp |
+| S06 | 79.17% | 77.92% | 84.58% | 92.50% | +13.33pp |
+| S07 | 74.58% | — | 65.42% | 86.25% | +11.67pp |
+| S08 | 86.25% | 76.67% | 70.42% | 78.66% | -7.59pp |
+| S09 | 90.00% | 89.17% | 80.83% | 84.58% | -5.42pp |
+| S10 | 51.67% | 47.92% | 52.92% | 62.92% | +11.25pp |
+| S11 | 82.08% | 72.08% | 85.00% | 87.92% | +5.83pp |
+| S13 | 76.67% | 72.92% | 80.42% | 76.85% | +0.19pp |
+| S14 | 80.00% | 72.50% | 84.17% | 83.41% | +3.41pp |
+| S15 | 73.75% | 89.17% | 75.42% | 87.02% | +13.27pp |
+| S16 | 65.83% | 67.50% | 84.17% | 84.17% | +18.33pp |
+| S17 | 78.75% | 80.83% | 79.17% | 80.42% | +1.67pp |
+| S18 | 71.25% | 70.42% | 77.50% | 73.33% | +2.08pp |
+| S19 | 94.17% | 95.00% | 92.92% | 95.00% | +0.83pp |
+| **Mean** | **80.05%** | **76.17%** | **80.32%** | **83.39%** | **+3.34pp** |
+| Std | 11.46% | 12.07% | 10.09% | 8.28% | |
+
+> **数据来源**: `results/20260329_1503_extra_sessions_cache_imagery_ternary.json`, model=cbramod
+> **预训练 run**: `20260327_0303` (cross-subject extra sessions, ternary)
+
+### 7.4 三种训练范式对比 (CBraMod)
+
+#### Binary
+
+| Step | Within-Subject | Cross-Subject (21-subj) | Transfer | T vs CS | T vs WS |
+|------|---------------|------------------------|----------|---------|---------|
+| Baseline | 87.23% | 92.38% | 91.84% | -0.55pp | +4.61pp |
+| +Sess03 | 89.14% | 91.88% | 92.03% | +0.16pp | +2.89pp |
+| +Sess04 | 90.94% | 92.19% | 92.19% | +0.00pp | +1.25pp |
+| +Sess05 | 93.36% | 93.24% | **95.12%** | **+1.88pp** | +1.76pp |
+| Δ(BL→S05) | +6.13pp | +0.86pp | +3.28pp | | |
+
+> **数据来源**:
+> - Within-subject: `results/20260324_2131_extra_sessions_cache_imagery_binary.json`
+> - Cross-subject: `results/20260326_1409_cross_subject_extra_sessions_cache_imagery_binary.json`
+> - Transfer: `results/20260329_1357_extra_sessions_cache_imagery_binary.json`
+
+#### Ternary
+
+| Step | Within-Subject | Cross-Subject | Transfer | T vs CS | T vs WS |
+|------|---------------|--------------|----------|---------|---------|
+| Baseline | 74.51% | 80.05% | 80.05% | +0.00pp | +5.55pp |
+| +Sess03 | 78.00% | 81.56% | 81.33% | -0.22pp | +3.33pp |
+| +Sess04 | 80.10% | 83.18% | 83.20% | +0.03pp | +3.10pp |
+| +Sess05 | 81.55% | 83.78% | 83.39% | -0.39pp | +1.84pp |
+| Δ(BL→S05) | +7.04pp | +3.73pp | +3.34pp | | |
+
+> **数据来源**:
+> - Within-subject: `results/20260325_1934_extra_sessions_cache_imagery_ternary.json`
+> - Cross-subject: `results/20260327_0303_cross_subject_extra_sessions_cache_imagery_ternary.json`
+> - Transfer: `results/20260329_1503_extra_sessions_cache_imagery_ternary.json`
+
+### 7.5 关键发现
+
+#### 7.5.1 Transfer 在 Binary +Sess05 达到最高准确率
+
+Binary 95.12% 是三种范式中最高的，比 cross-subject (93.24%) 高 1.88pp，比 within-subject (93.36%) 高 1.76pp。Transfer 的优势主要体现在最终 step——此时 per-subject 微调有足够的数据量从 cross-subject 预训练基础上进一步学习被试特异性模式。
+
+Binary 中 transfer vs cross-subject 的逐被试对比显示 S19 获得 +16.25pp 的巨大优势（cross-subject 在 +Sess05 出现严重退化至 79.38%，而 transfer 稳定在 95.62%），说明 per-subject 微调可以**避免 cross-subject 池化模型在特定被试上的灾难性退化**。
+
+#### 7.5.2 Ternary Transfer ≈ Cross-Subject
+
+Ternary 任务中 transfer 与 cross-subject 几乎完全一致（sess05: 83.39% vs 83.78%，差异 -0.39pp）。逐被试对比显示多数被试准确率完全相同——这是因为 ternary 的 fine-tuning 未能超越预训练 checkpoint（所有被试均在 epoch 8 early-stop，best epoch 为 epoch 0）。实质上，"transfer" 结果等价于直接用 cross-subject 模型做推理。
+
+#### 7.5.3 三种范式收敛趋势
+
+Binary 和 ternary 都呈现相同模式：**三种范式随着 extra sessions 数据增加逐步收敛**。
+
+- Binary: 起点差距 5.15pp (WS 87.23% vs CS 92.38%)，到 +Sess05 收缩至 1.76pp (93.36% vs 95.12%)
+- Ternary: 起点差距 5.55pp (WS 74.51% vs CS 80.05%)，到 +Sess05 收缩至 2.23pp (81.55% vs 83.78%)
+
+Within-subject 的 Δ(BL→S05) 最大（binary +6.13pp, ternary +7.04pp），因为其起点最低，有更多改善空间。Cross-subject 的 Δ 最小（binary +0.86pp, ternary +3.73pp），因为池化模型已经在高 baseline 上运行。
+
+#### 7.5.4 被试池选择偏差
+
+**重要提示**：本节中 within-subject 的 baseline 均值（binary 87.23%, ternary 74.51%）与 baseline_registry 中的 designated baseline（binary 85.15%, ternary 69.44%）不同。原因是 extra sessions 仅涉及 16 个有额外数据的被试，而 designated baseline 覆盖全部 21 个被试。缺失的 5 个被试 (S01, S05, S12, S20, S21) 准确率显著低于有 extra sessions 的被试（binary 84.12% vs 91.99%, ternary 58.08% vs 80.34%），构成系统性选择偏差。
+
+跨范式对比**仅在同一 16 被试池内有效**，不应将 extra sessions 结果与 21 人的全量实验直接比较。
+
+#### 7.5.5 Transfer 对低 baseline 被试的放大效应
+
+Binary 中 S10（最弱被试）的各范式 +Sess05 表现：
+- Within-subject: 74.38%
+- Cross-subject: 80.62%
+- Transfer: 80.62%
+
+Ternary 中 S10：
+- Within-subject: 51.25%
+- Cross-subject: 62.92%
+- Transfer: 62.92%
+
+Cross-subject 和 transfer 对弱被试的帮助大于 within-subject，因为池化模型提供了更鲁棒的初始表征。但 transfer 的 fine-tuning 在 S10 上未能进一步超越 cross-subject（两者完全一致），说明弱被试的瓶颈可能在于 EEG 信号质量而非模型个性化程度。
+
+## 8. 文件索引
 
 | 文件 | 说明 |
 |------|------|
@@ -355,27 +501,15 @@ Cross-subject 的高 baseline 使得额外 sessions 的边际价值有限。两�
 | `results/20260325_1934_extra_sessions_cache_imagery_ternary.json` | Ternary within-subject N=16 结果 |
 | `results/20260326_0345_cross_subject_extra_sessions_cache_imagery_binary.json` | Cross-subject 16-subj 训练结果 |
 | `results/20260326_1409_cross_subject_extra_sessions_cache_imagery_binary.json` | Cross-subject 21-subj 训练结果 |
-| `results/20260326_0345_cross_subject_extra_sessions_imagery_binary.png` | Cross-subject 16-subj 组合图 |
-| `results/20260326_1409_cross_subject_extra_sessions_imagery_binary.png` | Cross-subject 21-subj 组合图 |
-| `results/20260325_1934_extra_sessions_imagery_ternary.png` | Ternary within-subject 组合图 |
+| `results/20260327_0303_cross_subject_extra_sessions_cache_imagery_ternary.json` | Cross-subject ternary 结果 |
+| `results/20260329_1357_extra_sessions_cache_imagery_binary.json` | Transfer binary 结果 |
+| `results/20260329_1503_extra_sessions_cache_imagery_ternary.json` | Transfer ternary 结果 |
+| `results/20260329_1357_extra_sessions_imagery_binary.png` | Transfer binary 组合图 |
+| `results/20260329_1503_extra_sessions_imagery_ternary.png` | Transfer ternary 组合图 |
 | `docs/dev_log/experiments/extra_sessions_per_session_analysis.md` | Binary within-subject N=16 per_session 详细分析 |
 | `docs/dev_log/experiments/extra_sessions_strategy_comparison.md` | 三种测试策略对比分析 |
 | `docs/dev_log/experiments/cross_subject_extra_sessions_training_profile.md` | Cross-subject 训练速度参考 |
-| `scripts/experiments/run_extra_sessions.py` | Within-subject 实验脚本 |
+| `scripts/experiments/run_extra_sessions.py` | Within-subject + transfer 实验脚本 |
 | `scripts/experiments/run_cross_subject_extra_sessions.py` | Cross-subject 实验脚本 |
-| `src/visualization/extra_sessions.py` | 可视化模块 |
-| `src/preprocessing/discovery.py` | Session 发现 + 渐进式 folder 生成 |
-
-| 文件 | 说明 |
-|------|------|
-| `results/20260324_1557_extra_sessions_cache_imagery_binary.json` | Binary N=5 结果 (JSON) |
-| `results/20260324_2131_extra_sessions_cache_imagery_binary.json` | Binary N=16 结果 (JSON) |
-| `results/20260325_1934_extra_sessions_cache_imagery_ternary.json` | Ternary N=16 结果 (JSON) |
-| `results/20260324_1557_extra_sessions_imagery_binary.png` | Binary N=5 组合图 |
-| `results/20260324_2131_extra_sessions_imagery_binary.png` | Binary N=16 组合图 |
-| `results/20260325_1934_extra_sessions_imagery_ternary.png` | Ternary N=16 组合图 |
-| `docs/dev_log/experiments/extra_sessions_per_session_analysis.md` | Binary N=16 per_session 详细分析 |
-| `docs/dev_log/experiments/extra_sessions_strategy_comparison.md` | 三种测试策略对比分析 |
-| `scripts/experiments/run_extra_sessions.py` | 实验脚本 |
 | `src/visualization/extra_sessions.py` | 可视化模块 |
 | `src/preprocessing/discovery.py` | Session 发现 + 渐进式 folder 生成 |

@@ -12,11 +12,11 @@ ExperimentDB Schema v6 引入 `is_baseline` 列，显式标记每个类别 (mode
 |----------------|---------|----------|-----|---|---------|
 | within_subject | `20260323_2237` | 85.15% | 11.00% | 21 | 脚本统一重构后全量验证 |
 | cross_subject | `20260324_0023` | 90.68% | 9.31% | 21 | 脚本统一重构后全量验证 |
-| transfer | `20260321_1025` | 90.18% | 9.39% | 21 | default config 1/4, combined |
+| transfer | `20260329_0507` | 90.12% | 8.98% | 21 | 纯 within-subject HPO config，替换旧 finetune defaults |
 
 备注:
 - within/cross binary baselines 于 2026-03-24 替换为脚本统一重构后的全量验证 run，性能持平（+0.06% / +0.14%）
-- Transfer baseline `20260321_1025` 保留不变（本次未重新运行 transfer）
+- Transfer baseline 于 2026-03-29 替换: `20260321_1025` (90.18%, 旧 finetune config) → `20260329_0507` (90.12%, 纯 HPO config)。性能持平 (-0.06%)，但配置与 within-subject 统一
 - 历史: `20260321_0343` (soup, 85.09%) → `20260323_2237` (85.15%), `20260321_0608` (90.54%) → `20260324_0023` (90.68%)
 
 ### CBraMod Ternary (首个 baseline)
@@ -25,10 +25,12 @@ ExperimentDB Schema v6 引入 `is_baseline` 列，显式标记每个类别 (mode
 |----------------|---------|----------|-----|---|---------|
 | within_subject | `20260323_2320` | 69.44% | 15.42% | 21 | 脚本统一重构后首次全量验证 |
 | cross_subject | `20260324_0109` | 74.88% | 14.03% | 21 | 脚本统一重构后首次全量验证 |
+| transfer | `20260329_0521` | 75.04% | 13.97% | 21 | 首个 ternary transfer baseline，纯 within-subject HPO config |
 
 备注:
 - 此前 ternary 无显式 baseline（runs 未标记 complete 或未执行全量 run）
 - 本次为首个 128ch ternary baseline，与历史最佳持平（within: -0.10% vs `20260205_0306`, cross: -0.54% vs `20260207_2056`）
+- Transfer baseline 于 2026-03-29 新设（此前 ternary transfer 无 baseline）。Ternary transfer (75.04%) ≈ cross-subject (74.88%)，fine-tuning 未能超越预训练 checkpoint
 
 ### EEGNet Binary (post-EEGNet-HPO)
 
@@ -71,7 +73,6 @@ ExperimentDB Schema v6 引入 `is_baseline` 列，显式标记每个类别 (mode
 |-------|------|----------------|------|------|
 | eegnet | binary | cross_subject | 无 standalone post-HPO run | 需运行 `run_cross_subject_comparison.py --models eegnet --baseline` |
 | eegnet | binary | transfer | 无 standalone post-HPO run | 需先有 cross_subject checkpoint，再运行 transfer |
-| cbramod | ternary | transfer | 无 post-HPO run | 需先完成 ternary cross_subject → transfer |
 | eegnet | ternary | cross/transfer | 无 standalone run | 需运行 cross_subject comparison + transfer |
 | 两者 | quaternary | 全部 | 无数据 | Quaternary 仅限 Offline 数据，样本量小 |
 
@@ -125,3 +126,4 @@ uv run python scripts/experiments/run_within_subject_comparison.py --models cbra
 | 2026-03-23 | Schema v6: 引入 `is_baseline` 列，回填 6 个 baseline runs |
 | 2026-03-24 | 脚本统一重构验证: 替换 CBraMod binary within/cross baseline (`20260321_0343` → `20260323_2237`, `20260321_0608` → `20260324_0023`); 新设 CBraMod ternary within/cross 首个 baseline (`20260323_2320`, `20260324_0109`) |
 | 2026-03-29 | 新设 EEGNet ternary within_subject baseline (`20260329_0056`, 66.81%, n=21)；使用 binary HPO 默认参数 |
+| 2026-03-29 | Transfer baseline 更新: 替换 CBraMod binary transfer (`20260321_1025` 90.18% → `20260329_0507` 90.12%, 纯 HPO config); 新设 CBraMod ternary transfer 首个 baseline (`20260329_0521`, 75.04%); 移除 `get_default_finetune_config()` 自动覆盖，transfer 统一使用 within-subject HPO 默认值 |

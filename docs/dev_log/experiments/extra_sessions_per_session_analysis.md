@@ -161,14 +161,25 @@ N=16 下两个模型的提升均达到统计显著。这与 N=5 时不显著的�
 
 两模型从额外数据中获得的提升幅度无统计学显著差异。EEGNet 的绝对提升略大于 CBraMod（+7.34 vs +6.13pp），但这可能因为 EEGNet baseline 更低，有更多改善空间。
 
-## 5. 局限性
+## 5. Transfer Learning 对比
+
+2026-03-29 完成了 transfer learning extra sessions 实验，使用 cross-subject extra sessions checkpoint 作为 per-subject 微调的初始化权重。Binary 的三种范式 +Sess05 结果对比：
+
+| 范式 | +Sess05 Mean | Δ(BL→S05) |
+|------|-------------|-----------|
+| Within-subject (本文档) | 93.36% | +6.13pp |
+| Cross-subject (21-subj) | 93.24% | +0.86pp |
+| **Transfer** | **95.12%** | **+3.28pp** |
+
+Transfer 在 +Sess05 达到最高准确率 (95.12%)，比 within-subject 和 cross-subject 分别高 1.76pp 和 1.88pp。详细的三范式对比分析、逐被试数据和 ternary 结果见 [`extra_sessions_analysis.md` §7](extra_sessions_analysis.md#7-transfer-learning-extra-sessions-结果)。
+
+## 6. 局限性
 
 1. **测试集不可比**：per_session 策略下每个 step 的测试集不同，无法严格控制测试难度，跨 step 变化不可直接归因于训练数据量。详见策略对比分析文档。
 2. **被试技能学习混淆**：后续 session 的训练和测试数据均受益于被试 BCI 操控技能的提升，无法在 per_session 框架内分离数据量 vs 数据质量 vs 被试技能三个因素的各自贡献。
-3. **仅 binary 任务**：Ternary 待运行。
-4. **无超参数重调**：所有 step 使用相同的超参数（来自 baseline HPO），未针对增大的训练集重新调参。
+3. **无超参数重调**：所有 step 使用相同的超参数（来自 baseline HPO），未针对增大的训练集重新调参。
 
-## 6. 文件索引
+## 7. 文件索引
 
 | 文件 | 说明 |
 |------|------|

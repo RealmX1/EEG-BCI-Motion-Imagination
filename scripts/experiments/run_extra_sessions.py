@@ -381,6 +381,16 @@ Examples:
         choices=[STRATEGY_PER_SESSION, STRATEGY_FIXED_COMBINED, STRATEGY_FIXED_SESS02],
         help='Test set strategy (default: per_session)'
     )
+    parser.add_argument(
+        '--pretrained-run', type=str, default=None, metavar='RUN_TAG',
+        help='Cross-subject extra sessions run tag for transfer learning. '
+             'Checkpoints at checkpoints/cross_subject/{tag}_{step}_{model}_{paradigm}_{task}/best.pt'
+    )
+    parser.add_argument(
+        '--freeze-strategy', type=str, default='none',
+        choices=['none', 'backbone', 'partial'],
+        help='Freeze strategy for transfer learning (default: none)'
+    )
     add_common_args(parser)
     add_cache_resume_args(parser)
     add_wandb_args(parser)
@@ -388,6 +398,9 @@ Examples:
 
     args = parser.parse_args()
     test_strategy = args.test_strategy
+
+    if args.pretrained_run and test_strategy != STRATEGY_PER_SESSION:
+        parser.error("--pretrained-run is only supported with per_session test strategy")
 
     # ====== Setup ======
     start_time = time.time()
@@ -464,13 +477,40 @@ Examples:
     # ====== Build config overrides ======
     config_overrides = build_config_overrides(args)
 
+    # ====== Discover pretrained checkpoints (transfer learning) ======
+    pretrained_checkpoints: Dict[str, Dict[str, str]] = {}  # {model_type: {step: path}}
+    freeze_strategy = args.freeze_strategy
+    if args.pretrained_run:
+        for model_type in args.models:
+            model_ckpts = {}
+            for step in ['baseline', 'sess03', 'sess04', 'sess05']:
+                ckpt_dir = Path(f"checkpoints/cross_subject/"
+                                f"{args.pretrained_run}_{step}_{model_type}"
+                                f"_{args.paradigm}_{args.task}")
+                ckpt_path = ckpt_dir / 'best.pt'
+                if ckpt_path.exists():
+                    model_ckpts[step] = str(ckpt_path)
+                    log_main.info(f"Found checkpoint: {step} → {ckpt_path}")
+                else:
+                    log_main.warning(f"Checkpoint not found: {ckpt_path}")
+            if not model_ckpts:
+                log_main.error(f"No checkpoints found for {model_type} "
+                               f"with pretrained-run={args.pretrained_run}")
+                sys.exit(1)
+            pretrained_checkpoints[model_type] = model_ckpts
+        log_main.info(f"Transfer learning mode: freeze={freeze_strategy}, "
+                      f"steps per model: "
+                      f"{', '.join(f'{m}={list(v.keys())}' for m, v in pretrained_checkpoints.items())}")
+
     # ====== Train ======
     all_results: Dict[str, Dict[str, Dict[str, dict]]] = {}
     baseline_run_tags: Dict[str, str] = {}
 
     # For fixed_combined, baseline needs training (different test set).
     # For per_session and fixed_sess02, baseline comes from ExperimentDB.
-    needs_baseline_training = (test_strategy == STRATEGY_FIXED_COMBINED)
+    # For transfer learning (--pretrained-run), always train baseline step.
+    needs_baseline_training = (test_strategy == STRATEGY_FIXED_COMBINED
+                               or bool(args.pretrained_run))
 
     for model_type in args.models:
         log_main.info(f"{'='*50} {model_type.upper()} {'='*50}")
@@ -559,7 +599,6 @@ Examples:
 
             # ---------- Baseline ----------
             if needs_baseline_training:
-                # fixed_combined: train baseline step (up_to_session=2)
                 step_key = 'baseline'
                 cached = (existing_cache or {}).get('results', {}).get(
                     model_type, {}
@@ -570,10 +609,28 @@ Examples:
                     acc = cached.get('test_acc_majority', cached.get('test_acc', 0))
                     log_train.info(f"{subject_id} baseline: {acc:.4f} [cached]")
                 else:
-                    precomputed = prepare_fixed_combined_data(
-                        full_dataset_fc, available_sessions, up_to_session=2,
-                        paradigm=args.paradigm, task=args.task,
-                    )
+                    # Determine data source: fixed_combined uses precomputed,
+                    # transfer uses session_folders_override (same as per_session)
+                    precomputed = None
+                    baseline_session_override = None
+                    if test_strategy == STRATEGY_FIXED_COMBINED:
+                        precomputed = prepare_fixed_combined_data(
+                            full_dataset_fc, available_sessions, up_to_session=2,
+                            paradigm=args.paradigm, task=args.task,
+                        )
+                    elif args.pretrained_run:
+                        # Transfer baseline: use default data split (same as within-subject)
+                        # session_folders_override=None → standard train/test protocol
+                        pass
+
+                    # Determine pretrained checkpoint for this step
+                    step_pretrained = (pretrained_checkpoints
+                                      .get(model_type, {}).get('baseline'))
+                    if args.pretrained_run and step_pretrained is None:
+                        log_train.warning(
+                            f"⚠ {subject_id} baseline: no checkpoint found, "
+                            f"training WITHOUT pretrained init (results not comparable)"
+                        )
 
                     wandb_group = (f'{model_type}_{args.paradigm}_{args.task}_'
                                    f'extra_baseline_{run_tag}')
@@ -592,9 +649,18 @@ Examples:
                             verbose=1,
                             cache_only=args.cache_only,
                             precomputed_data=precomputed,
+                            session_folders_override=baseline_session_override,
+                            pretrained_path=step_pretrained,
+                            freeze_strategy=freeze_strategy if step_pretrained else None,
                         )
                         result_dict = result_to_dict(result)
-                        result_dict['extra_session_step'] = 'baseline_fc'
+                        if step_pretrained:
+                            step_label = 'baseline_transfer'
+                        elif test_strategy == STRATEGY_FIXED_COMBINED:
+                            step_label = 'baseline_fc'
+                        else:
+                            step_label = 'baseline'
+                        result_dict['extra_session_step'] = step_label
                         subject_results[step_key] = result_dict
                         log_train.info(f"{subject_id} baseline: {result.test_acc_majority:.4f}")
                     except Exception as e:
@@ -636,7 +702,7 @@ Examples:
                 session_folders_override = None
                 precomputed_data = None
 
-                if test_strategy == STRATEGY_PER_SESSION:
+                if args.pretrained_run or test_strategy == STRATEGY_PER_SESSION:
                     session_folders_override = get_progressive_session_folders(
                         args.paradigm, args.task, sess_num
                     )
@@ -648,6 +714,15 @@ Examples:
                     precomputed_data = prepare_fixed_combined_data(
                         full_dataset_fc, available_sessions, up_to_session=sess_num,
                         paradigm=args.paradigm, task=args.task,
+                    )
+
+                # Determine pretrained checkpoint for this step
+                step_pretrained = (pretrained_checkpoints
+                                  .get(model_type, {}).get(step_key))
+                if args.pretrained_run and step_pretrained is None:
+                    log_train.warning(
+                        f"⚠ {subject_id} {step_key}: no checkpoint found, "
+                        f"training WITHOUT pretrained init (results not comparable)"
                     )
 
                 try:
@@ -666,6 +741,8 @@ Examples:
                         cache_only=args.cache_only,
                         session_folders_override=session_folders_override,
                         precomputed_data=precomputed_data,
+                        pretrained_path=step_pretrained,
+                        freeze_strategy=freeze_strategy if step_pretrained else None,
                     )
 
                     result_dict = result_to_dict(result)

@@ -217,6 +217,11 @@ def get_default_finetune_config(
     n_channels: Optional[int] = None,
 ) -> dict:
     """
+    .. deprecated::
+        No longer called by the training pipeline (2026-03-29).
+        Transfer learning now uses the same defaults as within-subject
+        via ``get_default_config()``.  Retained only for reference.
+
     Consolidate scattered default hyperparameter logic from finetune_subject().
 
     Returns a dict with keys: epochs, learning_rate, batch_size, scheduler_type.
