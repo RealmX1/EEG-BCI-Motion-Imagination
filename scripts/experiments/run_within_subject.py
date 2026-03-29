@@ -65,6 +65,7 @@ from src.training.train_within_subject import (
     visualize_lr_schedule,
     get_default_config,
 )
+from src.training.prefetch import SubjectPrefetcher
 
 # Import from scripts directory
 SCRIPTS_DIR = Path(__file__).parent.parent
@@ -118,6 +119,8 @@ def run_within_subject(
     # Transfer learning (optional)
     pretrained_path: Optional[str] = None,
     freeze_strategy: Optional[str] = None,
+    # Prefetch
+    use_prefetch: bool = True,
     # Cache type
     cache_type = None,  # CacheType enum, None defaults to within-subject
 ) -> Tuple[List[TrainingResult], Dict]:
@@ -212,6 +215,29 @@ def run_within_subject(
         elif subjects_to_train:
             log_train.info(f"{len(subjects_to_train)} to train ({', '.join(sorted(subjects_to_train))})")
 
+    # Set up subject prefetcher (background data loading for next subject)
+    prefetcher = None
+    if use_prefetch and subjects_to_train:
+        try:
+            prefetcher = SubjectPrefetcher(
+                model_type=model_type,
+                task=task,
+                paradigm=paradigm,
+                data_root=Path(data_root),
+                elc_path=Path(data_root) / 'biosemi128.ELC',
+                cache_only=cache_only,
+                config_overrides=config_overrides,
+            )
+        except Exception as e:
+            log_train.warning(f"Prefetch init failed ({e}), continuing without prefetch")
+
+    # Seed prefetch for first non-cached subject
+    if prefetcher is not None:
+        for sid in subject_ids:
+            if sid not in cache.get(model_type, {}) or force_retrain:
+                prefetcher.start_prefetch(sid)
+                break
+
     results: List[TrainingResult] = []
 
     if model_type not in cache:
@@ -234,6 +260,19 @@ def run_within_subject(
 
         # Train
         log_train.info(f"{progress} {subject_id}: training {model_type}...")
+
+        # Retrieve prefetched data (if available) and start prefetch for next subject
+        precomputed_data = None
+        if prefetcher is not None:
+            precomputed_data = prefetcher.get_prefetched(subject_id)
+            if precomputed_data is not None:
+                log_train.info(f"{progress} {subject_id}: using prefetched data")
+
+            # Start prefetch for next non-cached subject
+            for future_id in subject_ids[idx:]:  # idx is 1-based, so subject_ids[idx:] = remaining
+                if future_id not in cache[model_type] or force_retrain:
+                    prefetcher.start_prefetch(future_id)
+                    break
 
         # Determine verbose level: full (2) for first subject, minimal (1) for subsequent
         verbose = 2 if (not first_subject_trained or not verbose_first_only) else 1
@@ -260,6 +299,7 @@ def run_within_subject(
                 verbose=verbose,
                 pretrained_path=pretrained_path,
                 freeze_strategy=freeze_strategy,
+                precomputed_data=precomputed_data,
             )
 
             # Mark first subject as trained (for subsequent verbose control)
@@ -294,6 +334,10 @@ def run_within_subject(
             except Exception:
                 pass
             continue
+
+    # Clean up prefetcher
+    if prefetcher is not None:
+        prefetcher.shutdown()
 
     # Compute statistics
     stats = compute_model_statistics(results)

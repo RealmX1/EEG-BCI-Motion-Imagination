@@ -70,7 +70,27 @@ EEGNet ternary 在所有实验类型 (within_subject / cross_subject / transfer)
 3. 计算 `data_loading_ratio = (train_data_loading + test_data_loading) / total_time`
 4. 根据结果决定是否实施 P3.10 subject 级 data prefetch
 
-**Status**: Pending — 等待下次完整实验运行后收集数据
+**分析脚本**: `scripts/analysis/analyze_timing_breakdown.py`
+
+**分析结果** (2026-03-30):
+
+基于 3 个完整运行（CBraMod binary 21 subjects, CBraMod ternary 21 subjects, EEGNet ternary 21 subjects）的 63 条 subject-run 记录：
+
+| 指标 | Overall | CBraMod | EEGNet |
+|------|---------|---------|--------|
+| data_loading_ratio (mean) | 10.05% | 9.7% | 10.8% |
+| train_data_loading (mean) | 8.74% | 8.46% | 9.32% |
+| training (mean) | 85.80% | 85.50% | 86.42% |
+
+> **数据来源**: `scripts/analysis/analyze_timing_breakdown.py --latest-only`，扫描 `results/` + `checkpoints/` 下 13 个 timing_breakdown.csv
+
+**结论**: data_loading_ratio 均值 ~10%，达到 RECOMMENDED 阈值。Subject 级流水线化（当前 subject GPU 训练时后台预加载下一个 subject 数据）可带来约 10% 的 wall-clock 时间节省。
+
+**实施** (2026-03-30):
+
+`SubjectPrefetcher` (`src/training/prefetch.py`) 使用 `ThreadPoolExecutor(max_workers=1)` 在当前 subject GPU 训练期间后台加载下一个 subject 的数据。集成在 `run_within_subject()` 中，transfer learning 自动受益。
+
+**Status**: Done — 分析完成，prefetch 已实施
 
 
 

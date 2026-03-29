@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "created_at": "2026-03-27T14:57:57.115143",
+    "created_at": "2026-03-30T06:20:51.705174",
     "paradigm": "imagery",
     "task": "binary",
     "n_channels_selected": 8,
@@ -8,12 +8,12 @@
     "n_trials_total": 18103,
     "methods": [
       "fdr",
-      "attention"
+      "csp",
+      "attention",
+      "band_power"
     ],
-    "train_only": true,
-    "includes_offline": true,
     "checkpoint_tag": "baseline",
-    "note": "Train-only data (no test leakage), includes OfflineImagery, baseline checkpoints for attention"
+    "note": "Train-only data (no test leakage), includes OfflineImagery, attention uses CBraMod gradient only (no EEGNet)"
   },
   "configs": {
     "fdr": {
@@ -39,28 +39,74 @@
       },
       "description": "Fisher Discriminant Ratio — top 8 channels by inter-class separability"
     },
-    "attention": {
+    "csp": {
       "indices": [
-        15,
-        52,
-        70,
-        71,
-        78,
-        79,
-        93,
-        102
+        22,
+        29,
+        36,
+        37,
+        44,
+        48,
+        63,
+        71
       ],
       "scores": {
-        "15": 0.8126288652420044,
-        "52": 0.5572366043925285,
-        "70": 0.6637875586748123,
-        "71": 0.8335149586200714,
-        "78": 0.6035382002592087,
-        "79": 0.7229209840297699,
-        "93": 0.8414714634418488,
-        "102": 0.665481686592102
+        "22": 0.0006078158285984473,
+        "29": 0.0006798757493030185,
+        "36": 0.0006268444421737931,
+        "37": 0.000646100313017512,
+        "44": 0.000850591227928193,
+        "48": 0.000848110186590406,
+        "63": 0.0007749765732320067,
+        "71": 0.0006132065625044494
       },
-      "description": "Model attention — EEGNet spatial_conv weights + CBraMod input gradient"
+      "description": "Common Spatial Patterns — top 8 channels by CSP filter weights (OVR)"
+    },
+    "attention": {
+      "indices": [
+        19,
+        27,
+        28,
+        29,
+        30,
+        51,
+        113,
+        122
+      ],
+      "scores": {
+        "19": 2.8034091883455403e-06,
+        "27": 3.2848242881300393e-06,
+        "28": 3.098937440881855e-06,
+        "29": 2.4215057692345e-06,
+        "30": 2.881526597775519e-06,
+        "51": 2.4792625481495634e-06,
+        "113": 2.7364619654690614e-06,
+        "122": 2.723629222600721e-06
+      },
+      "description": "CBraMod gradient — input gradient magnitude from cross-subject checkpoint"
+    },
+    "band_power": {
+      "indices": [
+        48,
+        59,
+        68,
+        86,
+        89,
+        106,
+        122,
+        126
+      ],
+      "scores": {
+        "48": 2.894434928894043,
+        "59": 3.5848145484924316,
+        "68": 2.5720982551574707,
+        "86": 2.99237060546875,
+        "89": 2.5655858516693115,
+        "106": 3.2241663932800293,
+        "122": 3.017352342605591,
+        "126": 2.503377914428711
+      },
+      "description": "Band Power — Mu(8-13Hz) + Beta(13-30Hz) ANOVA F-statistic"
     }
   }
 }

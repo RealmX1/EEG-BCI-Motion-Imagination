@@ -5,7 +5,7 @@ Data-driven N-channel selection analysis.
 Computes optimal channel subsets from 128-channel EEG data using multiple methods:
 - FDR: Fisher Discriminant Ratio
 - CSP: Common Spatial Patterns
-- Attention: EEGNet spatial_conv + CBraMod gradient
+- Attention: CBraMod input gradient magnitude
 - Band Power: Mu/Beta ANOVA F-statistic
 
 Supports any target channel count (e.g., 4, 8, 16, 32, 61).
@@ -281,118 +281,76 @@ def _find_best_checkpoint(model_type, paradigm, task, checkpoint_tag='baseline')
 
 def compute_attention_scores(X, y, cache_index_path=None, paradigm='imagery',
                              task='binary', checkpoint_tag='baseline'):
-    """Combine EEGNet spatial_conv weights + CBraMod input gradient.
+    """CBraMod input gradient magnitude as channel importance scores.
 
-    EEGNet: Extract spatial_conv.weight from trained checkpoint.
-    CBraMod: Compute input gradient magnitude averaged over a sample batch,
-             using CBraMod-preprocessed cache data (200 Hz, 0.3-75 Hz, ÷100).
-    Average both scores (normalize each to [0,1] first).
+    Computes the gradient of cross-entropy loss w.r.t. input for a trained
+    CBraMod checkpoint, averaged over a batch of real training data.
+    Channels with higher gradient magnitude are more important for the task.
 
     Checkpoints are auto-discovered (most recent 128ch cross-subject baseline).
     """
     import torch
 
     n_channels = X.shape[1]
-    eegnet_scores = np.zeros(n_channels)
-    cbramod_scores = np.zeros(n_channels)
-    n_sources = 0
-
-    # --- EEGNet spatial_conv weights ---
-    eegnet_path = _find_best_checkpoint('eegnet', paradigm, task, checkpoint_tag)
-    if eegnet_path:
-        try:
-            ckpt = torch.load(str(eegnet_path), map_location='cpu', weights_only=False)
-            state_dict = ckpt.get('model_state_dict', ckpt)
-            # spatial_conv weight shape: [F1*D, 1, n_channels, 1]
-            spatial_w = state_dict['spatial_conv.weight'].numpy()
-            eegnet_scores = np.sum(spatial_w[:, 0, :, 0] ** 2, axis=0)
-            n_sources += 1
-            print(f"    EEGNet spatial_conv: extracted from {eegnet_path}")
-        except Exception as e:
-            print(f"    Warning: EEGNet attention extraction failed: {e}")
-    else:
-        print(f"    Warning: No EEGNet checkpoint found for {paradigm}/{task}")
 
     # --- CBraMod input gradient ---
     cbramod_path = _find_best_checkpoint('cbramod', paradigm, task, checkpoint_tag)
-    if cbramod_path:
-        try:
-            from src.models.cbramod_adapter import CBraModForFingerBCI
-
-            ckpt = torch.load(str(cbramod_path), map_location='cpu', weights_only=False)
-            model_config = ckpt.get('model_config', {})
-
-            # Compute n_patches from n_samples / patch_size (200)
-            n_samples_model = model_config.get('n_samples', 200)
-            n_patches = max(1, n_samples_model // 200)
-
-            model = CBraModForFingerBCI(
-                n_channels=model_config.get('n_channels', 128),
-                n_classes=model_config.get('n_classes', 2),
-                n_patches=n_patches,
-            )
-            model.load_state_dict(ckpt['model_state_dict'])
-            model.eval()
-
-            # Load CBraMod-preprocessed data (200 Hz, correct filtering/normalization)
-            if cache_index_path is None:
-                from src.config.constants import DEFAULT_CACHE_INDEX_PATH
-                cache_index_path = DEFAULT_CACHE_INDEX_PATH
-            print(f"    Loading CBraMod cache data (200 Hz)...")
-            X_cbramod, y_cbramod = load_all_trials(
-                cache_index_path, paradigm, task, model='cbramod_128ch'
-            )
-
-            # Use a batch of real CBraMod data for gradient computation
-            n_batch = min(200, len(X_cbramod))
-            rng = np.random.RandomState(42)
-            indices = rng.choice(len(X_cbramod), n_batch, replace=False)
-            # Trim to n_patches * 200 samples (valid signal, before NaN padding)
-            batch = X_cbramod[indices][:, :, :n_patches * 200]
-
-            batch_tensor = torch.tensor(batch, dtype=torch.float32)
-            batch_tensor.requires_grad_(True)
-            # Remap raw labels (e.g. [1, 4]) to [0, n_classes-1] for cross_entropy
-            raw_labels = y_cbramod[indices]
-            unique_classes = np.sort(np.unique(y_cbramod))
-            label_map = {int(c): i for i, c in enumerate(unique_classes)}
-            mapped_labels = np.array([label_map[int(l)] for l in raw_labels])
-            batch_labels = torch.tensor(mapped_labels, dtype=torch.long)
-
-            outputs = model(batch_tensor)
-            loss = torch.nn.functional.cross_entropy(outputs, batch_labels)
-            loss.backward()
-
-            grad = batch_tensor.grad.abs().mean(dim=(0, 2)).numpy()
-            cbramod_scores = grad
-            n_sources += 1
-            print(f"    CBraMod gradient: computed from {cbramod_path}")
-        except Exception as e:
-            print(f"    Warning: CBraMod gradient extraction failed: {e}")
-    else:
-        print(f"    Warning: No CBraMod checkpoint found for {paradigm}/{task}")
-
-    if n_sources == 0:
+    if not cbramod_path:
         raise RuntimeError(
-            "No model checkpoints found for attention method. "
+            f"No CBraMod checkpoint found for {paradigm}/{task}. "
             "Run cross-subject training first."
         )
 
-    # Normalize each to [0, 1] and average
-    def normalize(s):
-        s_min, s_max = s.min(), s.max()
-        if s_max - s_min < 1e-10:
-            return np.ones_like(s) / len(s)
-        return (s - s_min) / (s_max - s_min)
+    from src.models.cbramod_adapter import CBraModForFingerBCI
 
-    combined = np.zeros(n_channels)
-    if eegnet_scores.sum() > 0:
-        combined += normalize(eegnet_scores)
-    if cbramod_scores.sum() > 0:
-        combined += normalize(cbramod_scores)
-    combined /= n_sources
+    ckpt = torch.load(str(cbramod_path), map_location='cpu', weights_only=False)
+    model_config = ckpt.get('model_config', {})
 
-    return combined
+    # Compute n_patches from n_samples / patch_size (200)
+    n_samples_model = model_config.get('n_samples', 200)
+    n_patches = max(1, n_samples_model // 200)
+
+    model = CBraModForFingerBCI(
+        n_channels=model_config.get('n_channels', 128),
+        n_classes=model_config.get('n_classes', 2),
+        n_patches=n_patches,
+    )
+    model.load_state_dict(ckpt['model_state_dict'])
+    model.eval()
+
+    # Load CBraMod-preprocessed data (200 Hz, correct filtering/normalization)
+    if cache_index_path is None:
+        from src.config.constants import DEFAULT_CACHE_INDEX_PATH
+        cache_index_path = DEFAULT_CACHE_INDEX_PATH
+    print(f"    Loading CBraMod cache data (200 Hz)...")
+    X_cbramod, y_cbramod = load_all_trials(
+        cache_index_path, paradigm, task, model='cbramod_128ch'
+    )
+
+    # Use a batch of real CBraMod data for gradient computation
+    n_batch = min(200, len(X_cbramod))
+    rng = np.random.RandomState(42)
+    indices = rng.choice(len(X_cbramod), n_batch, replace=False)
+    # Trim to n_patches * 200 samples (valid signal, before NaN padding)
+    batch = X_cbramod[indices][:, :, :n_patches * 200]
+
+    batch_tensor = torch.tensor(batch, dtype=torch.float32)
+    batch_tensor.requires_grad_(True)
+    # Remap raw labels (e.g. [1, 4]) to [0, n_classes-1] for cross_entropy
+    raw_labels = y_cbramod[indices]
+    unique_classes = np.sort(np.unique(y_cbramod))
+    label_map = {int(c): i for i, c in enumerate(unique_classes)}
+    mapped_labels = np.array([label_map[int(l)] for l in raw_labels])
+    batch_labels = torch.tensor(mapped_labels, dtype=torch.long)
+
+    outputs = model(batch_tensor)
+    loss = torch.nn.functional.cross_entropy(outputs, batch_labels)
+    loss.backward()
+
+    grad = batch_tensor.grad.abs().mean(dim=(0, 2)).numpy()
+    print(f"    CBraMod gradient: computed from {cbramod_path}")
+
+    return grad
 
 
 # ============================================================================
@@ -458,7 +416,7 @@ METHOD_REGISTRY = {
     },
     'attention': {
         'fn': compute_attention_scores,
-        'description': 'Model attention — EEGNet spatial_conv weights + CBraMod input gradient',
+        'description': 'CBraMod gradient — input gradient magnitude from cross-subject checkpoint',
     },
     'band_power': {
         'fn': compute_band_power_scores,
@@ -619,7 +577,7 @@ Examples:
     for meta in entries.values():
         if not isinstance(meta, dict):
             continue
-        if (meta.get('model') == 'eegnet' and
+        if (meta.get('model') in ('eegnet', 'cbramod_128ch') and
                 meta.get('subject_task_type') == args.paradigm and
                 meta.get('n_classes') in (task_map[args.task], None)):
             subjects.add(meta.get('subject', ''))
@@ -634,6 +592,9 @@ Examples:
             'n_subjects': len(subjects),
             'n_trials_total': int(X.shape[0]),
             'methods': list(results.keys()),
+            'checkpoint_tag': args.checkpoint_tag,
+            'note': 'Train-only data (no test leakage), includes OfflineImagery, '
+                    'attention uses CBraMod gradient only (no EEGNet)',
         },
         'configs': results,
     }

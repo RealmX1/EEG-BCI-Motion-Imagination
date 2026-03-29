@@ -276,7 +276,7 @@ def check_vram_utilization(interactive: bool = True) -> bool:
             print(f"  {proc['pid']:>8d}  {mem_str:>10s}  {name}")
         print()
 
-    if not interactive:
+    if not interactive or not sys.stdin.isatty() or os.environ.get('EEG_NONINTERACTIVE'):
         print("  (non-interactive mode -- continuing)")
         print(f"{'='*60}\n")
         return True
