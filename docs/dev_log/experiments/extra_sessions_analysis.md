@@ -1,10 +1,10 @@
 # Extra Online Sessions 实验分析报告
 
-> **实验日期**: 2026-03-24 ~ 2026-03-29
+> **实验日期**: 2026-03-24 ~ 2026-03-30
 > **128 通道, imagery paradigm**
-> **状态**: Within-subject Binary/Ternary 完成 | Cross-subject Binary/Ternary 完成 | Transfer Binary/Ternary 完成
+> **状态**: Within-subject Binary/Ternary 完成 | Cross-subject Binary/Ternary 完成 | Transfer Binary/Ternary 完成 | Extra-Only Transfer Generalization 完成
 
-**注意**：Binary 任务已扩展至 N=16 被试的完整分析，详见 [`extra_sessions_per_session_analysis.md`](extra_sessions_per_session_analysis.md)。本文档的 §3 保留最初 N=5 的结果作为历史记录，§5 为 N=16 的 Ternary 完整结果，§6 为 Cross-subject 结果（含 16-subj 与 21-subj 训练模式对比），§7 为 Transfer Learning 结果（含三种范式对比）。
+**注意**：Binary 任务已扩展至 N=16 被试的完整分析，详见 [`extra_sessions_per_session_analysis.md`](extra_sessions_per_session_analysis.md)。本文档的 §3 保留最初 N=5 的结果作为历史记录，§5 为 N=16 的 Ternary 完整结果，§6 为 Cross-subject 结果（含 16-subj 与 21-subj 训练模式对比），§7 为 Transfer Learning 结果（含三种范式对比），§9 为 Extra-Only Transfer Generalization 实验（extra-only 预训练模型对新被试的泛化能力）。
 
 ## 1. 实验目的
 
@@ -492,6 +492,100 @@ Ternary 中 S10：
 
 Cross-subject 和 transfer 对弱被试的帮助大于 within-subject，因为池化模型提供了更鲁棒的初始表征。但 transfer 的 fine-tuning 在 S10 上未能进一步超越 cross-subject（两者完全一致），说明弱被试的瓶颈可能在于 EEG 信号质量而非模型个性化程度。
 
+## 9. Extra-Only Transfer Generalization 实验
+
+> **实验日期**: 2026-03-30
+> **科学问题**: 仅在有 extra sessions 的 16 被试上训练的 cross-subject 模型（更多数据/被试），能否比标准 21 被试模型提供更好的迁移学习泛化——特别是对未参与预训练的被试？
+
+### 9.1 实验设计
+
+三臂对比（3-arm comparison），迁移目标统一为 5 个无 extra session 的被试：S01, S05, S12, S20, S21。
+
+| Condition | 预训练模型 | 被试数 | 数据范围 | 包含目标被试 |
+|-----------|-----------|--------|---------|-------------|
+| A (baseline) | 标准 cross-subject | 21 | Sess01-02 | 是 |
+| B (extra-sess) | extra-only cross-subject | 16 | Sess01-05 | 否 |
+| C (控制组) | extra-only cross-subject | 16 | Sess01-02 only | 否 |
+
+- **B vs C** = 纯 extra sessions 数据量效应（控制被试池）
+- **A vs C** = 目标被试在预训练中的效应（控制数据量级）
+- **B vs A** = 综合效应
+
+### 9.2 Cross-Subject Extra-Only 预训练结果
+
+> **数据来源**: `results/20260329_2041_cross_subject_extra_sessions_cache_imagery_binary.json`, `results/20260329_2232_cross_subject_extra_sessions_cache_imagery_ternary.json`
+
+**Binary** (run `20260329_2041`, 16 extra-only subjects):
+
+| Step | Mean Acc | Std | Delta |
+|------|----------|-----|-------|
+| baseline | 91.64% | 7.33% | — |
+| +sess03 | 91.84% | 6.61% | +0.20% |
+| +sess04 | 91.91% | 7.52% | +0.27% |
+| +sess05 | 93.83% | 4.48% | +2.19% |
+
+**Ternary** (run `20260329_2232`, 16 extra-only subjects):
+
+| Step | Mean Acc | Std | Delta |
+|------|----------|-----|-------|
+| baseline | 80.65% | 11.00% | — |
+| +sess03 | 80.53% | 11.34% | -0.12% |
+| +sess04 | 83.54% | 9.06% | +2.89% |
+| +sess05 | 83.60% | 8.06% | +2.95% |
+
+### 9.3 Transfer Learning 三臂对比
+
+**Binary 任务 (CBraMod)**
+
+> **数据来源**: A=`results/20260329_0507_transfer_cache_imagery_binary.json`, B=`results/20260330_0125_transfer_cache_imagery_binary.json`, C=`results/20260330_0132_transfer_cache_imagery_binary.json`
+
+| 被试 | A: 21-subj 标准 | B: 16-subj Extra | C: 16-subj 标准 | B-A | B-C |
+|------|----------------|------------------|----------------|-----|-----|
+| S01 | 93.13% | 87.50% | 87.50% | -5.63% | 0.00% |
+| S05 | 91.88% | 92.50% | 93.12% | +0.62% | -0.62% |
+| S12 | 90.00% | 89.38% | 88.75% | -0.62% | +0.63% |
+| S20 | 66.25% | 58.75% | 61.88% | -7.50% | -3.13% |
+| S21 | 79.38% | 80.62% | 78.75% | +1.25% | +1.87% |
+| **Mean** | **84.13%** | **81.75%** | **82.00%** | **-2.38%** | **-0.25%** |
+
+**Ternary 任务 (CBraMod)**
+
+> **数据来源**: A=`results/20260329_0521_transfer_cache_imagery_ternary.json`, B=`results/20260330_0137_transfer_cache_imagery_ternary.json`, C=`results/20260330_0144_transfer_cache_imagery_ternary.json`
+
+| 被试 | A: 21-subj 标准 | B: 16-subj Extra | C: 16-subj 标准 | B-A | B-C |
+|------|----------------|------------------|----------------|-----|-----|
+| S01 | 65.83% | 69.17% | 65.42% | +3.33% | +3.75% |
+| S05 | 66.67% | 62.92% | 64.58% | -3.75% | -1.67% |
+| S12 | 59.58% | 69.58% | 62.50% | +10.00% | +7.08% |
+| S20 | 43.33% | 48.33% | 50.00% | +5.00% | -1.67% |
+| S21 | 55.00% | 62.92% | 57.08% | +7.92% | +5.83% |
+| **Mean** | **58.08%** | **62.58%** | **59.92%** | **+4.50%** | **+2.67%** |
+
+### 9.4 分析
+
+#### 9.4.1 Binary: extra sessions 边际收益有限
+
+- B vs C = -0.25%：extra sessions 数据在 binary 任务中未带来统计意义上的改善
+- A vs C = +2.13%：标准 21-subj 模型优势主要来自**目标被试包含在预训练中**
+- Binary 任务 baseline 已高（~82-84%），模型容量可能已接近饱和，额外数据的边际收益递减
+
+#### 9.4.2 Ternary: extra sessions 显著提升泛化
+
+- B vs C = **+2.67%**：extra sessions 数据在 ternary 任务中产生了有意义的泛化提升
+- B vs A = **+4.50%**：extra-only 模型甚至超越了包含目标被试的标准 21-subj 模型
+- S12 受益最大（B vs A = +10.00%），S21 次之（+7.92%）
+- 表明**在更难的任务中，更多训练数据对泛化的贡献远大于简单任务**
+
+#### 9.4.3 控制组 (C) 的关键作用
+
+如果没有 Condition C，binary 中 B 比 A 差 2.38% 可能被误解为"extra sessions 有负效应"。实际上 B vs C 仅差 0.25%——大部分差异来自"目标被试是否在预训练中"（A vs C = +2.13%），而非 extra sessions 本身。
+
+### 9.5 结论
+
+1. **数据量 > 被试覆盖（在难任务中）**: Ternary 3 类分类中，16 被试的 extra sessions 模型（每被试更多数据）优于 21 被试标准模型（含目标被试），说明预训练数据量对复杂任务的泛化至关重要
+2. **简单任务已饱和**: Binary 2 类分类中，额外数据未能超越"目标被试在预训练中"的优势，可能因为任务本身已接近模型容量上限
+3. **实验设计启示**: 在 BCI 系统部署中，如果有条件收集更多 session 数据（即使来自更少的被试），对新用户的适配可能比收集更多被试的少量数据更有价值——特别是在多类别解码任务中
+
 ## 8. 文件索引
 
 | 文件 | 说明 |
@@ -509,6 +603,12 @@ Cross-subject 和 transfer 对弱被试的帮助大于 within-subject，因为�
 | `docs/dev_log/experiments/extra_sessions_per_session_analysis.md` | Binary within-subject N=16 per_session 详细分析 |
 | `docs/dev_log/experiments/extra_sessions_strategy_comparison.md` | 三种测试策略对比分析 |
 | `docs/dev_log/experiments/cross_subject_extra_sessions_training_profile.md` | Cross-subject 训练速度参考 |
+| `results/20260329_2041_cross_subject_extra_sessions_cache_imagery_binary.json` | Extra-only (16-subj) cross-subject binary 结果 |
+| `results/20260329_2232_cross_subject_extra_sessions_cache_imagery_ternary.json` | Extra-only (16-subj) cross-subject ternary 结果 |
+| `results/20260330_0125_transfer_cache_imagery_binary.json` | Condition B: extra-sess → 5 held-out binary transfer |
+| `results/20260330_0132_transfer_cache_imagery_binary.json` | Condition C: 16-subj std → 5 held-out binary transfer |
+| `results/20260330_0137_transfer_cache_imagery_ternary.json` | Condition B: extra-sess → 5 held-out ternary transfer |
+| `results/20260330_0144_transfer_cache_imagery_ternary.json` | Condition C: 16-subj std → 5 held-out ternary transfer |
 | `scripts/experiments/run_extra_sessions.py` | Within-subject + transfer 实验脚本 |
 | `scripts/experiments/run_cross_subject_extra_sessions.py` | Cross-subject 实验脚本 |
 | `src/visualization/extra_sessions.py` | 可视化模块 |

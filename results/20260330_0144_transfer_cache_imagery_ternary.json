@@ -1,0 +1,90 @@
+{
+  "metadata": {
+    "training_type": "transfer",
+    "paradigm": "imagery",
+    "task": "ternary",
+    "run_tag": "20260330_0144",
+    "timestamp": "2026-03-30T01:51:19.658721",
+    "n_subjects": 5,
+    "is_complete": true,
+    "preprocessing_version": "v2.0",
+    "transfer_config": {
+      "freeze_strategy": "none",
+      "finetune_epochs": null,
+      "finetune_lr": null,
+      "finetune_batch_size": null,
+      "pretrained_paths": {
+        "cbramod": "checkpoints/cross_subject/20260329_2232_baseline_cbramod_imagery_ternary/best.pt"
+      },
+      "classifier_types": {
+        "cbramod": "two_layer"
+      }
+    }
+  },
+  "wandb_groups": {},
+  "last_updated": "2026-03-30T01:51:19.658721",
+  "results": {
+    "cbramod": {
+      "S01": {
+        "subject_id": "S01",
+        "task_type": "ternary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.5262390670553936,
+        "test_acc": 0.6541666666666667,
+        "test_acc_majority": 0.6541666666666667,
+        "epochs_trained": 12,
+        "training_time": 68.75738949999504
+      },
+      "S05": {
+        "subject_id": "S05",
+        "task_type": "ternary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.493361285814116,
+        "test_acc": 0.6458333333333334,
+        "test_acc_majority": 0.6458333333333334,
+        "epochs_trained": 14,
+        "training_time": 76.63449520000722
+      },
+      "S12": {
+        "subject_id": "S12",
+        "task_type": "ternary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.5093795093795094,
+        "test_acc": 0.625,
+        "test_acc_majority": 0.625,
+        "epochs_trained": 17,
+        "training_time": 84.41870539999218
+      },
+      "S20": {
+        "subject_id": "S20",
+        "task_type": "ternary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.4467040673211781,
+        "test_acc": 0.5,
+        "test_acc_majority": 0.5,
+        "epochs_trained": 17,
+        "training_time": 85.47102880000602
+      },
+      "S21": {
+        "subject_id": "S21",
+        "task_type": "ternary",
+        "model_type": "cbramod",
+        "best_val_acc": 0.4740810556079171,
+        "test_acc": 0.5708333333333333,
+        "test_acc_majority": 0.5708333333333333,
+        "epochs_trained": 22,
+        "training_time": 82.08657489999314
+      }
+    }
+  },
+  "summary": {
+    "cbramod": {
+      "mean": 0.5991666666666666,
+      "std": 0.057457713919794005,
+      "min": 0.5,
+      "max": 0.6541666666666667,
+      "median": 0.625,
+      "n_subjects": 5
+    }
+  }
+}
