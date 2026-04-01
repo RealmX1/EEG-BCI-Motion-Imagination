@@ -152,6 +152,7 @@ def _generate_plots(
     run_tag, results_dir, n_channels, channel_config,
     db, db_run_id,
     comparison=None,
+    historical_selection='baseline',
 ):
     """
     生成 within-subject 对比图（提取自 main 以支持 replot）.
@@ -164,6 +165,7 @@ def _generate_plots(
         db: ExperimentDB 实例 (read-only for historical queries)
         db_run_id: DB run ID (None for replot → skips DB writes)
         comparison: ModelComparison 对象 (用于 fallback comparison plot)
+        historical_selection: 'baseline' | 'best'
     """
     # Unified task: use plot_unified_comparison with per-subtask breakdown
     if task == 'unified':
@@ -220,25 +222,48 @@ def _generate_plots(
         subjects_set = set(subjects)
 
         channel_config_filter = channel_config if n_channels != FULL_N_CHANNELS else None
-        hist_result = db.find_historical_comparison(
-            paradigm=paradigm,
-            task=task,
-            n_channels=n_channels,
-            channel_config=channel_config_filter,
-            subjects=subjects_set if subjects_set else None,
-            exclude_run_id=db_run_id,
-            return_run_id=True,
-        )
         historical = None
-        hist_run_id = None
-        if hist_result is not None:
-            historical, hist_run_id = hist_result
-            if db_run_id and hist_run_id:
-                db.add_baseline_ref(db_run_id, hist_run_id, 'historical_comparison')
+        if historical_selection == 'baseline':
+            historical = {}
+            for model_type in ['eegnet', 'cbramod']:
+                hist_result = db.find_baseline_within_subject_results(
+                    paradigm=paradigm,
+                    task=task,
+                    model_type=model_type,
+                    n_channels=n_channels,
+                    channel_config=channel_config_filter,
+                    subjects=subjects_set if subjects_set else None,
+                    exclude_run_id=db_run_id,
+                    return_run_id=True,
+                )
+                if hist_result is None:
+                    continue
+                hist_results, hist_run_id = hist_result
+                historical[model_type] = hist_results
+                if db_run_id and hist_run_id:
+                    db.add_baseline_ref(db_run_id, hist_run_id, 'within_subject_baseline', model_type)
+            if not historical:
+                historical = None
+        else:
+            hist_result = db.find_historical_comparison(
+                paradigm=paradigm,
+                task=task,
+                n_channels=n_channels,
+                channel_config=channel_config_filter,
+                subjects=subjects_set if subjects_set else None,
+                exclude_run_id=db_run_id,
+                return_run_id=True,
+            )
+            hist_run_id = None
+            if hist_result is not None:
+                historical, hist_run_id = hist_result
+                if db_run_id and hist_run_id:
+                    db.add_baseline_ref(db_run_id, hist_run_id, 'historical_comparison')
 
         data_sources = []
         if historical:
             # Add historical data sources (hatched bars)
+            hist_label_suffix = 'Baseline' if historical_selection == 'baseline' else 'Best'
             for model_type in ['eegnet', 'cbramod']:
                 hist_results = historical.get(model_type, [])
                 if hist_results:
@@ -246,7 +271,7 @@ def _generate_plots(
                         model_type=model_type,
                         results=hist_results,
                         is_current_run=False,
-                        label=f'{model_type.upper()} (hist)',
+                        label=f'{model_type.upper()} ({hist_label_suffix})',
                     ))
 
         # Add current run data sources
@@ -311,6 +336,9 @@ Examples:
 
   # Re-generate plots for a finished run (no training, no DB writes)
   uv run python scripts/experiments/run_within_subject_comparison.py --replot 20260321_0934
+
+  # Use best-accuracy historical run instead of designated baselines
+  uv run python scripts/experiments/run_within_subject_comparison.py --historical-selection best
 '''
     )
 
@@ -326,6 +354,9 @@ Examples:
                         choices=['eegnet', 'cbramod'], help='Models to train (default: both)')
     parser.add_argument('--results-file', type=str, default=None,
                         help='Path to existing results file (used with --skip-training)')
+    parser.add_argument('--historical-selection', choices=['baseline', 'best'],
+                        default='baseline',
+                        help='How to choose historical reference runs for plots (default: baseline)')
     parser.add_argument('--baseline', action='store_true',
                         help='Mark this run as a designated baseline in ExperimentDB')
 
@@ -358,6 +389,7 @@ Examples:
             channel_config=ctx['channel_config'],
             db=ctx['db'],
             db_run_id=None,
+            historical_selection=args.historical_selection,
         )
         ctx['db'].close()
         log_main.info(f"Replot complete for {args.replot}")
@@ -550,6 +582,7 @@ Examples:
             db=db,
             db_run_id=db_run_id,
             comparison=comparison,
+            historical_selection=args.historical_selection,
         )
 
     # Mark DB run complete

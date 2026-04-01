@@ -131,6 +131,8 @@ def save_extra_sessions_cache(
     all_results: Dict[str, Dict[str, Dict[str, dict]]],
     baseline_run_tags: Dict[str, str],
     strategy: str = STRATEGY_PER_SESSION,
+    pretrained_run: Optional[str] = None,
+    freeze_strategy: Optional[str] = None,
 ):
     """Save extra sessions results to JSON cache.
 
@@ -147,11 +149,16 @@ def save_extra_sessions_cache(
             'run_tag': run_tag,
             'training_type': 'extra_sessions',
             'test_strategy': strategy,
+            'initialization_mode': 'transfer' if pretrained_run else 'within_subject',
             'timestamp': datetime.now().isoformat(),
         },
         'baseline_run_tags': baseline_run_tags,
         'results': all_results,
     }
+
+    if pretrained_run:
+        cache_data['metadata']['pretrained_run'] = pretrained_run
+        cache_data['metadata']['freeze_strategy'] = freeze_strategy
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -182,6 +189,28 @@ def load_extra_sessions_cache(
 
     with open(filepath, 'r', encoding='utf-8') as f:
         return json.load(f)
+
+
+def refresh_baseline_run_tags(
+    db: ExperimentDB,
+    paradigm: str,
+    task: str,
+    model_types: List[str],
+    baseline_run_tags: Optional[Dict[str, str]] = None,
+) -> Dict[str, str]:
+    """Refresh baseline provenance using the current within-subject baseline category."""
+    resolved = dict(baseline_run_tags or {})
+    for model_type in sorted(set(model_types)):
+        baseline_run = db.find_baseline_run(paradigm, task, model_type, 'within_subject')
+        if baseline_run is None:
+            continue
+        run_tag = baseline_run['run_tag']
+        previous = resolved.get(model_type)
+        resolved[model_type] = run_tag
+        if previous != run_tag:
+            action = 'Backfilled' if previous is None else 'Updated'
+            log_main.info(f"{action} baseline_run_tags[{model_type}] = {run_tag}")
+    return resolved
 
 
 # ============================================================================
@@ -503,14 +532,29 @@ Examples:
                       f"{', '.join(f'{m}={list(v.keys())}' for m, v in pretrained_checkpoints.items())}")
 
     # ====== Train ======
+    # Preserve results from models not being trained (e.g., resuming with --models eegnet
+    # should keep existing cbramod data intact)
     all_results: Dict[str, Dict[str, Dict[str, dict]]] = {}
-    baseline_run_tags: Dict[str, str] = {}
+    if existing_cache:
+        for model_key, model_data in existing_cache.get('results', {}).items():
+            if model_key not in args.models:
+                all_results[model_key] = model_data
+                log_main.info(f"Preserved cached results for {model_key} ({len(model_data)} subjects)")
+    baseline_run_tags: Dict[str, str] = dict((existing_cache or {}).get('baseline_run_tags', {}))
 
     # For fixed_combined, baseline needs training (different test set).
     # For per_session and fixed_sess02, baseline comes from ExperimentDB.
     # For transfer learning (--pretrained-run), always train baseline step.
     needs_baseline_training = (test_strategy == STRATEGY_FIXED_COMBINED
                                or bool(args.pretrained_run))
+    if not needs_baseline_training:
+        baseline_run_tags = refresh_baseline_run_tags(
+            db,
+            args.paradigm,
+            args.task,
+            list(set(all_results.keys()) | set(args.models)),
+            baseline_run_tags,
+        )
 
     for model_type in args.models:
         log_main.info(f"{'='*50} {model_type.upper()} {'='*50}")
@@ -773,6 +817,8 @@ Examples:
             save_extra_sessions_cache(
                 output_dir, args.paradigm, args.task, run_tag,
                 all_results, baseline_run_tags, test_strategy,
+                pretrained_run=args.pretrained_run,
+                freeze_strategy=freeze_strategy,
             )
 
         all_results[model_type] = model_results

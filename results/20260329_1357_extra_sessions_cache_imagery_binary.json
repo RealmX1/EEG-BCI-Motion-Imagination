@@ -1,0 +1,1556 @@
+{
+  "metadata": {
+    "paradigm": "imagery",
+    "task": "binary",
+    "run_tag": "20260329_1357",
+    "training_type": "extra_sessions",
+    "test_strategy": "per_session",
+    "timestamp": "2026-03-31T08:21:09.800154"
+  },
+  "baseline_run_tags": {
+    "cbramod": "20260323_2237",
+    "eegnet": "20260316_1411"
+  },
+  "results": {
+    "eegnet": {
+      "S02": {
+        "baseline": {
+          "subject_id": "S02",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7970970668279407,
+          "test_acc": 0.94375,
+          "test_acc_majority": 0.94375,
+          "epochs_trained": 30,
+          "training_time": 87.71242319996236
+        },
+        "sess03": {
+          "subject_id": "S02",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.8087546816479401,
+          "test_acc": 0.925,
+          "test_acc_majority": 0.925,
+          "epochs_trained": 22,
+          "training_time": 148.31590820000565,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S02",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.832183908045977,
+          "test_acc": 0.95625,
+          "test_acc_majority": 0.95625,
+          "epochs_trained": 16,
+          "training_time": 135.24345350000658,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S02",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.8554567502021019,
+          "test_acc": 0.93125,
+          "test_acc_majority": 0.93125,
+          "epochs_trained": 37,
+          "training_time": 337.0140465000004,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S03": {
+        "baseline": {
+          "subject_id": "S03",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7566412213740458,
+          "test_acc": 0.85,
+          "test_acc_majority": 0.85,
+          "epochs_trained": 20,
+          "training_time": 65.02588329999708
+        },
+        "sess03": {
+          "subject_id": "S03",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.8355356300141576,
+          "test_acc": 0.825,
+          "test_acc_majority": 0.825,
+          "epochs_trained": 19,
+          "training_time": 128.85976500000106,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S03",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.8268639508070715,
+          "test_acc": 0.9125,
+          "test_acc_majority": 0.9125,
+          "epochs_trained": 29,
+          "training_time": 227.9177184,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S03",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.8336845517912141,
+          "test_acc": 0.88125,
+          "test_acc_majority": 0.88125,
+          "epochs_trained": 22,
+          "training_time": 210.43179899999814,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S04": {
+        "baseline": {
+          "subject_id": "S04",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7933310177144842,
+          "test_acc": 0.94375,
+          "test_acc_majority": 0.94375,
+          "epochs_trained": 17,
+          "training_time": 51.514148199988995
+        },
+        "sess03": {
+          "subject_id": "S04",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.8198385837021609,
+          "test_acc": 0.93125,
+          "test_acc_majority": 0.93125,
+          "epochs_trained": 17,
+          "training_time": 105.84252020000713,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S04",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.8302436992293272,
+          "test_acc": 0.925,
+          "test_acc_majority": 0.925,
+          "epochs_trained": 21,
+          "training_time": 157.9489076000027,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S04",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.8462606281450633,
+          "test_acc": 0.90625,
+          "test_acc_majority": 0.90625,
+          "epochs_trained": 35,
+          "training_time": 298.7566346000094,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S06": {
+        "baseline": {
+          "subject_id": "S06",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.6774744027303754,
+          "test_acc": 0.68125,
+          "test_acc_majority": 0.68125,
+          "epochs_trained": 30,
+          "training_time": 65.11877500003902
+        },
+        "sess03": {
+          "subject_id": "S06",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7099697885196374,
+          "test_acc": 0.85,
+          "test_acc_majority": 0.85,
+          "epochs_trained": 20,
+          "training_time": 106.0412265999912,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S06",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7598876667446759,
+          "test_acc": 0.73125,
+          "test_acc_majority": 0.73125,
+          "epochs_trained": 25,
+          "training_time": 163.5459189999965,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S06",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7670421997326714,
+          "test_acc": 0.9125,
+          "test_acc_majority": 0.9125,
+          "epochs_trained": 23,
+          "training_time": 185.92665320000378,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S07": {
+        "baseline": {
+          "subject_id": "S07",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7984189723320159,
+          "test_acc": 0.76875,
+          "test_acc_majority": 0.76875,
+          "epochs_trained": 30,
+          "training_time": 90.25715620000847
+        },
+        "sess03": {
+          "subject_id": "S07",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.8152375895938413,
+          "test_acc": 0.85,
+          "test_acc_majority": 0.85,
+          "epochs_trained": 24,
+          "training_time": 140.0713434000063,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S07",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.804945054945055,
+          "test_acc": 0.83125,
+          "test_acc_majority": 0.83125,
+          "epochs_trained": 23,
+          "training_time": 168.11238389999198,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S07",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.8010913571554303,
+          "test_acc": 0.89375,
+          "test_acc_majority": 0.89375,
+          "epochs_trained": 37,
+          "training_time": 310.0390442999924,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S08": {
+        "baseline": {
+          "subject_id": "S08",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7563232572486119,
+          "test_acc": 0.85,
+          "test_acc_majority": 0.85,
+          "epochs_trained": 30,
+          "training_time": 91.76438070001313
+        },
+        "sess03": {
+          "subject_id": "S08",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.8122166547363397,
+          "test_acc": 0.925,
+          "test_acc_majority": 0.925,
+          "epochs_trained": 32,
+          "training_time": 203.75646619999316,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S08",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.8242506811989101,
+          "test_acc": 0.93125,
+          "test_acc_majority": 0.93125,
+          "epochs_trained": 26,
+          "training_time": 205.0142166000005,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S08",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.8352010547132498,
+          "test_acc": 0.95625,
+          "test_acc_majority": 0.95625,
+          "epochs_trained": 29,
+          "training_time": 268.1119141999952,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S09": {
+        "baseline": {
+          "subject_id": "S09",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7997193967029113,
+          "test_acc": 0.99375,
+          "test_acc_majority": 0.99375,
+          "epochs_trained": 30,
+          "training_time": 79.66881949995877
+        },
+        "sess03": {
+          "subject_id": "S09",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.8450517378615017,
+          "test_acc": 0.9625,
+          "test_acc_majority": 0.9625,
+          "epochs_trained": 30,
+          "training_time": 173.26396149999346,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S09",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.8734861591695502,
+          "test_acc": 0.975,
+          "test_acc_majority": 0.975,
+          "epochs_trained": 25,
+          "training_time": 178.9810312000045,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S09",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.8955196807545801,
+          "test_acc": 0.95625,
+          "test_acc_majority": 0.95625,
+          "epochs_trained": 18,
+          "training_time": 159.95561430000816,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S10": {
+        "baseline": {
+          "subject_id": "S10",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7229778095919828,
+          "test_acc": 0.7,
+          "test_acc_majority": 0.7,
+          "epochs_trained": 22,
+          "training_time": 60.158264700032305
+        },
+        "sess03": {
+          "subject_id": "S10",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7070080862533693,
+          "test_acc": 0.75625,
+          "test_acc_majority": 0.75625,
+          "epochs_trained": 12,
+          "training_time": 77.32289169999422,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S10",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7167169323567428,
+          "test_acc": 0.775,
+          "test_acc_majority": 0.775,
+          "epochs_trained": 17,
+          "training_time": 127.93429369998921,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S10",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7240757439134355,
+          "test_acc": 0.7625,
+          "test_acc_majority": 0.7625,
+          "epochs_trained": 19,
+          "training_time": 167.7018584999896,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S11": {
+        "baseline": {
+          "subject_id": "S11",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.6392081736909323,
+          "test_acc": 0.7,
+          "test_acc_majority": 0.7,
+          "epochs_trained": 30,
+          "training_time": 85.86637280002469
+        },
+        "sess03": {
+          "subject_id": "S11",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7140389834690353,
+          "test_acc": 0.8375,
+          "test_acc_majority": 0.8375,
+          "epochs_trained": 35,
+          "training_time": 215.48705580001115,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S11",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7343968095712862,
+          "test_acc": 0.88125,
+          "test_acc_majority": 0.88125,
+          "epochs_trained": 18,
+          "training_time": 145.1638013000047,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S11",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7544036235530951,
+          "test_acc": 0.9,
+          "test_acc_majority": 0.9,
+          "epochs_trained": 33,
+          "training_time": 296.5251741999964,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S13": {
+        "baseline": {
+          "subject_id": "S13",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7778450363196125,
+          "test_acc": 0.91875,
+          "test_acc_majority": 0.91875,
+          "epochs_trained": 16,
+          "training_time": 56.50752420001663
+        },
+        "sess03": {
+          "subject_id": "S13",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.8250941619585688,
+          "test_acc": 0.8875,
+          "test_acc_majority": 0.8875,
+          "epochs_trained": 23,
+          "training_time": 152.78350140000111,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S13",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.8318532818532819,
+          "test_acc": 0.94375,
+          "test_acc_majority": 0.94375,
+          "epochs_trained": 20,
+          "training_time": 164.36323810000613,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S13",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.8373877551020408,
+          "test_acc": 0.925,
+          "test_acc_majority": 0.925,
+          "epochs_trained": 27,
+          "training_time": 253.33853660000023,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S14": {
+        "baseline": {
+          "subject_id": "S14",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.6746911624960406,
+          "test_acc": 0.78125,
+          "test_acc_majority": 0.78125,
+          "epochs_trained": 19,
+          "training_time": 61.33077940001385
+        },
+        "sess03": {
+          "subject_id": "S14",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7307024075452966,
+          "test_acc": 0.8125,
+          "test_acc_majority": 0.8125,
+          "epochs_trained": 16,
+          "training_time": 107.35981610001181,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S14",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7486102532427424,
+          "test_acc": 0.825,
+          "test_acc_majority": 0.825,
+          "epochs_trained": 16,
+          "training_time": 128.23026880000543,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S14",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7522139260288244,
+          "test_acc": 0.78125,
+          "test_acc_majority": 0.78125,
+          "epochs_trained": 24,
+          "training_time": 214.0979462999967,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S15": {
+        "baseline": {
+          "subject_id": "S15",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.6650145772594752,
+          "test_acc": 0.7125,
+          "test_acc_majority": 0.7125,
+          "epochs_trained": 30,
+          "training_time": 92.16180399997393
+        },
+        "sess03": {
+          "subject_id": "S15",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7580314422419686,
+          "test_acc": 0.90625,
+          "test_acc_majority": 0.90625,
+          "epochs_trained": 27,
+          "training_time": 180.14996650000103,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S15",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.794018691588785,
+          "test_acc": 0.89375,
+          "test_acc_majority": 0.89375,
+          "epochs_trained": 19,
+          "training_time": 160.6927108999953,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S15",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.8038406602126646,
+          "test_acc": 0.84375,
+          "test_acc_majority": 0.84375,
+          "epochs_trained": 39,
+          "training_time": 360.07902289999765,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S16": {
+        "baseline": {
+          "subject_id": "S16",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7049516554351011,
+          "test_acc": 0.5625,
+          "test_acc_majority": 0.5625,
+          "epochs_trained": 16,
+          "training_time": 56.28552849998232
+        },
+        "sess03": {
+          "subject_id": "S16",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7307956890621418,
+          "test_acc": 0.81875,
+          "test_acc_majority": 0.81875,
+          "epochs_trained": 15,
+          "training_time": 108.0471244000073,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S16",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7475635390789223,
+          "test_acc": 0.9625,
+          "test_acc_majority": 0.9625,
+          "epochs_trained": 27,
+          "training_time": 215.7342282999889,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S16",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.762244566980214,
+          "test_acc": 0.83125,
+          "test_acc_majority": 0.83125,
+          "epochs_trained": 24,
+          "training_time": 227.73301720000745,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S17": {
+        "baseline": {
+          "subject_id": "S17",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7219076005961251,
+          "test_acc": 0.70625,
+          "test_acc_majority": 0.70625,
+          "epochs_trained": 28,
+          "training_time": 86.87964340002509
+        },
+        "sess03": {
+          "subject_id": "S17",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.744501637810014,
+          "test_acc": 0.78125,
+          "test_acc_majority": 0.78125,
+          "epochs_trained": 22,
+          "training_time": 147.70693250000477,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S17",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7218146718146718,
+          "test_acc": 0.74375,
+          "test_acc_majority": 0.74375,
+          "epochs_trained": 18,
+          "training_time": 150.55156449999777,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S17",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7479297780722094,
+          "test_acc": 0.7375,
+          "test_acc_majority": 0.7375,
+          "epochs_trained": 21,
+          "training_time": 199.99843970000802,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S18": {
+        "baseline": {
+          "subject_id": "S18",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.706019871420222,
+          "test_acc": 0.9125,
+          "test_acc_majority": 0.9125,
+          "epochs_trained": 19,
+          "training_time": 65.04108560003806
+        },
+        "sess03": {
+          "subject_id": "S18",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7728208647906658,
+          "test_acc": 0.96875,
+          "test_acc_majority": 0.96875,
+          "epochs_trained": 25,
+          "training_time": 168.0468499999988,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S18",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.7859287054409005,
+          "test_acc": 0.9625,
+          "test_acc_majority": 0.9625,
+          "epochs_trained": 36,
+          "training_time": 283.82678839999426,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S18",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.805781823989778,
+          "test_acc": 0.9375,
+          "test_acc_majority": 0.9375,
+          "epochs_trained": 33,
+          "training_time": 308.01140429999214,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S19": {
+        "baseline": {
+          "subject_id": "S19",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.9242276422764227,
+          "test_acc": 0.85625,
+          "test_acc_majority": 0.85625,
+          "epochs_trained": 24,
+          "training_time": 70.1447591999895
+        },
+        "sess03": {
+          "subject_id": "S19",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.954570184983678,
+          "test_acc": 0.9625,
+          "test_acc_majority": 0.9625,
+          "epochs_trained": 36,
+          "training_time": 198.81648130000394,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S19",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.9504334296510336,
+          "test_acc": 1.0,
+          "test_acc_majority": 1.0,
+          "epochs_trained": 28,
+          "training_time": 193.39018689999648,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S19",
+          "task_type": "binary",
+          "model_type": "eegnet",
+          "best_val_acc": 0.9602636169800349,
+          "test_acc": 0.9,
+          "test_acc_majority": 0.9,
+          "epochs_trained": 22,
+          "training_time": 178.45361289998982,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      }
+    },
+    "cbramod": {
+      "S02": {
+        "baseline": {
+          "subject_id": "S02",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7534833869239014,
+          "test_acc": 0.94375,
+          "test_acc_majority": 0.94375,
+          "epochs_trained": 31,
+          "training_time": 128.70600609999383
+        },
+        "sess03": {
+          "subject_id": "S02",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7842149454240135,
+          "test_acc": 0.975,
+          "test_acc_majority": 0.975,
+          "epochs_trained": 22,
+          "training_time": 153.20549020000908,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S02",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.8071872840359364,
+          "test_acc": 0.9625,
+          "test_acc_majority": 0.9625,
+          "epochs_trained": 21,
+          "training_time": 150.30134669999825,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S02",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.8339181286549707,
+          "test_acc": 0.95,
+          "test_acc_majority": 0.95,
+          "epochs_trained": 25,
+          "training_time": 237.61987149999186,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S03": {
+        "baseline": {
+          "subject_id": "S03",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7440347071583514,
+          "test_acc": 0.94375,
+          "test_acc_majority": 0.94375,
+          "epochs_trained": 26,
+          "training_time": 106.60138090001419
+        },
+        "sess03": {
+          "subject_id": "S03",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7614213197969543,
+          "test_acc": 0.93125,
+          "test_acc_majority": 0.93125,
+          "epochs_trained": 14,
+          "training_time": 108.837375099989,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S03",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7767795438838977,
+          "test_acc": 0.98125,
+          "test_acc_majority": 0.98125,
+          "epochs_trained": 19,
+          "training_time": 130.43507899998804,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S03",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7842105263157895,
+          "test_acc": 0.95625,
+          "test_acc_majority": 0.95625,
+          "epochs_trained": 21,
+          "training_time": 195.61742010001035,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S04": {
+        "baseline": {
+          "subject_id": "S04",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7573891625615764,
+          "test_acc": 0.91875,
+          "test_acc_majority": 0.91875,
+          "epochs_trained": 50,
+          "training_time": 166.96367960001226
+        },
+        "sess03": {
+          "subject_id": "S04",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.809878844361603,
+          "test_acc": 0.875,
+          "test_acc_majority": 0.875,
+          "epochs_trained": 26,
+          "training_time": 163.13043100001232,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S04",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.8229557389347337,
+          "test_acc": 0.9625,
+          "test_acc_majority": 0.9625,
+          "epochs_trained": 34,
+          "training_time": 215.51563950000855,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S04",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.8368883312421581,
+          "test_acc": 0.96875,
+          "test_acc_majority": 0.96875,
+          "epochs_trained": 41,
+          "training_time": 301.1353631999955,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S06": {
+        "baseline": {
+          "subject_id": "S06",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.709480122324159,
+          "test_acc": 0.74375,
+          "test_acc_majority": 0.74375,
+          "epochs_trained": 50,
+          "training_time": 134.39548820001073
+        },
+        "sess03": {
+          "subject_id": "S06",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7091503267973857,
+          "test_acc": 0.825,
+          "test_acc_majority": 0.825,
+          "epochs_trained": 23,
+          "training_time": 123.37656039999274,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S06",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7184054283290925,
+          "test_acc": 0.7875,
+          "test_acc_majority": 0.7875,
+          "epochs_trained": 21,
+          "training_time": 128.62785299999814,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S06",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7364771151178918,
+          "test_acc": 0.9125,
+          "test_acc_majority": 0.9125,
+          "epochs_trained": 34,
+          "training_time": 239.86206780000066,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S07": {
+        "baseline": {
+          "subject_id": "S07",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7594799566630552,
+          "test_acc": 0.81875,
+          "test_acc_majority": 0.81875,
+          "epochs_trained": 28,
+          "training_time": 109.07781129999785
+        },
+        "sess03": {
+          "subject_id": "S07",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7538022813688213,
+          "test_acc": 0.84375,
+          "test_acc_majority": 0.84375,
+          "epochs_trained": 17,
+          "training_time": 108.3893601000018,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S07",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7534246575342466,
+          "test_acc": 0.8125,
+          "test_acc_majority": 0.8125,
+          "epochs_trained": 24,
+          "training_time": 157.03199299999687,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S07",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7544529262086515,
+          "test_acc": 0.95,
+          "test_acc_majority": 0.95,
+          "epochs_trained": 23,
+          "training_time": 201.2077363999997,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S08": {
+        "baseline": {
+          "subject_id": "S08",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7207009857612268,
+          "test_acc": 0.93125,
+          "test_acc_majority": 0.93125,
+          "epochs_trained": 24,
+          "training_time": 96.80929170001764
+        },
+        "sess03": {
+          "subject_id": "S08",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7444444444444445,
+          "test_acc": 0.9125,
+          "test_acc_majority": 0.9125,
+          "epochs_trained": 19,
+          "training_time": 126.06979209999554,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S08",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7744890768146582,
+          "test_acc": 0.95,
+          "test_acc_majority": 0.95,
+          "epochs_trained": 24,
+          "training_time": 169.284550700002,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S08",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.8035928143712575,
+          "test_acc": 0.95,
+          "test_acc_majority": 0.95,
+          "epochs_trained": 23,
+          "training_time": 184.94327899999917,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S09": {
+        "baseline": {
+          "subject_id": "S09",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.8,
+          "test_acc": 0.99375,
+          "test_acc_majority": 0.99375,
+          "epochs_trained": 43,
+          "training_time": 138.379319700005
+        },
+        "sess03": {
+          "subject_id": "S09",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.8392344497607656,
+          "test_acc": 0.98125,
+          "test_acc_majority": 0.98125,
+          "epochs_trained": 17,
+          "training_time": 101.62520640000002,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S09",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.8699059561128527,
+          "test_acc": 0.96875,
+          "test_acc_majority": 0.96875,
+          "epochs_trained": 19,
+          "training_time": 144.4390585999936,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S09",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.8839050131926122,
+          "test_acc": 0.94375,
+          "test_acc_majority": 0.94375,
+          "epochs_trained": 18,
+          "training_time": 144.13235319999512,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S10": {
+        "baseline": {
+          "subject_id": "S10",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.6173469387755102,
+          "test_acc": 0.60625,
+          "test_acc_majority": 0.60625,
+          "epochs_trained": 30,
+          "training_time": 102.2640861000109
+        },
+        "sess03": {
+          "subject_id": "S10",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.6356589147286822,
+          "test_acc": 0.7,
+          "test_acc_majority": 0.7,
+          "epochs_trained": 26,
+          "training_time": 152.51764400000684,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S10",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.6515978176149649,
+          "test_acc": 0.8,
+          "test_acc_majority": 0.8,
+          "epochs_trained": 35,
+          "training_time": 214.3868550000043,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S10",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.6662303664921466,
+          "test_acc": 0.71875,
+          "test_acc_majority": 0.71875,
+          "epochs_trained": 21,
+          "training_time": 185.42426819998946,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S11": {
+        "baseline": {
+          "subject_id": "S11",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.6643990929705216,
+          "test_acc": 0.89375,
+          "test_acc_majority": 0.89375,
+          "epochs_trained": 25,
+          "training_time": 97.21607299998868
+        },
+        "sess03": {
+          "subject_id": "S11",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.704162976085031,
+          "test_acc": 0.86875,
+          "test_acc_majority": 0.86875,
+          "epochs_trained": 25,
+          "training_time": 160.69304940001166,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S11",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7348265895953757,
+          "test_acc": 0.95625,
+          "test_acc_majority": 0.95625,
+          "epochs_trained": 13,
+          "training_time": 119.237438199998,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S11",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7767584097859327,
+          "test_acc": 0.95625,
+          "test_acc_majority": 0.95625,
+          "epochs_trained": 13,
+          "training_time": 108.6964818000124,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S13": {
+        "baseline": {
+          "subject_id": "S13",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7706013363028953,
+          "test_acc": 0.95625,
+          "test_acc_majority": 0.95625,
+          "epochs_trained": 27,
+          "training_time": 107.0291964999924
+        },
+        "sess03": {
+          "subject_id": "S13",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7718531468531469,
+          "test_acc": 0.9,
+          "test_acc_majority": 0.9,
+          "epochs_trained": 15,
+          "training_time": 106.03679830000328,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S13",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7852011494252874,
+          "test_acc": 0.9375,
+          "test_acc_majority": 0.9375,
+          "epochs_trained": 13,
+          "training_time": 115.01759190000303,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S13",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.8053691275167785,
+          "test_acc": 0.95625,
+          "test_acc_majority": 0.95625,
+          "epochs_trained": 16,
+          "training_time": 162.36264340000344,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S14": {
+        "baseline": {
+          "subject_id": "S14",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.6575963718820862,
+          "test_acc": 0.83125,
+          "test_acc_majority": 0.83125,
+          "epochs_trained": 24,
+          "training_time": 92.78249219999998
+        },
+        "sess03": {
+          "subject_id": "S14",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7128801431127012,
+          "test_acc": 0.88125,
+          "test_acc_majority": 0.88125,
+          "epochs_trained": 16,
+          "training_time": 88.20424210000783,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S14",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7481315396113603,
+          "test_acc": 0.88125,
+          "test_acc_majority": 0.88125,
+          "epochs_trained": 17,
+          "training_time": 128.34483279999404,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S14",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7723525681674065,
+          "test_acc": 0.93125,
+          "test_acc_majority": 0.93125,
+          "epochs_trained": 14,
+          "training_time": 136.84280440000293,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S15": {
+        "baseline": {
+          "subject_id": "S15",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.6965589155370178,
+          "test_acc": 0.925,
+          "test_acc_majority": 0.925,
+          "epochs_trained": 46,
+          "training_time": 174.22609049998573
+        },
+        "sess03": {
+          "subject_id": "S15",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7015663643858203,
+          "test_acc": 0.9625,
+          "test_acc_majority": 0.9625,
+          "epochs_trained": 16,
+          "training_time": 98.76091549999546,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S15",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.763265306122449,
+          "test_acc": 0.9375,
+          "test_acc_majority": 0.9375,
+          "epochs_trained": 41,
+          "training_time": 305.5530327999877,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S15",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7715442452284558,
+          "test_acc": 0.93125,
+          "test_acc_majority": 0.93125,
+          "epochs_trained": 25,
+          "training_time": 241.6415061000007,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S16": {
+        "baseline": {
+          "subject_id": "S16",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7162303664921466,
+          "test_acc": 0.70625,
+          "test_acc_majority": 0.70625,
+          "epochs_trained": 24,
+          "training_time": 98.79061379999621
+        },
+        "sess03": {
+          "subject_id": "S16",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7371900826446282,
+          "test_acc": 0.86875,
+          "test_acc_majority": 0.86875,
+          "epochs_trained": 19,
+          "training_time": 108.73913060000632,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S16",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7642559109874826,
+          "test_acc": 0.9875,
+          "test_acc_majority": 0.9875,
+          "epochs_trained": 16,
+          "training_time": 136.74560419999762,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S16",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.8113542282672974,
+          "test_acc": 0.98125,
+          "test_acc_majority": 0.98125,
+          "epochs_trained": 27,
+          "training_time": 251.42507110000588,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S17": {
+        "baseline": {
+          "subject_id": "S17",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7055016181229773,
+          "test_acc": 0.84375,
+          "test_acc_majority": 0.84375,
+          "epochs_trained": 37,
+          "training_time": 140.68911050001043
+        },
+        "sess03": {
+          "subject_id": "S17",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7319148936170212,
+          "test_acc": 0.91875,
+          "test_acc_majority": 0.91875,
+          "epochs_trained": 32,
+          "training_time": 173.59108689999266,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S17",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7311752287121746,
+          "test_acc": 0.86875,
+          "test_acc_majority": 0.86875,
+          "epochs_trained": 18,
+          "training_time": 148.9052687999938,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S17",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7392619479733817,
+          "test_acc": 0.875,
+          "test_acc_majority": 0.875,
+          "epochs_trained": 25,
+          "training_time": 230.81659010000294,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S18": {
+        "baseline": {
+          "subject_id": "S18",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7267015706806282,
+          "test_acc": 0.91875,
+          "test_acc_majority": 0.91875,
+          "epochs_trained": 31,
+          "training_time": 123.66842420000467
+        },
+        "sess03": {
+          "subject_id": "S18",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7696118909991743,
+          "test_acc": 0.925,
+          "test_acc_majority": 0.925,
+          "epochs_trained": 13,
+          "training_time": 98.71319260000018,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S18",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7801225323349217,
+          "test_acc": 0.9,
+          "test_acc_majority": 0.9,
+          "epochs_trained": 23,
+          "training_time": 191.11932869999146,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S18",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.7931435212085997,
+          "test_acc": 0.9375,
+          "test_acc_majority": 0.9375,
+          "epochs_trained": 19,
+          "training_time": 151.84674190000806,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      },
+      "S19": {
+        "baseline": {
+          "subject_id": "S19",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.9494117647058824,
+          "test_acc": 0.98125,
+          "test_acc_majority": 0.98125,
+          "epochs_trained": 21,
+          "training_time": 81.26347889998578
+        },
+        "sess03": {
+          "subject_id": "S19",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.9593657086223984,
+          "test_acc": 0.975,
+          "test_acc_majority": 0.975,
+          "epochs_trained": 21,
+          "training_time": 123.59614550000697,
+          "extra_session_step": 3,
+          "test_strategy": "per_session"
+        },
+        "sess04": {
+          "subject_id": "S19",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.9566284779050737,
+          "test_acc": 1.0,
+          "test_acc_majority": 1.0,
+          "epochs_trained": 27,
+          "training_time": 185.44794769999862,
+          "extra_session_step": 4,
+          "test_strategy": "per_session"
+        },
+        "sess05": {
+          "subject_id": "S19",
+          "task_type": "binary",
+          "model_type": "cbramod",
+          "best_val_acc": 0.959051724137931,
+          "test_acc": 0.95,
+          "test_acc_majority": 0.95,
+          "epochs_trained": 15,
+          "training_time": 128.38284620000923,
+          "extra_session_step": 5,
+          "test_strategy": "per_session"
+        }
+      }
+    }
+  }
+}

@@ -1495,6 +1495,86 @@ class ExperimentDB:
     # High-level query helpers (for plotting / historical data)
     # ========================================================================
 
+    def _find_ranked_results(
+        self,
+        paradigm: str,
+        task: str,
+        model_type: str,
+        *,
+        experiment_type: str,
+        n_channels: int = 128,
+        channel_config: Optional[str] = None,
+        subjects: Optional[set] = None,
+        exclude_run_id: Optional[str] = None,
+        return_run_id: bool = False,
+        prefer_baseline: bool = False,
+    ):
+        """Find per-model results with either best-accuracy or baseline-first ranking."""
+        clauses = [
+            "r.paradigm = ?",
+            "r.task = ?",
+            "r.n_channels = ?",
+            "r.experiment_type = ?",
+            "r.is_complete = 1",
+            "ms.model_type = ?",
+        ]
+        params: list = [paradigm, task, n_channels, experiment_type, model_type]
+
+        if channel_config is not None:
+            clauses.append("r.channel_config = ?")
+            params.append(channel_config)
+        if exclude_run_id is not None:
+            clauses.append("r.run_id != ?")
+            params.append(exclude_run_id)
+
+        def _fetch_rows(*, baseline_only: bool, order_by: str):
+            query_clauses = list(clauses)
+            query_params = list(params)
+            if baseline_only:
+                query_clauses.append("ms.is_baseline = 1")
+            where = " AND ".join(query_clauses)
+            with self._connection() as conn:
+                return conn.execute(
+                    f"""SELECT r.run_id, ms.mean_acc, ms.is_baseline, r.created_at
+                        FROM runs r
+                        JOIN model_summaries ms ON r.run_id = ms.run_id
+                        WHERE {where}
+                        ORDER BY {order_by}""",
+                    query_params,
+                ).fetchall()
+
+        candidate_rows = []
+        if prefer_baseline:
+            candidate_rows.extend(_fetch_rows(
+                baseline_only=True,
+                order_by="r.created_at DESC",
+            ))
+        candidate_rows.extend(_fetch_rows(
+            baseline_only=False,
+            order_by="ms.mean_acc DESC, r.created_at DESC",
+        ))
+
+        seen_run_ids = set()
+        for row in candidate_rows:
+            run_id = row['run_id']
+            if run_id in seen_run_ids:
+                continue
+            seen_run_ids.add(run_id)
+
+            results = self.get_results(run_id, model_type)
+            if not results:
+                continue
+
+            if subjects is not None:
+                result_subjects = {r.subject_id for r in results}
+                if not (subjects <= result_subjects):
+                    continue
+                results = [r for r in results if r.subject_id in subjects]
+
+            return (results, run_id) if return_run_id else results
+
+        return None
+
     def find_best_within_subject_results(
         self,
         paradigm: str,
@@ -1507,11 +1587,6 @@ class ExperimentDB:
         return_run_id: bool = False,
     ):
         """Find the best completed within-subject run for a model and return results.
-
-        Replaces find_best_within_subject_for_model() from cache.py.
-
-        Selects the run with the highest mean_acc for the given model from
-        completed within-subject experiments. Optionally filters by subject coverage.
 
         Args:
             paradigm: 'imagery' | 'movement'
@@ -1527,52 +1602,48 @@ class ExperimentDB:
             List of TrainingResult (or (List, run_id) if return_run_id=True).
             None if no compatible run found.
         """
-        clauses = [
-            "r.paradigm = ?",
-            "r.task = ?",
-            "r.n_channels = ?",
-            "r.experiment_type = 'within_subject'",
-            "r.is_complete = 1",
-            "ms.model_type = ?",
-        ]
-        params: list = [paradigm, task, n_channels, model_type]
+        return self._find_ranked_results(
+            paradigm,
+            task,
+            model_type,
+            experiment_type='within_subject',
+            n_channels=n_channels,
+            channel_config=channel_config,
+            subjects=subjects,
+            exclude_run_id=exclude_run_id,
+            return_run_id=return_run_id,
+            prefer_baseline=False,
+        )
 
-        if channel_config is not None:
-            clauses.append("r.channel_config = ?")
-            params.append(channel_config)
-        if exclude_run_id is not None:
-            clauses.append("r.run_id != ?")
-            params.append(exclude_run_id)
+    def find_baseline_within_subject_results(
+        self,
+        paradigm: str,
+        task: str,
+        model_type: str,
+        n_channels: int = 128,
+        channel_config: Optional[str] = None,
+        subjects: Optional[set] = None,
+        exclude_run_id: Optional[str] = None,
+        return_run_id: bool = False,
+    ):
+        """Find the current within-subject baseline for a model and return results.
 
-        where = " AND ".join(clauses)
-
-        with self._connection() as conn:
-            rows = conn.execute(
-                f"""SELECT r.run_id, ms.mean_acc
-                    FROM runs r
-                    JOIN model_summaries ms ON r.run_id = ms.run_id
-                    WHERE {where}
-                    ORDER BY ms.mean_acc DESC""",
-                params,
-            ).fetchall()
-
-        for row in rows:
-            run_id = row['run_id']
-            results = self.get_results(run_id, model_type)
-            if not results:
-                continue
-
-            # Check subject coverage if required
-            if subjects is not None:
-                result_subjects = {r.subject_id for r in results}
-                if not (subjects <= result_subjects):
-                    continue
-                # Filter to requested subjects
-                results = [r for r in results if r.subject_id in subjects]
-
-            return (results, run_id) if return_run_id else results
-
-        return None
+        Selection order:
+        1. Most recent explicit baseline (``is_baseline=1``)
+        2. Best-accuracy compatible run in the same category
+        """
+        return self._find_ranked_results(
+            paradigm,
+            task,
+            model_type,
+            experiment_type='within_subject',
+            n_channels=n_channels,
+            channel_config=channel_config,
+            subjects=subjects,
+            exclude_run_id=exclude_run_id,
+            return_run_id=return_run_id,
+            prefer_baseline=True,
+        )
 
     def find_historical_comparison(
         self,
@@ -1585,12 +1656,6 @@ class ExperimentDB:
         return_run_id: bool = False,
     ):
         """Find best completed within-subject run with BOTH models for comparison plots.
-
-        Replaces find_compatible_historical_results() from cache.py.
-
-        Finds a completed within-subject run that has results for both eegnet
-        and cbramod, covering the given subjects. Selects the run with the
-        highest combined mean accuracy.
 
         Args:
             paradigm: 'imagery' | 'movement'
@@ -1623,7 +1688,7 @@ class ExperimentDB:
 
         where = " AND ".join(clauses)
 
-        # Find runs that have BOTH models with summaries, ordered by combined mean_acc
+        # Find runs that have BOTH models with summaries, ordered by combined accuracy
         with self._connection() as conn:
             rows = conn.execute(
                 f"""SELECT r.run_id,
@@ -1634,7 +1699,7 @@ class ExperimentDB:
                     JOIN model_summaries e ON r.run_id = e.run_id AND e.model_type = 'eegnet'
                     JOIN model_summaries c ON r.run_id = c.run_id AND c.model_type = 'cbramod'
                     WHERE {where}
-                    ORDER BY combined DESC""",
+                    ORDER BY combined DESC, r.created_at DESC""",
                 params,
             ).fetchall()
 
@@ -1657,6 +1722,26 @@ class ExperimentDB:
 
             return (grouped, run_id) if return_run_id else grouped
 
+        # Fallback: no single run has both models. Merge the best per-model runs.
+        merged: Dict[str, list] = {}
+        merged_run_ids = []
+        for model_type in ('eegnet', 'cbramod'):
+            r = self.find_best_within_subject_results(
+                paradigm, task, model_type,
+                n_channels=n_channels, channel_config=channel_config,
+                subjects=subjects, exclude_run_id=exclude_run_id,
+                return_run_id=True,
+            )
+            if r is not None:
+                results, rid = r
+                merged[model_type] = results
+                merged_run_ids.append(rid)
+
+        if len(merged) == 2:
+            # Use first run_id as representative to preserve the legacy return shape.
+            combined_id = merged_run_ids[0]
+            return (merged, combined_id) if return_run_id else merged
+
         return None
 
     def find_best_cross_subject_results(
@@ -1672,8 +1757,6 @@ class ExperimentDB:
     ):
         """Find best completed cross-subject run for a model and return per-subject results.
 
-        Replaces find_compatible_cross_subject_results() for plotting purposes.
-
         Args:
             paradigm: 'imagery' | 'movement'
             task: 'binary' | 'ternary' | 'quaternary'
@@ -1687,50 +1770,48 @@ class ExperimentDB:
         Returns:
             List of TrainingResult (or (List, run_id) if return_run_id=True), or None.
         """
-        clauses = [
-            "r.paradigm = ?",
-            "r.task = ?",
-            "r.n_channels = ?",
-            "r.experiment_type = 'cross_subject'",
-            "r.is_complete = 1",
-            "ms.model_type = ?",
-        ]
-        params: list = [paradigm, task, n_channels, model_type]
+        return self._find_ranked_results(
+            paradigm,
+            task,
+            model_type,
+            experiment_type='cross_subject',
+            n_channels=n_channels,
+            channel_config=channel_config,
+            subjects=subjects,
+            exclude_run_id=exclude_run_id,
+            return_run_id=return_run_id,
+            prefer_baseline=False,
+        )
 
-        if channel_config is not None:
-            clauses.append("r.channel_config = ?")
-            params.append(channel_config)
-        if exclude_run_id is not None:
-            clauses.append("r.run_id != ?")
-            params.append(exclude_run_id)
+    def find_baseline_cross_subject_results(
+        self,
+        paradigm: str,
+        task: str,
+        model_type: str,
+        n_channels: int = 128,
+        channel_config: Optional[str] = None,
+        subjects: Optional[set] = None,
+        exclude_run_id: Optional[str] = None,
+        return_run_id: bool = False,
+    ):
+        """Find the current cross-subject baseline for a model and return results.
 
-        where = " AND ".join(clauses)
-
-        with self._connection() as conn:
-            rows = conn.execute(
-                f"""SELECT r.run_id, ms.mean_acc
-                    FROM runs r
-                    JOIN model_summaries ms ON r.run_id = ms.run_id
-                    WHERE {where}
-                    ORDER BY ms.mean_acc DESC""",
-                params,
-            ).fetchall()
-
-        for row in rows:
-            run_id = row['run_id']
-            results = self.get_results(run_id, model_type)
-            if not results:
-                continue
-
-            if subjects is not None:
-                result_subjects = {r.subject_id for r in results}
-                if not (subjects <= result_subjects):
-                    continue
-                results = [r for r in results if r.subject_id in subjects]
-
-            return (results, run_id) if return_run_id else results
-
-        return None
+        Selection order:
+        1. Most recent explicit baseline (``is_baseline=1``)
+        2. Best-accuracy compatible run in the same category
+        """
+        return self._find_ranked_results(
+            paradigm,
+            task,
+            model_type,
+            experiment_type='cross_subject',
+            n_channels=n_channels,
+            channel_config=channel_config,
+            subjects=subjects,
+            exclude_run_id=exclude_run_id,
+            return_run_id=return_run_id,
+            prefer_baseline=True,
+        )
 
     # ========================================================================
     # Utility / housekeeping

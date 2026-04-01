@@ -78,20 +78,23 @@ ExperimentDB Schema v6 引入 `is_baseline` 列，显式标记每个类别 (mode
 
 ## 查询方法
 
-### 使用 `/find-baseline` skill
+### 使用 `analyze-run` skill 与其 `find-baseline` 子技能
 
 ```bash
 # 查看所有 baseline
-uv run python .claude/skills/find-baseline/scripts/query_baseline.py --baseline-only --type all
+uv run python .agents/skills/analyze-run/subskills/find-baseline/scripts/query_baseline.py --baseline-only --type all
 
 # 查看特定类别
-uv run python .claude/skills/find-baseline/scripts/query_baseline.py --model cbramod --task binary --type within_subject
+uv run python .agents/skills/analyze-run/subskills/find-baseline/scripts/query_baseline.py --model cbramod --task binary --type within_subject
 
 # 查看 unified baseline
-uv run python .claude/skills/find-baseline/scripts/query_baseline.py --task unified --type all --baseline-only
+uv run python .agents/skills/analyze-run/subskills/find-baseline/scripts/query_baseline.py --task unified --type all --baseline-only
 
-# 查看 run 详情 (逐被试)
-uv run python .claude/skills/find-baseline/scripts/query_baseline.py --tag 20260323_2237
+# 查看单次 run 摘要
+uv run python scripts/tools/describe_run.py 0329_1357
+
+# 查看 run 详情 (baseline 子技能的逐被试模式)
+uv run python .agents/skills/analyze-run/subskills/find-baseline/scripts/query_baseline.py --tag 20260323_2237
 ```
 
 ### 使用 Python API

@@ -57,6 +57,7 @@ uv run python scripts/run_within_subject.py --model cbramod \
 uv run python scripts/tools/migrate_results_to_db.py              # 预览迁移
 uv run python scripts/tools/migrate_results_to_db.py --execute    # 执行迁移
 uv run python scripts/tools/migrate_results_to_db.py --execute --force  # 重建数据库
+uv run python scripts/tools/describe_run.py 0329_1357            # 按 run_tag substring 查看单次 run 摘要
 
 # 通道缩减实验
 uv run python scripts/analysis/compute_channel_selections.py                    # 数据驱动通道选择 (任意通道数)
@@ -107,7 +108,8 @@ scripts/
 ├── tools/                      # 工具脚本
 │   ├── verify_installation.py  # 安装验证
 │   ├── compare_schedulers.py   # 调度器对比
-│   └── migrate_results_to_db.py # JSON → SQLite 一次性迁移
+│   ├── migrate_results_to_db.py # JSON → SQLite 一次性迁移
+│   └── describe_run.py         # 按 run_tag substring 查询 run 摘要 + baseline 对比
 ├── analysis/                   # 分析脚本
 │   ├── compute_channel_selections.py  # 数据驱动 N-ch 通道选择 (FDR/CSP/Attention/BandPower)
 │   └── research/               # 研究分析

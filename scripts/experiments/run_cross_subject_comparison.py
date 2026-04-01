@@ -117,6 +117,7 @@ def _generate_plots(
     db_run_id,
     no_within_subject_historical=False,
     no_cross_subject_historical=False,
+    historical_selection='baseline',
 ):
     """
     生成 cross-subject 对比图（提取自 main 以支持 replot）.
@@ -130,6 +131,7 @@ def _generate_plots(
         db_run_id: DB run ID (None for replot → skips DB writes)
         no_within_subject_historical: 是否禁用 within-subject 历史叠加
         no_cross_subject_historical: 是否禁用 cross-subject 历史叠加
+        historical_selection: 'baseline' | 'best'
     """
     from pathlib import Path
 
@@ -182,11 +184,25 @@ def _generate_plots(
     data_sources = []
     subjects_set = set(subjects)
     channel_config_filter = channel_config if n_channels != FULL_N_CHANNELS else None
+    within_query = (
+        db.find_baseline_within_subject_results
+        if historical_selection == 'baseline'
+        else db.find_best_within_subject_results
+    )
+    cross_query = (
+        db.find_baseline_cross_subject_results
+        if historical_selection == 'baseline'
+        else db.find_best_cross_subject_results
+    )
+    within_label_suffix = 'Within Baseline' if historical_selection == 'baseline' else 'Within Best'
+    cross_label_suffix = 'Cross Baseline' if historical_selection == 'baseline' else 'Cross Best'
+    within_ref_type = 'within_subject_baseline' if historical_selection == 'baseline' else 'historical_comparison'
+    cross_ref_type = 'cross_subject_baseline' if historical_selection == 'baseline' else 'historical_comparison'
 
-    # 1 & 2: Historical within-subject baselines (per-model, best accuracy)
+    # 1 & 2: Historical within-subject references (baseline by default, best via flag)
     if not no_within_subject_historical:
         for model_type in ['eegnet', 'cbramod']:
-            ws_result = db.find_best_within_subject_results(
+            ws_result = within_query(
                 paradigm=paradigm,
                 task=task,
                 model_type=model_type,
@@ -198,12 +214,12 @@ def _generate_plots(
             if ws_result is not None:
                 hist_results, ws_run_id = ws_result
                 if db_run_id and ws_run_id:
-                    db.add_baseline_ref(db_run_id, ws_run_id, 'within_subject_baseline', model_type)
+                    db.add_baseline_ref(db_run_id, ws_run_id, within_ref_type, model_type)
                 data_sources.append(PlotDataSource(
                     model_type=model_type,
                     results=hist_results,
                     is_current_run=False,
-                    label=f'{model_type.upper()} (Within)',
+                    label=f'{model_type.upper()} ({within_label_suffix})',
                     hatch='///',
                 ))
 
@@ -218,10 +234,10 @@ def _generate_plots(
                 label=f'{model_type.upper()} (Cross)',
             ))
 
-    # 5: (Optional) Historical cross-subject data
+    # 5: (Optional) Historical cross-subject reference
     if not no_cross_subject_historical:
         search_model = 'cbramod' if 'cbramod' in models else models[0]
-        cs_result = db.find_best_cross_subject_results(
+        cs_result = cross_query(
             paradigm=paradigm,
             task=task,
             model_type=search_model,
@@ -234,12 +250,12 @@ def _generate_plots(
         if cs_result is not None:
             hist_cross, cs_run_id = cs_result
             if db_run_id and cs_run_id:
-                db.add_baseline_ref(db_run_id, cs_run_id, 'cross_subject_baseline', search_model)
+                db.add_baseline_ref(db_run_id, cs_run_id, cross_ref_type, search_model)
             data_sources.append(PlotDataSource(
                 model_type=search_model,
                 results=hist_cross,
                 is_current_run=False,
-                label=f'{search_model.upper()} (Cross-Hist)',
+                label=f'{search_model.upper()} ({cross_label_suffix})',
                 hatch='...',
             ))
 
@@ -280,6 +296,9 @@ Examples:
 
   # Disable historical comparison
   uv run python scripts/run_cross_subject_comparison.py --no-within-subject-historical
+
+  # Use best-accuracy historical runs instead of designated baselines
+  uv run python scripts/run_cross_subject_comparison.py --historical-selection best
 '''
     )
 
@@ -321,6 +340,12 @@ Examples:
     parser.add_argument(
         '--no-cross-subject-historical', action='store_true',
         help='Disable cross-subject historical data (previous runs) in comparison plot'
+    )
+    parser.add_argument(
+        '--historical-selection',
+        choices=['baseline', 'best'],
+        default='baseline',
+        help='How to choose historical reference runs for plots (default: baseline)'
     )
 
     # Shared cache/resume args
@@ -391,6 +416,7 @@ Examples:
             db_run_id=None,
             no_within_subject_historical=args.no_within_subject_historical,
             no_cross_subject_historical=args.no_cross_subject_historical,
+            historical_selection=args.historical_selection,
         )
         ctx['db'].close()
         log_main.info(f"Replot complete for {args.replot}")
@@ -589,6 +615,7 @@ Examples:
             db_run_id=db_run_id,
             no_within_subject_historical=args.no_within_subject_historical,
             no_cross_subject_historical=args.no_cross_subject_historical,
+            historical_selection=args.historical_selection,
         )
 
     # Save comparison to DB, mark complete, and close

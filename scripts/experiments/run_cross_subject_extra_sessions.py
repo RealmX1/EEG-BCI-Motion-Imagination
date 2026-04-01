@@ -258,7 +258,14 @@ def main():
     config_overrides = build_config_overrides(args)
 
     # ====== Train ======
+    # Preserve results from models not being trained (e.g., resuming with --models eegnet
+    # should keep existing cbramod data intact)
     all_results: Dict[str, Dict[str, dict]] = {}
+    if existing_cache:
+        for model_key, model_data in existing_cache.get('results', {}).items():
+            if model_key not in args.models:
+                all_results[model_key] = model_data
+                log_main.info(f"Preserved cached results for {model_key}")
 
     # Steps: baseline + each extra session
     step_definitions = [('baseline', 2)] + [(f'sess{s:02d}', s) for s in all_sessions]

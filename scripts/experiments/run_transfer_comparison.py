@@ -104,6 +104,7 @@ def _generate_plots(
     run_tag, results_dir, n_channels, channel_config,
     db, db_run_id,
     no_cross_subject_baseline=False,
+    historical_selection='baseline',
 ):
     """
     生成 transfer comparison 6-way 对比图（提取自 main 以支持 replot）.
@@ -116,14 +117,29 @@ def _generate_plots(
         db: ExperimentDB 实例 (read-only for historical queries)
         db_run_id: DB run ID (None for replot → skips DB writes)
         no_cross_subject_baseline: 是否禁用 cross-subject baseline
+        historical_selection: 'baseline' | 'best'
     """
     subjects_set = set(subjects)
     channel_config_filter = channel_config if n_channels != FULL_N_CHANNELS else None
     data_sources = []
+    within_query = (
+        db.find_baseline_within_subject_results
+        if historical_selection == 'baseline'
+        else db.find_best_within_subject_results
+    )
+    cross_query = (
+        db.find_baseline_cross_subject_results
+        if historical_selection == 'baseline'
+        else db.find_best_cross_subject_results
+    )
+    within_label_suffix = 'Within Baseline' if historical_selection == 'baseline' else 'Within Best'
+    cross_label_suffix = 'Cross Baseline' if historical_selection == 'baseline' else 'Cross Best'
+    within_ref_type = 'within_subject_baseline' if historical_selection == 'baseline' else 'historical_comparison'
+    cross_ref_type = 'cross_subject_baseline' if historical_selection == 'baseline' else 'historical_comparison'
 
-    # 1 & 2: Within-subject baselines (per model, from DB, hatch='///')
+    # 1 & 2: Within-subject references (baseline by default, best via flag)
     for mt in ['eegnet', 'cbramod']:
-        ws_result = db.find_best_within_subject_results(
+        ws_result = within_query(
             paradigm=paradigm,
             task=task,
             model_type=mt,
@@ -135,21 +151,21 @@ def _generate_plots(
         if ws_result is not None:
             ws_results, ws_run_id = ws_result
             if db_run_id and ws_run_id:
-                db.add_baseline_ref(db_run_id, ws_run_id, 'within_subject_baseline', mt)
+                db.add_baseline_ref(db_run_id, ws_run_id, within_ref_type, mt)
             mean_acc = sum(r.test_acc_majority for r in ws_results) / len(ws_results)
-            log_io.info(f"Within-subject baseline for {mt}: mean={mean_acc:.1%}")
+            log_io.info(f"Within-subject reference for {mt}: mean={mean_acc:.1%}")
             data_sources.append(PlotDataSource(
                 model_type=mt,
                 results=ws_results,
                 is_current_run=False,
-                label=f'{mt.upper()} (Within)',
+                label=f'{mt.upper()} ({within_label_suffix})',
                 hatch='///',
             ))
 
-    # 3 & 4: Cross-subject baselines (per model, from DB, hatch='...')
+    # 3 & 4: Cross-subject references (baseline by default, best via flag)
     if not no_cross_subject_baseline:
         for mt in ['eegnet', 'cbramod']:
-            cs_result = db.find_best_cross_subject_results(
+            cs_result = cross_query(
                 paradigm=paradigm,
                 task=task,
                 model_type=mt,
@@ -161,14 +177,14 @@ def _generate_plots(
             if cs_result is not None:
                 cross_results, cs_run_id = cs_result
                 if db_run_id and cs_run_id:
-                    db.add_baseline_ref(db_run_id, cs_run_id, 'cross_subject_baseline', mt)
+                    db.add_baseline_ref(db_run_id, cs_run_id, cross_ref_type, mt)
                 mean_acc = sum(r.test_acc_majority for r in cross_results) / len(cross_results)
-                log_io.info(f"Cross-subject baseline for {mt}: mean={mean_acc:.1%}")
+                log_io.info(f"Cross-subject reference for {mt}: mean={mean_acc:.1%}")
                 data_sources.append(PlotDataSource(
                     model_type=mt,
                     results=cross_results,
                     is_current_run=False,
-                    label=f'{mt.upper()} (Cross)',
+                    label=f'{mt.upper()} ({cross_label_suffix})',
                     hatch='...',
                 ))
 
@@ -226,6 +242,9 @@ Examples:
 
   # Re-generate plots for a finished run (no training, no DB writes)
   uv run python scripts/experiments/run_transfer_comparison.py --replot 20260321_0934
+
+  # Use best-accuracy references instead of designated baselines
+  uv run python scripts/experiments/run_transfer_comparison.py --historical-selection best
 '''
     )
 
@@ -252,6 +271,9 @@ Examples:
                         help='Fine-tuning batch size (default: model-specific)')
     parser.add_argument('--no-cross-subject-baseline', action='store_true',
                         help='Do not include cross-subject baseline in the plot')
+    parser.add_argument('--historical-selection', choices=['baseline', 'best'],
+                        default='baseline',
+                        help='How to choose historical reference runs for plots (default: baseline)')
     parser.add_argument('--baseline', action='store_true',
                         help='Mark this run as a designated baseline in ExperimentDB')
 
@@ -285,6 +307,7 @@ Examples:
             db=ctx['db'],
             db_run_id=None,
             no_cross_subject_baseline=args.no_cross_subject_baseline,
+            historical_selection=args.historical_selection,
         )
         ctx['db'].close()
         log_main.info(f"Replot complete for {args.replot}")
@@ -482,6 +505,7 @@ Examples:
             db=db,
             db_run_id=db_run_id,
             no_cross_subject_baseline=args.no_cross_subject_baseline,
+            historical_selection=args.historical_selection,
         )
 
     # ======================================================================

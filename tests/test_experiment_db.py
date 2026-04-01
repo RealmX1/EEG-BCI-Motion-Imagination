@@ -386,6 +386,18 @@ class TestHighLevelQueries:
         # Should pick run 2 (higher mean_acc)
         assert all(r.test_acc_majority == 0.85 for r in results)
 
+    def test_find_baseline_within_subject_results_prefers_explicit_baseline(self, db):
+        r1, r2 = self._setup_within_subject_runs(db)
+        db.set_baseline(r1, 'eegnet', True)
+
+        baseline_results = db.find_baseline_within_subject_results('imagery', 'binary', 'eegnet')
+        assert baseline_results is not None
+        assert all(r.test_acc_majority == 0.70 for r in baseline_results)
+
+        best_results = db.find_best_within_subject_results('imagery', 'binary', 'eegnet')
+        assert best_results is not None
+        assert all(r.test_acc_majority == 0.85 for r in best_results)
+
     def test_find_best_within_subject_results_with_subjects(self, db):
         r1, r2 = self._setup_within_subject_runs(db)
         # Filter to S01 and S02 only
@@ -457,6 +469,29 @@ class TestHighLevelQueries:
         assert results is not None
         assert len(results) == 3
         assert all(r.model_type == 'cbramod' for r in results)
+
+    def test_find_baseline_cross_subject_results_prefers_explicit_baseline(self, db):
+        r1 = db.create_run('20260215_1000', 'cross_subject', 'imagery', 'binary')
+        for sid in ['S01', 'S02', 'S03']:
+            db.save_subject_result(r1, _make_result(sid, 'cbramod', 0.75))
+        db.save_summary(r1, 'cbramod', {'mean': 0.75, 'std': 0.01, 'median': 0.75, 'min': 0.74, 'max': 0.76, 'n_subjects': 3})
+        db.mark_complete(r1)
+
+        r2 = db.create_run('20260216_1000', 'cross_subject', 'imagery', 'binary')
+        for sid in ['S01', 'S02', 'S03']:
+            db.save_subject_result(r2, _make_result(sid, 'cbramod', 0.82))
+        db.save_summary(r2, 'cbramod', {'mean': 0.82, 'std': 0.01, 'median': 0.82, 'min': 0.81, 'max': 0.83, 'n_subjects': 3})
+        db.mark_complete(r2)
+
+        db.set_baseline(r1, 'cbramod', True)
+
+        baseline_results = db.find_baseline_cross_subject_results('imagery', 'binary', 'cbramod')
+        assert baseline_results is not None
+        assert all(r.test_acc_majority == 0.75 for r in baseline_results)
+
+        best_results = db.find_best_cross_subject_results('imagery', 'binary', 'cbramod')
+        assert best_results is not None
+        assert all(r.test_acc_majority == 0.82 for r in best_results)
 
     def test_find_best_cross_subject_results_subject_filter(self, db):
         r = db.create_run('20260215_1000', 'cross_subject', 'imagery', 'binary')
