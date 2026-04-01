@@ -9,6 +9,8 @@
   - extra_sessions_paradigm: Extra sessions 三范式（within/cross/transfer）总览
   - extra_sessions_strategy: Extra sessions 三种评估策略折线对比
 
+所有结果文件路径统一从 `paper/run_registry.yaml` 读取，避免论文阶段继续散落硬编码。
+
 Usage:
     uv run python scripts/paper/generate_paper_figures.py --figure channel_scaling
     uv run python scripts/paper/generate_paper_figures.py --figure further_pretraining
@@ -33,6 +35,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from src.results.dataclasses import PlotDataSource, TrainingResult
 from src.results.serialization import cross_subject_result_to_training_results
 from src.visualization.comparison import generate_combined_plot
+from src.paper.run_registry import get_run_path, resolve_project_path
 
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 logger = logging.getLogger(__name__)
@@ -41,10 +44,10 @@ OUTPUT_DIR = Path('paper/figures')
 
 # 128ch cross-subject baseline cache paths (used across multiple figure generators)
 BASELINE_128CH = {
-    'cbramod_cross': 'results/20260324_0023_cross_subject_cache_imagery_binary.json',
-    'eegnet_cross': 'results/20260330_0709_cross_subject_cache_imagery_binary.json',
-    'cbramod_within': 'results/20260323_2237_comparison_cache_imagery_binary.json',
-    'eegnet_within': 'results/20260316_1411_comparison_cache_imagery_binary.json',
+    'cbramod_cross': get_run_path('cross_cbramod_binary'),
+    'eegnet_cross': get_run_path('cross_eegnet_binary'),
+    'cbramod_within': get_run_path('within_cbramod_binary'),
+    'eegnet_within': get_run_path('within_eegnet_binary'),
 }
 
 
@@ -54,35 +57,136 @@ BASELINE_128CH = {
 
 def load_json_cache(path: str) -> dict:
     """Load a JSON result cache file."""
-    with open(path) as f:
+    with open(resolve_project_path(path), encoding='utf-8') as f:
         return json.load(f)
+
+
+def _extract_accs_from_subject_mapping(subject_mapping: Dict[str, dict]) -> List[float]:
+    """Extract percent accuracies from a subject_id -> result mapping."""
+    accs = []
+    for subject_id, subject_data in sorted(subject_mapping.items()):
+        if subject_id in {'metadata', 'comparison', 'summary', 'statistics'}:
+            continue
+        if not isinstance(subject_data, dict):
+            continue
+        acc = subject_data.get('test_acc_majority', subject_data.get('test_acc'))
+        if acc is not None:
+            accs.append(acc * 100)
+    return accs
+
+
+def _extract_accs_from_subject_list(subjects: List[dict]) -> List[float]:
+    """Extract percent accuracies from a serialized TrainingResult list."""
+    accs = []
+    for subject_data in sorted(
+        subjects,
+        key=lambda item: item.get('subject_id', '') if isinstance(item, dict) else '',
+    ):
+        if not isinstance(subject_data, dict):
+            continue
+        acc = subject_data.get('test_acc_majority', subject_data.get('test_acc'))
+        if acc is not None:
+            accs.append(acc * 100)
+    return accs
 
 
 def extract_model_accs(cache: dict, model: str) -> List[float]:
     """Extract per-subject test accuracies for a model from JSON cache.
 
-    Supports two cache formats:
-      - Cross-subject: data['results'][model]['per_subject_test_acc'][subject] (0-1 scale)
-      - Within-subject: data[model][subject]['test_acc_majority'] (0-1 scale)
+    Supports multiple result layouts used across paper figures:
+      - Comparison cache: data['results'][model][subject]['test_acc_majority']
+      - Cross-subject cache: data['results'][model]['per_subject_test_acc'][subject]
+      - Single-model cross-subject result: data['results']['per_subject_test_acc'][subject]
+      - Single-model within-subject result: data['subjects'][i]['test_acc_majority']
+      - Legacy top-level model map: data[model][subject]['test_acc_majority']
     """
-    # Format 1: cross-subject cache (results -> model -> per_subject_test_acc)
     results = cache.get('results', {})
-    model_results = results.get(model, {})
-    per_subj = model_results.get('per_subject_test_acc', {})
-    if per_subj:
-        return [acc * 100 for acc in sorted(per_subj.values())]
+    model_results = results.get(model, {}) if isinstance(results, dict) else {}
+    if isinstance(model_results, dict):
+        per_subj = model_results.get('per_subject_test_acc', {})
+        if per_subj:
+            return [acc * 100 for _, acc in sorted(per_subj.items())]
 
-    # Format 2: within-subject / extra-sessions cache (model -> subject -> test_acc_majority)
+        accs = _extract_accs_from_subject_mapping(model_results)
+        if accs:
+            return accs
+
+    # Single-model cross-subject result (results -> per_subject_test_acc)
+    if isinstance(results, dict):
+        per_subj = results.get('per_subject_test_acc', {})
+        metadata_model = cache.get('metadata', {}).get('model_type')
+        if per_subj and metadata_model in (None, model):
+            return [acc * 100 for _, acc in sorted(per_subj.items())]
+
+    # Single-model within-subject result (subjects list)
+    subjects = cache.get('subjects', [])
+    if isinstance(subjects, list):
+        metadata_model = cache.get('metadata', {}).get('model_type')
+        if metadata_model in (None, model):
+            accs = _extract_accs_from_subject_list(subjects)
+            if accs:
+                return accs
+
+    # Legacy top-level model -> subject mapping
     model_data = cache.get(model, {})
-    accs = []
-    for subj_id, subj_data in sorted(model_data.items()):
-        if subj_id in ('metadata', 'comparison'):
-            continue
-        if isinstance(subj_data, dict):
-            acc = subj_data.get('test_acc_majority', subj_data.get('test_acc'))
-            if acc is not None:
-                accs.append(acc * 100)
-    return accs
+    if isinstance(model_data, dict):
+        return _extract_accs_from_subject_mapping(model_data)
+    return []
+
+
+def _load_further_pretraining_series() -> Dict[str, List[float]]:
+    """Load Figure 2 values from the paper run registry."""
+    run_specs = [
+        (
+            'Within-Subj\nBinary',
+            {
+                'baseline': 'further_pretraining_baseline_within_binary',
+                'ft_v1': 'further_pretraining_v1_within_binary',
+                'ft_v2': 'further_pretraining_v2_within_binary',
+            },
+        ),
+        (
+            'Cross-Subj\nBinary',
+            {
+                'baseline': 'further_pretraining_baseline_cross_binary',
+                'ft_v1': 'further_pretraining_v1_cross_binary',
+                'ft_v2': 'further_pretraining_v2_cross_binary',
+            },
+        ),
+        (
+            'Within-Subj\nTernary',
+            {
+                'baseline': 'further_pretraining_baseline_within_ternary',
+                'ft_v1': 'further_pretraining_v1_within_ternary',
+                'ft_v2': 'further_pretraining_v2_within_ternary',
+            },
+        ),
+        (
+            'Cross-Subj\nTernary',
+            {
+                'baseline': 'further_pretraining_baseline_cross_ternary',
+                'ft_v1': 'further_pretraining_v1_cross_ternary',
+                'ft_v2': 'further_pretraining_v2_cross_ternary',
+            },
+        ),
+    ]
+
+    series = {
+        'conditions': [],
+        'baseline': [],
+        'ft_v1': [],
+        'ft_v2': [],
+    }
+    for condition, keys in run_specs:
+        series['conditions'].append(condition)
+        for series_name, run_key in keys.items():
+            cache = load_json_cache(get_run_path(run_key))
+            accs = extract_model_accs(cache, 'cbramod')
+            if not accs:
+                raise ValueError(f'No CBraMod accuracies found for paper run key: {run_key}')
+            series[series_name].append(float(np.mean(accs)))
+
+    return series
 
 
 def extract_extra_session_step_accs(cache: dict, model: str) -> Dict[str, List[float]]:
@@ -119,7 +223,7 @@ def _build_cross_subject_source(
     hatch: Optional[str] = None,
 ) -> Optional[PlotDataSource]:
     """从 cross-subject JSON cache 构建 PlotDataSource."""
-    path = Path(cache_path)
+    path = resolve_project_path(cache_path)
     if not path.exists():
         logger.warning(f'Missing cache: {cache_path}')
         return None
@@ -149,7 +253,7 @@ def _build_within_subject_source(
     hatch: Optional[str] = None,
 ) -> Optional[PlotDataSource]:
     """从 within-subject comparison JSON cache 构建 PlotDataSource."""
-    path = Path(cache_path)
+    path = resolve_project_path(cache_path)
     if not path.exists():
         logger.warning(f'Missing cache: {cache_path}')
         return None
@@ -206,43 +310,43 @@ def generate_channel_scaling_figure():
     # ── Per-method data: method -> [(n_ch, path)] ──
     method_paths = {
         'FDR': [
-            (32, 'results/32_channel/fdr/20260330_0836_cross_subject_cache_imagery_binary.json'),
-            (8,  'results/8_channel/fdr/20260330_1311_cross_subject_cache_imagery_binary.json'),
-            (4,  'results/4_channel/fdr/20260330_2214_cross_subject_cache_imagery_binary.json'),
+            (32, get_run_path('reduced_32_fdr_binary')),
+            (8,  get_run_path('reduced_8_fdr_binary')),
+            (4,  get_run_path('reduced_4_fdr_binary')),
         ],
         'Band Power': [
-            (32, 'results/32_channel/band_power/20260330_1105_cross_subject_cache_imagery_binary.json'),
-            (8,  'results/8_channel/band_power/20260331_1950_cross_subject_cache_imagery_binary.json'),
+            (32, get_run_path('reduced_32_band_power_binary')),
+            (8,  get_run_path('reduced_8_band_power_binary')),
         ],
         'Attention': [
-            (32, 'results/32_channel/attention/20260330_1009_cross_subject_cache_imagery_binary.json'),
-            (8,  'results/8_channel/attention/20260330_1334_cross_subject_cache_imagery_binary.json'),
-            (4,  'results/4_channel/attention/20260330_2200_cross_subject_cache_imagery_binary.json'),
+            (32, get_run_path('reduced_32_attention_binary')),
+            (8,  get_run_path('reduced_8_attention_binary')),
+            (4,  get_run_path('reduced_4_attention_binary')),
         ],
         'CSP': [
-            (32, 'results/32_channel/csp/20260330_1032_cross_subject_cache_imagery_binary.json'),
-            (8,  'results/8_channel/csp/20260331_2044_cross_subject_cache_imagery_binary.json'),
+            (32, get_run_path('reduced_32_csp_binary')),
+            (8,  get_run_path('reduced_8_csp_binary')),
         ],
         'Commercial': [
-            (32, 'results/32_channel/commercial/20260330_1142_cross_subject_cache_imagery_binary.json'),
+            (32, get_run_path('reduced_32_commercial_binary')),
         ],
     }
 
     # Special 4ch configs (not tracked as multi-count methods)
     special_points = {
-        'FDR∩Att': (4, 'results/4_channel/fdr_attention_overlap/20260330_1417_cross_subject_cache_imagery_binary.json'),
-        'Neg. Control': (4, 'results/4_channel/negative_control/20260330_1442_cross_subject_cache_imagery_binary.json'),
+        'FDR∩Att': (4, get_run_path('reduced_4_fdr_attention_overlap_binary')),
+        'Neg. Control': (4, get_run_path('reduced_4_negative_control_binary')),
     }
 
     # Baseline points (no method selection)
     baseline_paths = [
-        (128, 'results/20260324_0023_cross_subject_cache_imagery_binary.json'),
-        (61,  'results/61_channel/standard_1010/20260330_1213_cross_subject_cache_imagery_binary.json'),
+        (128, get_run_path('cross_cbramod_binary')),
+        (61,  get_run_path('standard_1010_61_cross_binary')),
     ]
 
     # ── Load all data ──
     def _load_acc(path):
-        if not Path(path).exists():
+        if not resolve_project_path(path).exists():
             logger.warning(f'Missing: {path}')
             return None, None
         cache = load_json_cache(path)
@@ -396,30 +500,17 @@ def generate_further_pretraining_figure():
     """
     Further pre-training V1/V2 vs baseline 下游性能对比.
 
-    数据来源 (from paper/analysis/further_pretraining_analysis.md):
-      Baseline (TUEG):
-        within binary:  run_tag=20260321_0343 → 85.09%
-        cross binary:   run_tag=20260321_0608 → 90.54%
-        within ternary: run_tag=20260205_0306 → 69.54%
-        cross ternary:  run_tag=20260207_2056 → 75.42%
-      FT-V1 (cosine, 10ep):
-        within binary:  results/20260322_1034_cbramod_imagery_binary.json → 83.84%
-        cross binary:   results/20260322_1116_cross-subject_cbramod_imagery_binary.json → 88.84%
-        within ternary: results/20260322_1435_cbramod_imagery_ternary.json → 69.25%
-        cross ternary:  results/20260322_1543_cross-subject_cbramod_imagery_ternary.json → 75.67%
-      FT-V2 (constant LR, 12ep):
-        within binary:  results/20260323_1433_cbramod_imagery_binary.json → 82.23%
-        cross binary:   results/20260323_1517_cross-subject_cbramod_imagery_binary.json → 89.43%
-        within ternary: results/20260323_1615_cbramod_imagery_ternary.json → 68.08%
-        cross ternary:  results/20260323_1709_cross-subject_cbramod_imagery_ternary.json → 75.32%
+    数据来源统一由 `paper/run_registry.yaml` 中的
+    `further_pretraining_baseline_*`、`further_pretraining_v1_*`、
+    `further_pretraining_v2_*` 条目提供，运行时从结果文件读取。
     """
     import matplotlib.pyplot as plt
 
-    # Hardcoded from verified analysis — see data sources in docstring
-    conditions = ['Within-Subj\nBinary', 'Cross-Subj\nBinary', 'Within-Subj\nTernary', 'Cross-Subj\nTernary']
-    baseline = [85.09, 90.54, 69.54, 75.42]
-    ft_v1 = [83.84, 88.84, 69.25, 75.67]
-    ft_v2 = [82.23, 89.43, 68.08, 75.32]
+    series = _load_further_pretraining_series()
+    conditions = series['conditions']
+    baseline = series['baseline']
+    ft_v1 = series['ft_v1']
+    ft_v2 = series['ft_v2']
 
     x = np.arange(len(conditions))
     width = 0.25
@@ -579,23 +670,23 @@ def generate_32ch_comparison_figure():
     from src.config.constants import MODEL_COLORS
 
     configs = [
-        ('FDR', 'results/32_channel/fdr/20260330_0836_cross_subject_cache_imagery_binary.json'),
-        ('Band Power', 'results/32_channel/band_power/20260330_1105_cross_subject_cache_imagery_binary.json'),
-        ('Commercial', 'results/32_channel/commercial/20260330_1142_cross_subject_cache_imagery_binary.json'),
-        ('Attention', 'results/32_channel/attention/20260330_1009_cross_subject_cache_imagery_binary.json'),
-        ('CSP', 'results/32_channel/csp/20260330_1032_cross_subject_cache_imagery_binary.json'),
+        ('FDR', get_run_path('reduced_32_fdr_binary')),
+        ('Band Power', get_run_path('reduced_32_band_power_binary')),
+        ('Commercial', get_run_path('reduced_32_commercial_binary')),
+        ('Attention', get_run_path('reduced_32_attention_binary')),
+        ('CSP', get_run_path('reduced_32_csp_binary')),
     ]
 
     # 128ch reference
-    ref_128_cbramod = 'results/20260324_0023_cross_subject_cache_imagery_binary.json'
-    ref_128_eegnet = 'results/20260330_0709_cross_subject_cache_imagery_binary.json'
+    ref_128_cbramod = get_run_path('cross_cbramod_binary')
+    ref_128_eegnet = get_run_path('cross_eegnet_binary')
 
     config_names = []
     cbramod_means, cbramod_stds = [], []
     eegnet_means, eegnet_stds = [], []
 
     for name, path in configs:
-        if not Path(path).exists():
+        if not resolve_project_path(path).exists():
             logger.warning(f'Missing: {path}')
             continue
         cache = load_json_cache(path)
@@ -611,14 +702,14 @@ def generate_32ch_comparison_figure():
 
     # Load 128ch references
     ref_cb_mean = None
-    if Path(ref_128_cbramod).exists():
+    if resolve_project_path(ref_128_cbramod).exists():
         cache = load_json_cache(ref_128_cbramod)
         accs = extract_model_accs(cache, 'cbramod')
         if accs:
             ref_cb_mean = np.mean(accs)
 
     ref_eg_mean = None
-    if Path(ref_128_eegnet).exists():
+    if resolve_project_path(ref_128_eegnet).exists():
         cache = load_json_cache(ref_128_eegnet)
         accs = extract_model_accs(cache, 'eegnet')
         if accs:
@@ -704,7 +795,7 @@ def generate_extra_sessions_paradigm_figure():
     configs = [
         {
             'label': 'Within-Subject',
-            'path': 'results/20260324_2131_extra_sessions_cache_imagery_binary.json',
+            'path': get_run_path('extra_sessions_binary'),
             'loader': extract_extra_session_step_accs,
             'color': '#1976D2',
             'marker': 'o',
@@ -712,7 +803,7 @@ def generate_extra_sessions_paradigm_figure():
         },
         {
             'label': 'Cross-Subject (21-subj train)',
-            'path': 'results/20260326_1409_cross_subject_extra_sessions_cache_imagery_binary.json',
+            'path': get_run_path('extra_sessions_cross_binary'),
             'loader': extract_cross_subject_extra_session_step_accs,
             'color': '#EF6C00',
             'marker': 's',
@@ -720,7 +811,7 @@ def generate_extra_sessions_paradigm_figure():
         },
         {
             'label': 'Transfer-Init',
-            'path': 'results/20260329_1357_extra_sessions_cache_imagery_binary.json',
+            'path': get_run_path('extra_sessions_transfer_binary'),
             'loader': extract_extra_session_step_accs,
             'color': '#2E7D32',
             'marker': 'D',
@@ -730,7 +821,7 @@ def generate_extra_sessions_paradigm_figure():
 
     series = []
     for cfg in configs:
-        path = Path(cfg['path'])
+        path = resolve_project_path(cfg['path'])
         if not path.exists():
             logger.warning(f'Missing: {cfg["path"]}')
             continue
@@ -874,19 +965,19 @@ def generate_extra_sessions_strategy_figure():
 
     strategy_configs = {
         'per_session': {
-            'path': 'results/20260324_2131_extra_sessions_cache_imagery_binary.json',
+            'path': get_run_path('extra_sessions_binary'),
             'label': 'per_session (default)',
             'linestyle': '-',
             'marker': 'o',
         },
         'fixed_combined': {
-            'path': 'results/20260325_0514_extra_sessions_cache_fixed_combined_imagery_binary.json',
+            'path': get_run_path('extra_sessions_fixed_combined_binary'),
             'label': 'fixed_combined',
             'linestyle': '--',
             'marker': '^',
         },
         'fixed_sess02': {
-            'path': 'results/20260325_1208_extra_sessions_cache_fixed_sess02_imagery_binary.json',
+            'path': get_run_path('extra_sessions_fixed_sess02_binary'),
             'label': 'fixed_sess02',
             'linestyle': ':',
             'marker': 's',
@@ -910,7 +1001,7 @@ def generate_extra_sessions_strategy_figure():
     all_data: Dict[str, Dict[str, Dict[str, List[float]]]] = {}
     for strat_name, cfg in strategy_configs.items():
         path = cfg['path']
-        if not Path(path).exists():
+        if not resolve_project_path(path).exists():
             logger.warning(f'Missing: {path}')
             continue
         cache = load_json_cache(path)
@@ -1297,7 +1388,7 @@ def generate_figure3b_32ch_fdr():
       128ch:    BASELINE_128CH (EEGNet + CBraMod cross-subject)
     """
     _generate_reduced_channel_baseline_figure(
-        current_cache_path='results/32_channel/fdr/20260330_0836_cross_subject_cache_imagery_binary.json',
+        current_cache_path=get_run_path('reduced_32_fdr_binary'),
         output_path='results/32_channel/fdr/20260330_0836_cross-subject_combined_imagery_binary.png',
         channel_label='32ch',
     )
@@ -1315,12 +1406,12 @@ def generate_figure5_4ch_control():
     """
     configs = [
         (
-            'results/4_channel/fdr_attention_overlap/20260330_1417_cross_subject_cache_imagery_binary.json',
+            get_run_path('reduced_4_fdr_attention_overlap_binary'),
             'results/4_channel/fdr_attention_overlap/20260330_1417_cross-subject_combined_imagery_binary.png',
             '4ch',
         ),
         (
-            'results/4_channel/negative_control/20260330_1442_cross_subject_cache_imagery_binary.json',
+            get_run_path('reduced_4_negative_control_binary'),
             'results/4_channel/negative_control/20260330_1442_cross-subject_combined_imagery_binary.png',
             '4ch',
         ),

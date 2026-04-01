@@ -67,11 +67,7 @@ from src.training.train_within_subject import (
 )
 from src.training.prefetch import SubjectPrefetcher
 
-# Import from scripts directory
-SCRIPTS_DIR = Path(__file__).parent.parent
-sys.path.insert(0, str(SCRIPTS_DIR))
-
-from _training_utils import (
+from src.cli.experiment_utils import (
     discover_subjects,
     print_subject_result,
     train_and_get_result,

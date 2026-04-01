@@ -59,13 +59,11 @@ from src.results import (
 )
 from src.visualization import generate_combined_plot
 
-# Import from scripts directory
-SCRIPTS_DIR = Path(__file__).parent.parent
+# Import sibling experiment entrypoint
 EXPERIMENTS_DIR = Path(__file__).parent
-sys.path.insert(0, str(SCRIPTS_DIR))
 sys.path.insert(0, str(EXPERIMENTS_DIR))
 
-from _training_utils import (
+from src.cli.experiment_utils import (
     discover_subjects,
     add_wandb_args,
     add_common_args,

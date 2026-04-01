@@ -52,11 +52,7 @@ from src.preprocessing.discovery import (
     get_session_folders_for_split,
 )
 
-# Import from scripts directory
-SCRIPTS_DIR = Path(__file__).parent.parent
-sys.path.insert(0, str(SCRIPTS_DIR))
-
-from _training_utils import (
+from src.cli.experiment_utils import (
     add_common_args,
     add_cache_resume_args,
     add_wandb_args,

@@ -1,0 +1,122 @@
+version: 1
+runs:
+  within_eegnet_binary:
+    run_tag: "20260316_1411"
+    path: "results/20260316_1411_comparison_cache_imagery_binary.json"
+  within_cbramod_binary:
+    run_tag: "20260323_2237"
+    path: "results/20260323_2237_comparison_cache_imagery_binary.json"
+  cross_eegnet_binary:
+    run_tag: "20260330_0709"
+    path: "results/20260330_0709_cross_subject_cache_imagery_binary.json"
+  cross_cbramod_binary:
+    run_tag: "20260324_0023"
+    path: "results/20260324_0023_cross_subject_cache_imagery_binary.json"
+  cross_cbramod_ternary:
+    run_tag: "20260324_0109"
+    path: "results/20260324_0109_cross_subject_cache_imagery_ternary.json"
+  transfer_binary:
+    run_tag: "20260329_0507"
+    path: "results/20260329_0507_transfer_cache_imagery_binary.json"
+  transfer_ternary:
+    run_tag: "20260329_0448"
+    path: "results/20260329_0448_transfer_cache_imagery_ternary.json"
+  extra_sessions_binary:
+    run_tag: "20260324_2131"
+    path: "results/20260324_2131_extra_sessions_cache_imagery_binary.json"
+  extra_sessions_ternary:
+    run_tag: "20260331_0827"
+    path: "results/20260331_0827_extra_sessions_cache_imagery_ternary.json"
+  extra_sessions_cross_binary:
+    run_tag: "20260326_1409"
+    path: "results/20260326_1409_cross_subject_extra_sessions_cache_imagery_binary.json"
+  extra_sessions_cross_ternary:
+    run_tag: "20260327_0303"
+    path: "results/20260327_0303_cross_subject_extra_sessions_cache_imagery_ternary.json"
+  extra_sessions_transfer_binary:
+    run_tag: "20260329_1357"
+    path: "results/20260329_1357_extra_sessions_cache_imagery_binary.json"
+  standard_1010_61_cross_binary:
+    run_tag: "20260330_1213"
+    path: "results/61_channel/standard_1010/20260330_1213_cross_subject_cache_imagery_binary.json"
+  reduced_32_fdr_binary:
+    run_tag: "20260330_0836"
+    path: "results/32_channel/fdr/20260330_0836_cross_subject_cache_imagery_binary.json"
+  reduced_32_band_power_binary:
+    run_tag: "20260330_1105"
+    path: "results/32_channel/band_power/20260330_1105_cross_subject_cache_imagery_binary.json"
+  reduced_32_attention_binary:
+    run_tag: "20260330_1009"
+    path: "results/32_channel/attention/20260330_1009_cross_subject_cache_imagery_binary.json"
+  reduced_32_csp_binary:
+    run_tag: "20260330_1032"
+    path: "results/32_channel/csp/20260330_1032_cross_subject_cache_imagery_binary.json"
+  reduced_32_commercial_binary:
+    run_tag: "20260330_1142"
+    path: "results/32_channel/commercial/20260330_1142_cross_subject_cache_imagery_binary.json"
+  reduced_8_fdr_binary:
+    run_tag: "20260330_1311"
+    path: "results/8_channel/fdr/20260330_1311_cross_subject_cache_imagery_binary.json"
+  reduced_8_band_power_binary:
+    run_tag: "20260331_1950"
+    path: "results/8_channel/band_power/20260331_1950_cross_subject_cache_imagery_binary.json"
+  reduced_8_attention_binary:
+    run_tag: "20260330_1334"
+    path: "results/8_channel/attention/20260330_1334_cross_subject_cache_imagery_binary.json"
+  reduced_8_csp_binary:
+    run_tag: "20260331_2044"
+    path: "results/8_channel/csp/20260331_2044_cross_subject_cache_imagery_binary.json"
+  reduced_4_fdr_binary:
+    run_tag: "20260330_2214"
+    path: "results/4_channel/fdr/20260330_2214_cross_subject_cache_imagery_binary.json"
+  reduced_4_attention_binary:
+    run_tag: "20260330_2200"
+    path: "results/4_channel/attention/20260330_2200_cross_subject_cache_imagery_binary.json"
+  reduced_4_fdr_attention_overlap_binary:
+    run_tag: "20260330_1417"
+    path: "results/4_channel/fdr_attention_overlap/20260330_1417_cross_subject_cache_imagery_binary.json"
+  reduced_4_negative_control_binary:
+    run_tag: "20260330_1442"
+    path: "results/4_channel/negative_control/20260330_1442_cross_subject_cache_imagery_binary.json"
+  further_pretraining_baseline_within_binary:
+    run_tag: "20260321_0343"
+    path: "results/20260321_0343_comparison_cache_imagery_binary.json"
+  further_pretraining_baseline_cross_binary:
+    run_tag: "20260321_0608"
+    path: "results/20260321_0608_cross-subject_cbramod_imagery_binary.json"
+  further_pretraining_baseline_within_ternary:
+    run_tag: "20260205_0306"
+    path: "results/20260205_0306_comparison_cache_imagery_ternary.json"
+  further_pretraining_baseline_cross_ternary:
+    run_tag: "20260207_2056"
+    path: "results/20260207_2056_cross-subject_cbramod_imagery_ternary.json"
+  further_pretraining_v1_within_binary:
+    run_tag: "20260322_1034"
+    path: "results/20260322_1034_cbramod_imagery_binary.json"
+  further_pretraining_v1_cross_binary:
+    run_tag: "20260322_1116"
+    path: "results/20260322_1116_cross-subject_cbramod_imagery_binary.json"
+  further_pretraining_v1_within_ternary:
+    run_tag: "20260322_1435"
+    path: "results/20260322_1435_cbramod_imagery_ternary.json"
+  further_pretraining_v1_cross_ternary:
+    run_tag: "20260322_1543"
+    path: "results/20260322_1543_cross-subject_cbramod_imagery_ternary.json"
+  further_pretraining_v2_within_binary:
+    run_tag: "20260323_1433"
+    path: "results/20260323_1433_cbramod_imagery_binary.json"
+  further_pretraining_v2_cross_binary:
+    run_tag: "20260323_1517"
+    path: "results/20260323_1517_cross-subject_cbramod_imagery_binary.json"
+  further_pretraining_v2_within_ternary:
+    run_tag: "20260323_1615"
+    path: "results/20260323_1615_cbramod_imagery_ternary.json"
+  further_pretraining_v2_cross_ternary:
+    run_tag: "20260323_1709"
+    path: "results/20260323_1709_cross-subject_cbramod_imagery_ternary.json"
+  extra_sessions_fixed_combined_binary:
+    run_tag: "20260325_0514"
+    path: "results/20260325_0514_extra_sessions_cache_fixed_combined_imagery_binary.json"
+  extra_sessions_fixed_sess02_binary:
+    run_tag: "20260325_1208"
+    path: "results/20260325_1208_extra_sessions_cache_fixed_sess02_imagery_binary.json"

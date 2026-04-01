@@ -6,8 +6,8 @@
 确保每个数值可追溯到原始实验结果文件。
 
 设计目标：
-  - 所有引用的 run 路径集中定义在 RUN_REGISTRY 中
-  - 更换 run 时只需修改 RUN_REGISTRY 对应条目
+  - 所有引用的 run 路径集中定义在 `paper/run_registry.yaml`
+  - 更换 run 时只需修改 registry 对应条目
   - 运行脚本即可重算所有统计量
 
 Usage:
@@ -29,32 +29,17 @@ from scipy import stats
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.paper.run_registry import (
+    format_run_source,
+    load_run_registry,
+    resolve_project_path,
+)
+
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
 
-# =============================================================================
-# RUN REGISTRY — 论文中引用的所有实验运行
-# 更换 run 时只需修改此处路径
-# =============================================================================
-
-RUN_REGISTRY = {
-    # Section 3.1 / 3.2: 被试内 & 跨被试对比 (128ch)
-    "within_eegnet_binary": "results/20260316_1411_comparison_cache_imagery_binary.json",
-    "within_cbramod_binary": "results/20260323_2237_comparison_cache_imagery_binary.json",
-    "cross_eegnet_binary": "results/20260330_0709_cross_subject_cache_imagery_binary.json",
-    "cross_cbramod_binary": "results/20260324_0023_cross_subject_cache_imagery_binary.json",
-    # Section 3.4: 迁移学习 (128ch)
-    "transfer_binary": "results/20260329_0507_transfer_cache_imagery_binary.json",
-    "transfer_ternary": "results/20260329_0448_transfer_cache_imagery_ternary.json",
-    "cross_cbramod_ternary": "results/20260324_0109_cross_subject_cache_imagery_ternary.json",
-    # Section 3.5: Extra sessions
-    "extra_sessions_binary": "results/20260324_2131_extra_sessions_cache_imagery_binary.json",
-    "extra_sessions_ternary": "results/20260331_0827_extra_sessions_cache_imagery_ternary.json",
-    "extra_sessions_cross_binary": "results/20260326_1409_cross_subject_extra_sessions_cache_imagery_binary.json",
-    "extra_sessions_cross_ternary": "results/20260327_0303_cross_subject_extra_sessions_cache_imagery_ternary.json",
-    "extra_sessions_transfer_binary": "results/20260329_1357_extra_sessions_cache_imagery_binary.json",
-}
+RUN_REGISTRY = load_run_registry()
 
 EXTRA_SESSION_STEPS = ["baseline", "sess03", "sess04", "sess05"]
 EXTRA_SESSION_STEP_LABELS = {
@@ -73,7 +58,7 @@ EXTRA_SESSION_STEP_LABELS = {
 def load_json(key_or_path: str) -> dict:
     """Load JSON from registry key or direct path."""
     path = RUN_REGISTRY.get(key_or_path, key_or_path)
-    with open(PROJECT_ROOT / path) as f:
+    with open(resolve_project_path(path), encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -248,8 +233,8 @@ def section_3_2():
     print_ttest(result)
 
     logger.info(f"\n  数据来源:")
-    logger.info(f"    被试内: {RUN_REGISTRY['within_eegnet_binary']}")
-    logger.info(f"    跨被试: {RUN_REGISTRY['cross_eegnet_binary']}")
+    logger.info(f"    被试内: {format_run_source('within_eegnet_binary')}")
+    logger.info(f"    跨被试: {format_run_source('cross_eegnet_binary')}")
 
     return result
 
@@ -287,10 +272,10 @@ def section_3_4():
         results[task] = result
 
     logger.info(f"\n  数据来源:")
-    logger.info(f"    跨被试二分类: {RUN_REGISTRY['cross_cbramod_binary']}")
-    logger.info(f"    迁移二分类: {RUN_REGISTRY['transfer_binary']}")
-    logger.info(f"    跨被试三分类: {RUN_REGISTRY['cross_cbramod_ternary']}")
-    logger.info(f"    迁移三分类: {RUN_REGISTRY['transfer_ternary']}")
+    logger.info(f"    跨被试二分类: {format_run_source('cross_cbramod_binary')}")
+    logger.info(f"    迁移二分类: {format_run_source('transfer_binary')}")
+    logger.info(f"    跨被试三分类: {format_run_source('cross_cbramod_ternary')}")
+    logger.info(f"    迁移三分类: {format_run_source('transfer_ternary')}")
 
     return results
 
@@ -345,7 +330,7 @@ def section_3_5():
             result = paired_ttest(baseline_accs, sess05_accs, f"{model} baseline → +sess05")
             print_ttest(result)
 
-    logger.info(f"\n  数据来源: {RUN_REGISTRY['extra_sessions_binary']}")
+    logger.info(f"\n  数据来源: {format_run_source('extra_sessions_binary')}")
 
 
 def section_3_5_ternary():
@@ -364,7 +349,7 @@ def section_3_5_ternary():
                 step_label = "Baseline" if step == "baseline" else f"+{step.title()}"
                 print_describe(describe_accs(accs, f"{model} {step_label}"))
 
-    logger.info(f"\n  数据来源: {RUN_REGISTRY['extra_sessions_ternary']}")
+    logger.info(f"\n  数据来源: {format_run_source('extra_sessions_ternary')}")
 
 
 def section_3_5_4():
@@ -430,9 +415,9 @@ def section_3_5_4():
     logger.info("")
     logger.info(
         "> **数据来源**: "
-        f"within-subject `20260324_2131`: `{RUN_REGISTRY['extra_sessions_binary']}`; "
-        f"cross-subject `20260326_1409`: `{RUN_REGISTRY['extra_sessions_cross_binary']}`; "
-        f"transfer-init `20260329_1357`: `{RUN_REGISTRY['extra_sessions_transfer_binary']}`"
+        f"within-subject {format_run_source('extra_sessions_binary')}; "
+        f"cross-subject {format_run_source('extra_sessions_cross_binary')}; "
+        f"transfer-init {format_run_source('extra_sessions_transfer_binary')}"
     )
 
     return {
@@ -488,8 +473,8 @@ def section_3_5_5():
     logger.info("")
     logger.info(
         "> **数据来源**: "
-        f"binary `20260326_1409`: `{RUN_REGISTRY['extra_sessions_cross_binary']}`; "
-        f"ternary `20260327_0303`: `{RUN_REGISTRY['extra_sessions_cross_ternary']}`"
+        f"binary {format_run_source('extra_sessions_cross_binary')}; "
+        f"ternary {format_run_source('extra_sessions_cross_ternary')}"
     )
 
     return rows
@@ -555,7 +540,7 @@ def supplementary_s3():
                 f"{formatted['sess04']} | {formatted['sess05']} | {delta} |"
             )
 
-    logger.info(f"\n> **数据来源**: `{RUN_REGISTRY['extra_sessions_binary']}`")
+    logger.info(f"\n> **数据来源**: {format_run_source('extra_sessions_binary')}")
 
 
 # =============================================================================
@@ -589,7 +574,7 @@ def main():
     logger.info("")
 
     # Verify all registry files exist
-    missing = [k for k, v in RUN_REGISTRY.items() if not (PROJECT_ROOT / v).exists()]
+    missing = [k for k in RUN_REGISTRY if not resolve_project_path(k).exists()]
     if missing:
         logger.warning(f"WARNING: 以下注册的结果文件不存在: {missing}")
 
@@ -604,7 +589,7 @@ def main():
         sys.exit(1)
 
     logger.info("\n" + "=" * 60)
-    logger.info("完成. 所有统计量可通过修改 RUN_REGISTRY 重算.")
+    logger.info("完成. 所有统计量可通过修改 paper/run_registry.yaml 重算.")
     logger.info("=" * 60)
 
 

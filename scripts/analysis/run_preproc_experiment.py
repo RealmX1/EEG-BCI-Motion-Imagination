@@ -64,11 +64,7 @@ from src.config.experiment_config import (
 )
 from src.preprocessing.data_loader import PreprocessConfig, discover_available_subjects
 
-# Import training utilities
-SCRIPTS_DIR = Path(__file__).parent
-sys.path.insert(0, str(SCRIPTS_DIR))
-
-from _training_utils import (
+from src.cli.experiment_utils import (
     TrainingResult,
     result_to_dict,
     dict_to_result,
@@ -205,7 +201,7 @@ def train_eegnet_baseline(
     wandb_group: Optional[str] = None,
 ) -> TrainingResult:
     """Train EEGNet baseline for comparison."""
-    from _training_utils import train_and_get_result
+    from src.cli.experiment_utils import train_and_get_result
 
     return train_and_get_result(
         subject_id=subject_id,

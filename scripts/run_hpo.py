@@ -286,7 +286,7 @@ def main():
     if args.subjects:
         subjects = args.subjects
     else:
-        from scripts._training_utils import discover_subjects
+        from src.cli.experiment_utils import discover_subjects
         subjects = discover_subjects(
             data_root=args.data_root,
             paradigm=args.eeg_paradigm,

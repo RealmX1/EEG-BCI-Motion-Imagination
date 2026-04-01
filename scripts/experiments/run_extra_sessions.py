@@ -51,11 +51,7 @@ from src.results.serialization import result_to_dict, dict_to_result
 from src.utils.device import set_seed, check_cuda_available, get_device
 from src.utils.logging import SectionLogger, setup_logging
 
-# Import from scripts directory
-SCRIPTS_DIR = Path(__file__).parent.parent
-sys.path.insert(0, str(SCRIPTS_DIR))
-
-from _training_utils import (
+from src.cli.experiment_utils import (
     add_common_args,
     add_cache_resume_args,
     add_wandb_args,
