@@ -153,13 +153,20 @@ def annotate_bars_with_leaders(
 def accuracy_ylim(
     task_type: str,
     *,
+    data_min: Optional[float] = None,
     is_pct: bool = False,
     top_pad: float = 0.18,
 ) -> Tuple[float, float]:
     """Compute y-axis limits that truncate below chance and pad above 1.0.
 
+    When *data_min* is supplied the lower bound is expanded so that every
+    data point remains visible (with a 5 pp margin).
+
     Args:
         task_type: 'binary', 'ternary', 'quaternary', or 'unified'.
+        data_min: lowest accuracy value in the data (0-1 scale, or 0-100
+            when *is_pct* is ``True``).  Pass ``None`` to keep the
+            default chance-based lower bound.
         is_pct: ``True`` when the axis uses 0–100 scale.
         top_pad: extra space above 1.0 (in 0-1 units) for leader lines.
 
@@ -168,6 +175,10 @@ def accuracy_ylim(
     """
     chance = CHANCE_LEVELS.get(task_type, 0.5)
     bottom = chance - 0.05
+    if data_min is not None:
+        # Normalise to 0-1 scale for comparison
+        dm = data_min / 100 if is_pct else data_min
+        bottom = min(bottom, dm - 0.05)
     top = 1.0 + top_pad
     if is_pct:
         return (bottom * 100, top * 100)

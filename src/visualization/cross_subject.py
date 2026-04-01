@@ -167,9 +167,14 @@ def generate_cross_subject_single_plot(
     ax_bar.set_title(title)
     ax_bar.set_xticks(x)
     ax_bar.set_xticklabels(subjects, rotation=45, ha='right')
+    _cs_accs = [a for a in current_accs if a > 0]
+    if has_historical:
+        _cs_accs.extend(a for a in hist_accs if a > 0)
+    _cs_min = min(_cs_accs) if _cs_accs else None
+
     ax_bar.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5,
                    label=f'Chance ({chance_level*100:.1f}%)')
-    ax_bar.set_ylim(accuracy_ylim(task_type))
+    ax_bar.set_ylim(accuracy_ylim(task_type, data_min=_cs_min))
     ax_bar.legend(loc='lower right', fontsize=8)
 
     # =========================================================================
@@ -225,7 +230,7 @@ def generate_cross_subject_single_plot(
     ax_box.set_ylabel('Test Accuracy')
     ax_box.set_title('Accuracy Distribution')
     ax_box.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5)
-    ax_box.set_ylim(accuracy_ylim(task_type, top_pad=0.08))
+    ax_box.set_ylim(accuracy_ylim(task_type, data_min=_cs_min, top_pad=0.08))
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
@@ -288,11 +293,15 @@ def generate_config_comparison_plot(
     # 收集各配置各模型的准确率列表
     model_types = ['eegnet', 'cbramod']
     data: Dict[str, Dict[str, List[float]]] = {}
+    _cfg_all_accs: List[float] = []
     for cfg in configs:
         data[cfg] = {}
         for mt in model_types:
             subj_accs = config_results[cfg].get(mt, {})
-            data[cfg][mt] = list(subj_accs.values()) if subj_accs else []
+            vals = list(subj_accs.values()) if subj_accs else []
+            data[cfg][mt] = vals
+            _cfg_all_accs.extend(a for a in vals if a > 0)
+    _cfg_min = min(_cfg_all_accs) if _cfg_all_accs else None
 
     # =========================================================================
     # 图形布局
@@ -370,7 +379,7 @@ def generate_config_comparison_plot(
     ax_bar.set_xticks(x)
     ax_bar.set_xticklabels(config_labels, fontsize=10)
     ax_bar.set_ylabel('Mean Test Accuracy', fontsize=11)
-    ax_bar.set_ylim(accuracy_ylim(task_type))
+    ax_bar.set_ylim(accuracy_ylim(task_type, data_min=_cfg_min))
     ax_bar.set_title(
         f'{n_channels}-Channel Configuration Comparison — {paradigm.title()} {task_type.title()}\n'
         f'(bars show mean ± std across {len(list(config_results[configs[0]].get("cbramod", {}).keys()))} subjects)',
@@ -446,7 +455,7 @@ def generate_config_comparison_plot(
 
         ax.set_ylabel('Test Accuracy', fontsize=10)
         ax.set_title(f'{model_label} — Distribution by Config', fontsize=10)
-        ax.set_ylim(accuracy_ylim(task_type, top_pad=0.08))
+        ax.set_ylim(accuracy_ylim(task_type, data_min=_cfg_min, top_pad=0.08))
         ax.tick_params(axis='x', labelsize=8.5)
 
         legend_elements = [

@@ -98,9 +98,11 @@ def create_visualizations(data: Dict, output_dir: Path):
     ax1.set_xlabel('Subject')
     ax1.set_ylabel('Test Accuracy (%)')
     ax1.set_title('A. Per-Subject Classification Accuracy', fontweight='bold')
+    _vc_all = [a*100 for a in eegnet_acc + cbramod_acc if a > 0]
+    _vc_min = min(_vc_all) if _vc_all else None
     ax1.set_xticks(x)
     ax1.set_xticklabels(subjects)
-    ax1.set_ylim(accuracy_ylim(task_type, is_pct=True))
+    ax1.set_ylim(accuracy_ylim(task_type, data_min=_vc_min, is_pct=True))
     ax1.legend(loc='lower right')
 
     annotate_bars_with_leaders(

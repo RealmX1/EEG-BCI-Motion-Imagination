@@ -88,11 +88,12 @@ def generate_single_model_plot(
     ax1.axhline(y=mean_acc, color='red', linestyle='-', linewidth=2,
                 label=f'Mean ({mean_acc:.1f}%)')
 
+    _sm_min = min(accs) if accs else None
     ax1.set_xlabel('Subject')
     ax1.set_ylabel('Test Accuracy (%)')
     ax1.set_title(f'{model_type.upper()} Per-Subject Accuracy')
     ax1.legend(loc='lower right')
-    ax1.set_ylim(accuracy_ylim(task_type, is_pct=True))
+    ax1.set_ylim(accuracy_ylim(task_type, data_min=_sm_min, is_pct=True))
 
     # Rotate x-labels if many subjects
     if len(subjects) > 10:
@@ -143,7 +144,7 @@ def generate_single_model_plot(
     ax2.set_ylabel('Test Accuracy (%)')
     ax2.set_title(f'{model_type.upper()} Accuracy Distribution')
     ax2.set_xlim([0.5, 1.8])
-    ax2.set_ylim(accuracy_ylim(task_type, is_pct=True, top_pad=0.08))
+    ax2.set_ylim(accuracy_ylim(task_type, data_min=_sm_min, is_pct=True, top_pad=0.08))
 
     # Legend for mean/median lines
     legend_elements = [

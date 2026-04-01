@@ -75,7 +75,7 @@ def generate_combined_plot(
 
     # 创建 2 行布局，第一行跨两列; 底部行加高以容纳正方形子图
     fig = plt.figure(figsize=(14, 12))
-    gs = GridSpec(2, 2, height_ratios=[1.0, 1.2], hspace=0.22, wspace=0.25)
+    gs = GridSpec(2, 2, height_ratios=[1.0, 1.2], hspace=0.30, wspace=0.25)
 
     ax_bar = fig.add_subplot(gs[0, :])      # 顶部条形图（跨两列）
     ax_box = fig.add_subplot(gs[1, 0])      # 左下箱线图
@@ -120,6 +120,10 @@ def generate_combined_plot(
 
     annotate_bars_with_leaders(ax_bar, bar_entries)
 
+    # data-driven y lower bound
+    _all_accs = [a for _, accs, _ in bar_entries for a in accs if a > 0]
+    _data_min = min(_all_accs) if _all_accs else None
+
     ax_bar.set_xlabel('Subject')
     ax_bar.set_ylabel('Test Accuracy')
     title = f'Per-Subject Accuracy Comparison ({paradigm.title()} {task_type.title()})'
@@ -130,7 +134,7 @@ def generate_combined_plot(
     ax_bar.set_xticklabels(subjects, rotation=45, ha='right')
     ax_bar.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5,
                    label=f'Chance ({chance_level*100:.1f}%)')
-    ax_bar.set_ylim(accuracy_ylim(task_type))
+    ax_bar.set_ylim(accuracy_ylim(task_type, data_min=_data_min))
     ax_bar.legend(loc='lower right', fontsize=8)
 
     # =========================================================================
@@ -203,7 +207,7 @@ def generate_combined_plot(
     ax_box.set_ylabel('Test Accuracy')
     ax_box.set_title('Accuracy Distribution')
     ax_box.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5)
-    ax_box.set_ylim(accuracy_ylim(task_type, top_pad=0.08))
+    ax_box.set_ylim(accuracy_ylim(task_type, data_min=_data_min, top_pad=0.08))
 
     # =========================================================================
     # Panel 3: 配对对比散点图（支持双配对：当前 vs 历史）
@@ -335,6 +339,7 @@ def generate_comparison_plot(
 
     eegnet_accs = [eegnet_by_subj[s].test_acc_majority for s in common]
     cbramod_accs = [cbramod_by_subj[s].test_acc_majority for s in common]
+    _data_min = min(eegnet_accs + cbramod_accs) if (eegnet_accs or cbramod_accs) else None
 
     # =========================================================================
     # Panel 1: Bar chart
@@ -351,7 +356,7 @@ def generate_comparison_plot(
     ax1.set_xticks(x)
     ax1.set_xticklabels(common, rotation=45)
     ax1.legend()
-    ax1.set_ylim(accuracy_ylim(task_type))
+    ax1.set_ylim(accuracy_ylim(task_type, data_min=_data_min))
     ax1.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5,
                 label=f'Chance ({chance_level*100:.1f}%)')
 
@@ -382,7 +387,7 @@ def generate_comparison_plot(
     ax2.set_ylabel('Test Accuracy')
     ax2.set_title('Accuracy Distribution')
     ax2.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5)
-    ax2.set_ylim(accuracy_ylim(task_type, top_pad=0.08))
+    ax2.set_ylim(accuracy_ylim(task_type, data_min=_data_min, top_pad=0.08))
 
     eegnet_mean = np.mean(eegnet_accs)
     eegnet_median = np.median(eegnet_accs)
@@ -602,12 +607,15 @@ def plot_unified_comparison(
                         bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8),
                     )
 
+            _sub_accs = [a for _, accs, _ in bar_entries for a in accs if a > 0]
+            _sub_min = min(_sub_accs) if _sub_accs else None
+
             ax.set_xlabel('Subject')
             ax.set_ylabel('Test Accuracy')
             ax.set_title(f"{subtask.capitalize()} — Per-Subject Test Accuracy", fontsize=11)
             ax.set_xticks(x_base)
             ax.set_xticklabels(subjects, rotation=45, ha='right', fontsize=7)
-            ax.set_ylim(accuracy_ylim(subtask))
+            ax.set_ylim(accuracy_ylim(subtask, data_min=_sub_min))
             ax.legend(loc='lower right', fontsize=8)
 
     # =========================================================================
@@ -696,9 +704,11 @@ def plot_unified_comparison(
     ax_bar.set_xticklabels(
         [t.capitalize() for t in subtasks], fontsize=11, fontweight='bold',
     )
+    _row4_accs = [a for _, means, _ in row4_bar_entries for a in means if a > 0]
+    _row4_min = min(_row4_accs) if _row4_accs else None
     ax_bar.set_ylabel('Mean Test Accuracy', fontsize=11)
     ax_bar.set_title('Overall Accuracy by Task', fontsize=12)
-    ax_bar.set_ylim(accuracy_ylim('quaternary'))
+    ax_bar.set_ylim(accuracy_ylim('quaternary', data_min=_row4_min))
     ax_bar.legend(loc='lower right', fontsize=9)
 
     # =========================================================================

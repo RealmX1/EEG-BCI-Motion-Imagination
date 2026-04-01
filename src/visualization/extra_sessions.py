@@ -188,7 +188,7 @@ def generate_extra_sessions_combined_plot(
     outer = GridSpec(2, 1, height_ratios=[1.8, 1.4], hspace=0.10,
                      top=0.95, bottom=0.05, left=0.06, right=0.96)
     # Top section: bar and line stacked with moderate gap
-    inner_top = GridSpecFromSubplotSpec(2, 1, subplot_spec=outer[0], hspace=0.22)
+    inner_top = GridSpecFromSubplotSpec(2, 1, subplot_spec=outer[0], hspace=0.30)
     ax_bar = fig.add_subplot(inner_top[0])
     ax_line = fig.add_subplot(inner_top[1])
     # Bottom section: box and scatter side by side
@@ -197,6 +197,11 @@ def generate_extra_sessions_combined_plot(
     ax_scatter = fig.add_subplot(inner_bottom[1])
     ax_box.set_box_aspect(1)
     ax_scatter.set_box_aspect(1)
+
+    # data-driven y lower bound (shared across panels)
+    _all_accs = [r.test_acc_majority for s in data_sources for r in s.results
+                 if r.test_acc_majority is not None and r.test_acc_majority > 0]
+    _data_min = min(_all_accs) if _all_accs else None
 
     # =========================================================================
     # Panel 1: Bar Chart (per-subject accuracy, standard style)
@@ -241,7 +246,7 @@ def generate_extra_sessions_combined_plot(
     ax_bar.set_xticklabels(subjects, rotation=45, ha='right')
     ax_bar.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5,
                    label=f'Chance ({chance_level*100:.1f}%)')
-    ax_bar.set_ylim(accuracy_ylim(task))
+    ax_bar.set_ylim(accuracy_ylim(task, data_min=_data_min))
     ax_bar.legend(loc='lower right', fontsize=8, ncol=2)
 
     # =========================================================================
@@ -312,7 +317,7 @@ def generate_extra_sessions_combined_plot(
     ax_line.set_xticks(x_steps)
     ax_line.set_xticklabels(step_labels, fontsize=10)
     ax_line.set_ylabel('Test Accuracy')
-    ax_line.set_ylim(accuracy_ylim(task, top_pad=0.08))
+    ax_line.set_ylim(accuracy_ylim(task, data_min=_data_min, top_pad=0.08))
     ax_line.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5,
                     label=f'Chance ({chance_level*100:.1f}%)')
     ax_line.legend(loc='lower right', fontsize=8)
@@ -406,7 +411,7 @@ def generate_extra_sessions_combined_plot(
     ax_box.set_ylabel('Test Accuracy')
     ax_box.set_title('Accuracy Distribution')
     ax_box.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5)
-    ax_box.set_ylim(accuracy_ylim(task, top_pad=0.08))
+    ax_box.set_ylim(accuracy_ylim(task, data_min=_data_min, top_pad=0.08))
 
     # =========================================================================
     # Panel 3R: Paired Scatter (EEGNet vs CBraMod at each step)
