@@ -49,8 +49,19 @@ RUN_REGISTRY = {
     "transfer_ternary": "results/20260329_0448_transfer_cache_imagery_ternary.json",
     "cross_cbramod_ternary": "results/20260324_0109_cross_subject_cache_imagery_ternary.json",
     # Section 3.5: Extra sessions
-    "extra_sessions_binary": "results/20260329_1357_extra_sessions_cache_imagery_binary.json",
-    "extra_sessions_ternary": "results/20260329_1503_extra_sessions_cache_imagery_ternary.json",
+    "extra_sessions_binary": "results/20260324_2131_extra_sessions_cache_imagery_binary.json",
+    "extra_sessions_ternary": "results/20260331_0827_extra_sessions_cache_imagery_ternary.json",
+    "extra_sessions_cross_binary": "results/20260326_1409_cross_subject_extra_sessions_cache_imagery_binary.json",
+    "extra_sessions_cross_ternary": "results/20260327_0303_cross_subject_extra_sessions_cache_imagery_ternary.json",
+    "extra_sessions_transfer_binary": "results/20260329_1357_extra_sessions_cache_imagery_binary.json",
+}
+
+EXTRA_SESSION_STEPS = ["baseline", "sess03", "sess04", "sess05"]
+EXTRA_SESSION_STEP_LABELS = {
+    "baseline": "Baseline",
+    "sess03": "+Sess03",
+    "sess04": "+Sess04",
+    "sess05": "+Sess05",
 }
 
 
@@ -75,6 +86,7 @@ def extract_per_subject_accs(
 
     Supports formats:
       - Cross-subject: results[model]['per_subject_test_acc'][subj] (0-1)
+      - Cross-subject extra sessions: results[model][step]['per_subject_test_acc'][subj] (0-1)
       - Within/transfer: results[model][subj]['test_acc_majority'] (0-1)
       - Extra sessions: results[model][subj][step]['test_acc_majority'] (0-1)
     """
@@ -87,6 +99,14 @@ def extract_per_subject_accs(
     psa = model_data.get("per_subject_test_acc", {})
     if psa and step is None:
         return {subj: acc * 100 for subj, acc in psa.items()}
+
+    # Format 1b: cross-subject extra sessions cache
+    if step is not None:
+        step_results = model_data.get(step, {})
+        if isinstance(step_results, dict):
+            step_psa = step_results.get("per_subject_test_acc", {})
+            if step_psa:
+                return {subj: acc * 100 for subj, acc in step_psa.items()}
 
     # Format 2/3: direct subject keys
     for subj, subj_data in model_data.items():
@@ -174,6 +194,27 @@ def print_describe(result: dict):
         f"[{result['min']:.2f}% ({result['min_subj']}) – "
         f"{result['max']:.2f}% ({result['max_subj']})]"
     )
+
+
+def extract_extra_session_step_series(cache: dict, model: str) -> Dict[str, Dict[str, float]]:
+    """Extract aligned per-step per-subject accuracies for extra-session analyses."""
+    return {
+        step: extract_per_subject_accs(cache, model, step=step)
+        for step in EXTRA_SESSION_STEPS
+    }
+
+
+def format_mean_std(accs: Dict[str, float]) -> str:
+    """Format a per-subject accuracy dict as mean ± SD markdown text."""
+    if not accs:
+        return "—"
+    desc = describe_accs(accs, "tmp")
+    return f"{desc['mean']:.2f} ± {desc['std']:.2f}%"
+
+
+def format_p_value(p_value: float) -> str:
+    """Format p-values for paper tables."""
+    return f"{p_value:.3f}"
 
 
 # =============================================================================
@@ -326,6 +367,134 @@ def section_3_5_ternary():
     logger.info(f"\n  数据来源: {RUN_REGISTRY['extra_sessions_ternary']}")
 
 
+def section_3_5_4():
+    """Section 3.5.4: Extra sessions across within/cross/transfer paradigms."""
+    logger.info("\n" + "=" * 60)
+    logger.info("Section 3.5.4: Extra Sessions across training paradigms")
+    logger.info("=" * 60)
+
+    configs = [
+        ("被试内", "extra_sessions_binary", "cbramod"),
+        ("跨被试（21-subj 训练）", "extra_sessions_cross_binary", "cbramod"),
+        ("Transfer-init", "extra_sessions_transfer_binary", "cbramod"),
+    ]
+
+    step_series_by_label = {}
+    endpoint_stats = {}
+
+    for label, cache_key, model in configs:
+        cache = load_json(cache_key)
+        step_series = extract_extra_session_step_series(cache, model)
+        step_series_by_label[label] = step_series
+        endpoint_stats[label] = paired_ttest(
+            step_series["baseline"],
+            step_series["sess05"],
+            f"{label} baseline → +Sess05",
+        )
+
+        logger.info(f"\n{label}:")
+        for step in EXTRA_SESSION_STEPS:
+            print_describe(
+                describe_accs(
+                    step_series[step],
+                    f"{label} {EXTRA_SESSION_STEP_LABELS[step]}",
+                )
+            )
+        print_ttest(endpoint_stats[label])
+
+    logger.info("")
+    logger.info(
+        "**表 15. Extra sessions 在三种训练范式下的轨迹对比（CBraMod 二分类，N = 16）。**"
+    )
+    logger.info("")
+    logger.info("| 阶段 | 被试内 | 跨被试（21-subj 训练） | Transfer-init |")
+    logger.info("|------|--------|------------------------|---------------|")
+    for step in EXTRA_SESSION_STEPS:
+        row_label = EXTRA_SESSION_STEP_LABELS[step]
+        row_values = [
+            format_mean_std(step_series_by_label[label][step])
+            for label, _, _ in configs
+        ]
+        logger.info(f"| {row_label} | {' | '.join(row_values)} |")
+
+    delta_row = [
+        f"{endpoint_stats[label]['delta_pp']:+.2f} pp"
+        for label, _, _ in configs
+    ]
+    p_row = [
+        format_p_value(endpoint_stats[label]["p_value"])
+        for label, _, _ in configs
+    ]
+    logger.info(f"| Δ(BL→S05) | {' | '.join(delta_row)} |")
+    logger.info(f"| paired p | {' | '.join(p_row)} |")
+    logger.info("")
+    logger.info(
+        "> **数据来源**: "
+        f"within-subject `20260324_2131`: `{RUN_REGISTRY['extra_sessions_binary']}`; "
+        f"cross-subject `20260326_1409`: `{RUN_REGISTRY['extra_sessions_cross_binary']}`; "
+        f"transfer-init `20260329_1357`: `{RUN_REGISTRY['extra_sessions_transfer_binary']}`"
+    )
+
+    return {
+        "step_series_by_label": step_series_by_label,
+        "endpoint_stats": endpoint_stats,
+    }
+
+
+def section_3_5_5():
+    """Section 3.5.5: Cross-subject extra-session summary table."""
+    logger.info("\n" + "=" * 60)
+    logger.info("Section 3.5.5: Cross-subject extra-session summary")
+    logger.info("=" * 60)
+
+    row_configs = [
+        ("CBraMod Binary", "extra_sessions_cross_binary", "cbramod"),
+        ("EEGNet Binary", "extra_sessions_cross_binary", "eegnet"),
+        ("CBraMod Ternary", "extra_sessions_cross_ternary", "cbramod"),
+    ]
+
+    rows = []
+    for label, cache_key, model in row_configs:
+        cache = load_json(cache_key)
+        step_series = extract_extra_session_step_series(cache, model)
+        result = paired_ttest(
+            step_series["baseline"],
+            step_series["sess05"],
+            f"{label} baseline → +Sess05",
+        )
+        rows.append({
+            "label": label,
+            "baseline": format_mean_std(step_series["baseline"]),
+            "sess05": format_mean_std(step_series["sess05"]),
+            "delta": f"{result['delta_pp']:+.2f} pp",
+            "p_value": format_p_value(result["p_value"]),
+        })
+
+        logger.info(f"\n{label}:")
+        print_describe(describe_accs(step_series["baseline"], f"{label} Baseline"))
+        print_describe(describe_accs(step_series["sess05"], f"{label} +Sess05"))
+        print_ttest(result)
+
+    logger.info("")
+    logger.info("**表 15b. Cross-subject extra sessions 的边际收益摘要（N = 16）。**")
+    logger.info("")
+    logger.info("| 模型 / 任务 | Baseline | +Sess05 | Δ | paired p |")
+    logger.info("|-------------|----------|---------|---|----------|")
+    for row in rows:
+        logger.info(
+            f"| {row['label']} | {row['baseline']} | {row['sess05']} | "
+            f"{row['delta']} | {row['p_value']} |"
+        )
+    logger.info("")
+    logger.info(
+        "> **数据来源**: "
+        f"binary `20260326_1409`: `{RUN_REGISTRY['extra_sessions_cross_binary']}`; "
+        f"ternary `20260327_0303`: `{RUN_REGISTRY['extra_sessions_cross_ternary']}`"
+    )
+
+    return rows
+
+
 def supplementary_s3():
     """Table S3: Extra sessions per-subject data (binary, both models).
 
@@ -350,14 +519,12 @@ def supplementary_s3():
             sd = results[subj]
             if not isinstance(sd, dict):
                 continue
-            row = {}
-            for step in ["baseline", "sess03", "sess04", "sess05"]:
+            row = {step: None for step in EXTRA_SESSION_STEPS}
+            for step in EXTRA_SESSION_STEPS:
                 step_data = sd.get(step, {})
                 if isinstance(step_data, dict):
                     acc = step_data.get("test_acc_majority")
-                    row[step] = f"{acc*100:.2f}%" if acc is not None else "—"
-                else:
-                    row[step] = "—"
+                    row[step] = acc * 100 if acc is not None else None
             subjects_data[subj] = row
 
         # Print markdown table
@@ -366,21 +533,26 @@ def supplementary_s3():
         for subj in sorted(subjects_data.keys()):
             row = subjects_data[subj]
             # Calculate delta
-            try:
-                bl = float(row["baseline"].rstrip("%"))
-                last_step = "sess05"
-                while row.get(last_step, "—") == "—" and last_step != "baseline":
-                    last_step = {"sess05": "sess04", "sess04": "sess03", "sess03": "baseline"}[last_step]
-                if last_step != "baseline":
-                    final = float(row[last_step].rstrip("%"))
-                    delta = f"{final - bl:+.2f} pp"
-                else:
-                    delta = "—"
-            except (ValueError, KeyError):
+            bl = row["baseline"]
+            last_step = "sess05"
+            while row.get(last_step) is None and last_step != "baseline":
+                last_step = {
+                    "sess05": "sess04",
+                    "sess04": "sess03",
+                    "sess03": "baseline",
+                }[last_step]
+            if bl is not None and last_step != "baseline" and row.get(last_step) is not None:
+                delta = f"{row[last_step] - bl:+.2f} pp"
+            else:
                 delta = "—"
+
+            formatted = {
+                step: f"{row[step]:.2f}%" if row[step] is not None else "—"
+                for step in EXTRA_SESSION_STEPS
+            }
             logger.info(
-                f"| {subj} | {row['baseline']} | {row['sess03']} | "
-                f"{row['sess04']} | {row['sess05']} | {delta} |"
+                f"| {subj} | {formatted['baseline']} | {formatted['sess03']} | "
+                f"{formatted['sess04']} | {formatted['sess05']} | {delta} |"
             )
 
     logger.info(f"\n> **数据来源**: `{RUN_REGISTRY['extra_sessions_binary']}`")
@@ -395,6 +567,8 @@ SECTIONS = {
     "3.4": section_3_4,
     "3.5": section_3_5,
     "3.5.2": section_3_5_ternary,
+    "3.5.4": section_3_5_4,
+    "3.5.5": section_3_5_5,
     "s3": supplementary_s3,
 }
 
@@ -406,7 +580,7 @@ def main():
     parser.add_argument(
         "--section",
         default="all",
-        help="Section to compute: 3.2, 3.4, 3.5, 3.5.2, s3, or 'all'",
+        help="Section to compute: 3.2, 3.4, 3.5, 3.5.2, 3.5.4, 3.5.5, s3, or 'all'",
     )
     args = parser.parse_args()
 
