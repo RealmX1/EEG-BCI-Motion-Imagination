@@ -1,0 +1,25 @@
+{
+  "metadata": {
+    "training_type": "within_subject",
+    "paradigm": "imagery",
+    "task": "binary",
+    "run_tag": "20260330_0650",
+    "timestamp": "2026-03-30T06:53:27.057606",
+    "n_subjects": null,
+    "is_complete": true,
+    "preprocessing_version": "v2.0"
+  },
+  "wandb_groups": {},
+  "last_updated": "2026-03-30T06:53:27.057606",
+  "results": {},
+  "summary": {
+    "eegnet": {
+      "mean": 0.8125,
+      "std": 0.09375,
+      "min": 0.71875,
+      "max": 0.90625,
+      "median": 0.8125,
+      "n_subjects": 2
+    }
+  }
+}

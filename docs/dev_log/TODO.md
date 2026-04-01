@@ -151,3 +151,18 @@ EEGNet ternary 在所有实验类型 (within_subject / cross_subject / transfer)
 - 如果差异显著，需在论文中明确声明 transfer learning 的评估局限性
 
 **Status**: Pending — 可使用 `run_extra_sessions.py --pretrained-run` 快速运行近似版本
+
+---
+
+## 论文脚本目录重组
+
+**Date Added**: 2026-03-31
+
+当前论文相关脚本分散在多处：
+- `scripts/paper/` — 图表生成 (`generate_paper_figures.py`, `generate_extra_sessions_plots.py`) 和统计计算 (`compute_paper_statistics.py`)
+- `scripts/analysis/` — 通用分析脚本 (`analyze_timing_breakdown.py` 等)
+- `paper/analysis/` — 分析文档（markdown，非脚本）
+
+未来考虑将论文相关的图表生成、统计计算、数据提取脚本统一组织到一个目录下（如 `scripts/paper/` 或 `paper/scripts/`），并与 `paper/analysis/` 中的分析文档建立清晰的对应关系。
+
+**Status**: Pending — 低优先级，当前结构可用

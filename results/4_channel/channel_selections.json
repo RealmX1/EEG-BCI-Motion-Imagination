@@ -1,10 +1,23 @@
 {
   "metadata": {
     "n_channels": 4,
-    "source": "Intersection of 32ch FDR and 32ch Attention configs",
-    "created": "2026-03-01"
+    "source": "Top-4 from 32ch ranked selections + intersection configs",
+    "created": "2026-03-01",
+    "updated": "2026-03-30"
   },
   "configs": {
+    "attention": {
+      "indices": [1, 4, 14, 15],
+      "description": "Top-4 channels from 32ch Attention (CBraMod gradient) ranking. Standard single-method selection for channel scaling analysis.",
+      "source_configs": ["attention"],
+      "biosemi_labels": ["A2", "A5", "A15", "A16"]
+    },
+    "fdr": {
+      "indices": [17, 22, 30, 33],
+      "description": "Top-4 channels from 32ch FDR (Fisher Discriminant Ratio) ranking. Standard single-method selection for channel scaling analysis.",
+      "source_configs": ["fdr"],
+      "biosemi_labels": ["A18", "A23", "A31", "B2"]
+    },
     "fdr_attention_overlap": {
       "indices": [
         63,

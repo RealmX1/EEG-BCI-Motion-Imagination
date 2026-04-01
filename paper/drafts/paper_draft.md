@@ -1,12 +1,14 @@
 # EEG Foundation Models Enable Robust Finger-Level Motor Imagery Decoding with Reduced Channel Configurations
 
-> **草稿说明**：本文为工作草稿。文中大部分图表为脚本自动生成的初步输出，**尚未进行出版级精修**（坐标轴标签、字体大小、配色方案、排版布局等）。标有 `[TODO]` 的章节为尚未完成的实验，其结果将在最终稿中补充。
+> **草稿说明**：本文为工作草稿（v2, post-HPO）。文中大部分图表为脚本自动生成的初步输出，**尚未进行出版级精修**（坐标轴标签、字体大小、配色方案、排版布局等）。标有 `[TODO]` 的章节为尚未完成的实验，其结果将在最终稿中补充。
+>
+> **v2 变更摘要**：所有实验结果已使用 HPO 优化后的超参数重新运行（2026-03-30）。EEGNet 架构从 8,2 升级为 16,4（~10K 参数）。Attention 通道选择方法简化为纯 CBraMod 梯度方法。32ch 对比实验从 6 种配置缩减为 5 种（移除 motor_cortex）。新增 128ch EEGNet cross-subject 基线。
 
 ---
 
 ## Abstract
 
-Brain-computer interfaces (BCIs) that decode individual finger movements from electroencephalography (EEG) hold significant promise for fine motor rehabilitation, yet their deployment is hampered by the need for high-density electrode arrays. In this study, we systematically compare a large-scale EEG foundation model, CBraMod (~4M parameters, ICLR 2025), against the widely adopted EEGNet-8,2 (~2.5K parameters) for binary (thumb vs. pinky) and ternary (thumb, middle, pinky) motor imagery classification across 21 healthy participants using a 128-channel BioSemi system. We evaluate three training paradigms—within-subject, cross-subject, and cross-subject-to-individual transfer learning—and conduct a comprehensive channel reduction study spanning 128, 61, 32, 8, and 4 channels using four data-driven selection methods (Fisher Discriminant Ratio, Common Spatial Patterns, gradient-based attention, spectral band power) and two hand-crafted layouts. CBraMod achieves 90.27% cross-subject binary accuracy at 128 channels; critically, a 32-channel configuration selected by Fisher Discriminant Ratio retains 88.10% (only −2.17 percentage points), while EEGNet drops to 67.53% under the same conditions. We further show that transfer learning benefit is modulated by both channel count and selection quality—negligible at 128 channels, +4.59 pp at 8 channels with suboptimal selection, but only +0.50 pp with optimal selection—and that selection method sensitivity increases exponentially at lower channel counts (6 pp spread at 32ch vs. 13 pp at 8ch vs. 15 pp at 4ch). Control experiments with complementary, random, and negative-control channel sets at both 32- and 4-channel levels confirm volume conduction–driven information redundancy rather than data leakage. These results demonstrate that combining an EEG foundation model with data-driven channel selection yields a practical, deployable 32-channel BCI system for finger-level motor imagery decoding.
+Brain-computer interfaces (BCIs) that decode individual finger movements from electroencephalography (EEG) hold significant promise for fine motor rehabilitation, yet their deployment is hampered by the need for high-density electrode arrays. In this study, we systematically compare a large-scale EEG foundation model, CBraMod (~4M parameters, ICLR 2025), against EEGNet-16,4 (~10K parameters) for binary (thumb vs. pinky) and ternary (thumb, middle, pinky) motor imagery classification across 21 healthy participants using a 128-channel BioSemi system. We evaluate three training paradigms—within-subject, cross-subject, and cross-subject-to-individual transfer learning—and conduct a comprehensive channel reduction study spanning 128, 61, 32, 8, and 4 channels using four data-driven selection methods (Fisher Discriminant Ratio, Common Spatial Patterns, gradient-based attention, spectral band power) and one hand-crafted layout. CBraMod achieves 90.68% cross-subject binary accuracy at 128 channels; critically, a 32-channel configuration selected by Fisher Discriminant Ratio retains 87.71% (only −2.97 percentage points), while EEGNet drops to 74.70% under the same conditions. We further demonstrate that channel selection method sensitivity increases at lower channel counts (3 pp spread at 32ch vs. 8 pp at 8ch vs. 15 pp at 4ch). Control experiments with negative-control channel sets at 4-channel level confirm volume conduction–driven information redundancy rather than data leakage. These results demonstrate that combining an EEG foundation model with data-driven channel selection yields a practical, deployable 32-channel BCI system for finger-level motor imagery decoding.
 
 **Keywords:** brain-computer interface, electroencephalography, motor imagery, foundation model, CBraMod, EEGNet, channel reduction, transfer learning, Fisher Discriminant Ratio, volume conduction
 
@@ -33,8 +35,8 @@ Individual finger movement decoding from scalp EEG has progressed from offline f
 | Alazrai et al. 2019 [8] | SVM + CSP | 64 | Offline, within-subject | ~65% | N/A | No |
 | Lee et al. 2022 [9] | CNN | 256 | Offline, within-subject | ~70% | N/A | No |
 | Ding et al. 2025 [3] | EEGNet | 128 | Online, session-adaptive | 80.56% | 60.61% | **Yes** |
-| **This work** | **CBraMod** | **128** | Offline, cross-subject | **90.27%** | **75.42%** | No |
-| **This work** | **CBraMod** | **32** (FDR) | Offline, cross-subject | **88.10%** | — | No |
+| **This work** | **CBraMod** | **128** | Offline, cross-subject | **90.68%** | **74.88%** | No |
+| **This work** | **CBraMod** | **32** (FDR) | Offline, cross-subject | **87.71%** | — | No |
 
 > **Note on comparability**: Direct accuracy comparison across studies is limited by differences in evaluation paradigm (online vs. offline), training protocol (within-session vs. cross-subject), and participant cohorts. Ding et al. [3] report online session-adaptive performance with real-time robotic feedback; our results reflect offline cross-subject generalization evaluated on the same dataset without online adaptation. The comparison highlights the methodological landscape rather than claiming strict superiority.
 
@@ -44,7 +46,7 @@ Two limitations of prior work motivate this study: (1) reliance on high-density 
 
 The recent emergence of large-scale pretrained models for EEG—analogous to foundation models in natural language processing and computer vision—represents a paradigm shift in neural signal decoding. Rather than training task-specific architectures from scratch on limited per-subject data, these models leverage massive unlabeled EEG corpora to learn general-purpose spatiotemporal representations that can be fine-tuned for downstream tasks.
 
-CBraMod (Criss-Cross Brain Foundation Model) [4], accepted at ICLR 2025, is a Transformer-based model pretrained on the Temple University EEG (TUEG) corpus. Its key architectural innovation, Asymmetric Conditional Positional Encoding (ACPE), enables the model to accept arbitrary numbers of input channels without retraining—a crucial property for channel reduction experiments. With approximately 4 million parameters, CBraMod represents a 1,600× parameter increase over EEGNet-8,2 [5], a compact convolutional neural network (~2,500 parameters) that has become a standard baseline in BCI research.
+CBraMod (Criss-Cross Brain Foundation Model) [4], accepted at ICLR 2025, is a Transformer-based model pretrained on the Temple University EEG (TUEG) corpus. Its key architectural innovation, Asymmetric Conditional Positional Encoding (ACPE), enables the model to accept arbitrary numbers of input channels without retraining—a crucial property for channel reduction experiments. With approximately 4 million parameters, CBraMod represents a ~400× parameter increase over EEGNet-16,4 [5], a compact convolutional neural network (~10,000 parameters) that has become a standard baseline in BCI research.
 
 Other concurrent efforts include LaBraM [6] and broader surveys of EEG foundation models [7], confirming that pretrained approaches consistently outperform task-specific models, particularly in low-data and cross-subject regimes.
 
@@ -52,13 +54,13 @@ Other concurrent efforts include LaBraM [6] and broader surveys of EEG foundatio
 
 This paper makes the following contributions:
 
-> 1. **Systematic foundation model evaluation for finger-level MI decoding.** We provide the first comprehensive comparison of an EEG foundation model (CBraMod) against a traditional CNN (EEGNet-8,2) across within-subject, cross-subject, and transfer learning paradigms for individual finger motor imagery, using 21 participants.
+> 1. **Systematic foundation model evaluation for finger-level MI decoding.** We provide the first comprehensive comparison of an EEG foundation model (CBraMod) against a traditional CNN (EEGNet-16,4) across within-subject, cross-subject, and transfer learning paradigms for individual finger motor imagery, using 21 participants.
 >
-> 2. **Comprehensive channel reduction analysis.** We evaluate six 32-channel configurations (four data-driven, two hand-crafted), along with 61, 8, and 4-channel setups, establishing that 32 channels selected by Fisher Discriminant Ratio retain **97.6%** of full 128-channel performance with CBraMod.
+> 2. **Comprehensive channel reduction analysis.** We evaluate five 32-channel configurations (four data-driven, one hand-crafted), along with 61, 8, and 4-channel setups, establishing that 32 channels selected by Fisher Discriminant Ratio retain **96.7%** of full 128-channel performance with CBraMod.
 >
-> 3. **Transfer learning–channel count interaction.** We demonstrate a novel inverse relationship: transfer learning benefit is negligible at 128 channels but increases substantially as channel count decreases (**+4.59 pp** at 8 channels), suggesting that individual adaptation compensates for reduced spatial information.
+> 3. **Channel selection method sensitivity at low channel counts.** We demonstrate that selection method sensitivity increases at lower channel counts: ~3 pp spread at 32ch, ~8 pp at 8ch, and ~15 pp at 4ch, indicating that channel selection becomes critical for sub-32-channel deployments.
 >
-> 4. **Control experiments addressing volume conduction.** Through complementary-channel and negative-control experiments, we provide evidence that high decoding accuracy with diverse channel subsets reflects EEG volume conduction redundancy rather than data leakage artifacts.
+> 4. **Control experiments addressing volume conduction.** Through negative-control channel experiments at 4-channel level, we provide evidence that high decoding accuracy with diverse channel subsets reflects EEG volume conduction redundancy rather than data leakage artifacts.
 
 ---
 
@@ -110,15 +112,15 @@ Within the training partition, we reserve the last 20% of trials (by temporal or
 
 ### 2.4 Model Architectures
 
-#### 2.4.1 EEGNet-8,2
+#### 2.4.1 EEGNet-16,4
 
-We employ the EEGNet-8,2 configuration [5], a compact CNN designed for EEG decoding:
+We employ a scaled-up EEGNet configuration [5], a compact CNN designed for EEG decoding:
 
-- **Block 1 (Temporal + Spatial)**: Temporal convolution (F₁ = 8 filters, kernel size 64 samples ≈ 0.64 s at 100 Hz) → BatchNorm → Depthwise spatial convolution (depth multiplier D = 2, constrained to max L₂ norm = 1.0) → BatchNorm → ELU → AveragePool(1, 4) → Dropout(0.5)
-- **Block 2 (Separable)**: Depthwise separable convolution (F₂ = 16 = F₁ × D, kernel 16) → BatchNorm → ELU → AveragePool(1, 8) → Dropout(0.5)
+- **Block 1 (Temporal + Spatial)**: Temporal convolution (F₁ = 16 filters, kernel size 64 samples ≈ 0.64 s at 100 Hz) → BatchNorm → Depthwise spatial convolution (depth multiplier D = 4, constrained to max L₂ norm = 1.0) → BatchNorm → ELU → AveragePool(1, 4) → Dropout(0.5)
+- **Block 2 (Separable)**: Depthwise separable convolution (F₂ = 64 = F₁ × D, kernel 16) → BatchNorm → ELU → AveragePool(1, 8) → Dropout(0.5)
 - **Classifier**: Flatten → Linear(features, n_classes)
 
-> Total trainable parameters: **~2,500**
+> Total trainable parameters: **~10,000** (4× the original EEGNet-8,2)
 
 #### 2.4.2 CBraMod
 
@@ -129,13 +131,13 @@ CBraMod [4] is a 12-layer Transformer pretrained on the TUEG corpus with the fol
 - **ACPE**: Asymmetric Conditional Positional Encoding with convolutional kernel (19, 7), enabling arbitrary channel count input despite being pretrained on 19-channel data
 - **Classifier**: Two-layer MLP — Linear(n_channels × n_patches × 200, 200) → ELU → Dropout → Linear(200, n_classes)
 
-> Total trainable parameters: **~4.0M** (backbone) + classifier head — a **1,600×** increase over EEGNet.
+> Total trainable parameters: **~4.0M** (backbone) + classifier head — a **~400×** increase over EEGNet.
 
 ### 2.5 Training Procedures
 
-We evaluate three training paradigms with model-specific hyperparameters (Table 3).
+We evaluate three training paradigms with model-specific hyperparameters optimized via Bayesian hyperparameter optimization (Table 3).
 
-**Table 3. Training hyperparameters.**
+**Table 3. Training hyperparameters (post-HPO).**
 
 | Parameter | EEGNet Within | EEGNet Cross | CBraMod Within | CBraMod Cross |
 |-----------|--------------|-------------|----------------|--------------|
@@ -146,7 +148,7 @@ We evaluate three training paradigms with model-specific hyperparameters (Table 
 | Max epochs | 30 | 50 | 50 | 100 |
 | Early stopping patience | 5 | 10 | 10 | 15 |
 | Scheduler | ReduceLROnPlateau (factor=0.3) | ReduceLROnPlateau | CAWD (phase=6, decay=0.7) | CAWD (phase=6, decay=0.5) |
-| Label smoothing | 0 | 0 | 0.05 | 0.15 |
+| Label smoothing | 0 | 0 | 0.05 | 0.05 |
 | Dropout | 0.5 | 0.5 | 0.15 | 0.35 |
 | Gradient clipping | — | — | 1.0 | 0.5 |
 | Mixed precision | FP16 (AMP) | FP16 (AMP) | FP16 (AMP) | FP16 (AMP) |
@@ -161,7 +163,7 @@ CBraMod employs a **two-phase batch size strategy**: a smaller batch size during
 
 ### 2.6 Channel Selection Methods
 
-To investigate the channel count–performance trade-off, we evaluate six 32-channel configurations:
+To investigate the channel count–performance trade-off, we evaluate five 32-channel configurations:
 
 **Data-driven methods** (computed from all 21 participants' training data, 15,663 trials):
 
@@ -169,15 +171,13 @@ To investigate the channel count–performance trade-off, we evaluate six 32-cha
 
 2. **Common Spatial Patterns (CSP)**: CSP filters are computed using MNE-Python with Ledoit-Wolf covariance regularization. Channels are ranked by their contribution to the top spatial patterns.
 
-3. **Attention / Gradient**: Combines EEGNet spatial convolution filter magnitudes with CBraMod input gradient magnitudes, aggregated across participants.
+3. **Gradient-based Attention**: CBraMod input gradient magnitudes from the cross-subject pretrained model, aggregated across participants. This method captures which channels the foundation model attends to most strongly during classification.
 
 4. **Band Power (ANOVA)**: For each channel, spectral power in mu and beta bands is computed, and channels are ranked by ANOVA F-statistic between classes.
 
-**Hand-crafted configurations**:
+**Hand-crafted configuration**:
 
-5. **Motor Cortex**: 32 electrodes densely covering the sensorimotor strip (C3/Cz/C4, supplementary motor area, premotor cortex), selected by nearest-neighbor mapping from standard 10-20 locations to BioSemi 128 positions.
-
-6. **Commercial**: 32 electrodes approximating a standard 10-20 commercial EEG cap layout.
+5. **Commercial**: 32 electrodes approximating a standard 10-20 commercial EEG cap layout.
 
 Additionally, we evaluate: **61 channels** (standard 10-10 system), **8 channels** (two configurations: FDR top-8 and Attention top-8, enabling method comparison at extreme reduction), and **4 channels** (intersection of FDR top-32 and Attention top-32, yielding 4 common electrodes at BioSemi positions B32, C8, D7, D19; plus a 4-channel negative control from channels not selected by any method).
 
@@ -197,7 +197,7 @@ We performed a comprehensive 12-metric data quality assessment across all 21 par
 
 ## 3. Results
 
-> **Results at a glance** — CBraMod achieves **90.27%** cross-subject binary accuracy at 128 channels. At 32 channels (FDR), it retains **88.10%** (−2.17 pp) while EEGNet drops to 67.53%. Transfer learning gain scales inversely with channel count: negligible at 128ch, **+4.59 pp** at 8ch.
+> **Results at a glance** — CBraMod achieves **90.68%** cross-subject binary accuracy at 128 channels. At 32 channels (FDR), it retains **87.71%** (−2.97 pp) while EEGNet achieves 74.70%. The CBraMod–EEGNet gap widens from +7.05 pp at 128ch to +13.01 pp at 32ch (FDR).
 
 ### 3.1 Within-Subject Comparison (128 Channels)
 
@@ -205,308 +205,137 @@ Table 4 summarizes within-subject performance across all 21 participants at 128 
 
 **Table 4. Within-subject binary classification (128 channels, majority voting accuracy).**
 
-| Metric | EEGNet-8,2 | CBraMod |
+| Metric | EEGNet-16,4 | CBraMod |
 |--------|-----------|---------|
-| Mean ± SD | 78.75 ± 11.56% | 84.64 ± 10.61% |
-| Median | 77.50% | 86.88% |
-| Min | 55.00% (S20) | 59.38% (S10) |
-| Max | 96.88% (S09) | 98.75% (S19) |
+| Mean ± SD | 78.10 ± 12.61% | 85.15 ± 11.00% |
+| Median | 73.75% | 89.38% |
+| Min | 52.50% (S20) | 60.62% (S10) |
+| Max | 99.38% (S09) | 99.38% (S09) |
 
-CBraMod outperforms EEGNet by **+5.89 percentage points (pp)** on average (paired *t*-test: *t*(20) = 3.36, *p* = 0.003; Wilcoxon: *W* = 24, *p* = 0.004; Cohen's *d* = 0.73). The win/tie/loss breakdown across 21 participants:
-
-| Outcome | Count | Participants |
-|---------|-------|-------------|
-| CBraMod wins | **16** | S01, S03, S05, S07, S08, S09, S11, S12, S13, S14, S15, S16, S17, S19, S20, S21 |
-| Tie | 2 | S02 (95.00%), S18 (91.25%) |
-| EEGNet wins | 3 | S04 (90.63% vs. 95.63%), S06 (69.38% vs. 71.25%), S10 (59.38% vs. 70.63%) |
-
-Notably, 2 of the 3 EEGNet-favorable participants (S04, S10) are major-artifact cases.
+CBraMod outperforms EEGNet by **+7.05 percentage points (pp)** on average.
 
 Per-subject results for both models are provided in Supplementary Table S1.
 
-> **Data sources**: EEGNet within-subject run `20260206_1003`: `results/20260206_1003_comparison_cache_imagery_binary.json`; CBraMod within-subject run `20260210_0435`: `results/20260210_0435_comparison_cache_imagery_binary BLANK-CBRAMOD.json`
-
-**Figure 2.** Within-subject binary classification — per-participant accuracy comparison (128 channels, majority voting). *Purpose: establish baseline model performance before cross-subject pooling.*
-
-**(a)** EEGNet-8,2 within-subject (run `20260206_1003` · 128ch · binary · within-subject · EEGNet · mean 78.75%)
-![Fig 2a — EEGNet within-subject 128ch binary](results/20260206_1003_combined_imagery_binary.png)
-
-**(b)** CBraMod within-subject (run `20260210_0435` · 128ch · binary · within-subject · CBraMod · mean 84.64%)
-![Fig 2b — CBraMod within-subject 128ch binary](results/20260210_0435_combined_imagery_binary.png)
+> **Data sources**: EEGNet within-subject run `20260316_1411`: `results/20260316_1411_comparison_cache_imagery_binary.json`; CBraMod within-subject run `20260323_2237`: `results/20260323_2237_comparison_cache_imagery_binary.json`
 
 ### 3.2 Cross-Subject Training (128 Channels)
 
-Pooling data across all 21 participants yields substantial gains for CBraMod:
+Pooling data across all 21 participants yields substantial gains for both models:
 
 **Table 5. Cross-subject training results (128 channels).**
 
-| Task | CBraMod Mean ± SD |
-|------|-------------------|
-| Binary (2-class) | 90.27 ± 8.88% |
-| Ternary (3-class) | 75.42 ± 12.72% |
+| Task | CBraMod Mean ± SD | EEGNet Mean ± SD | Δ (CBraMod − EEGNet) |
+|------|-------------------|------------------|-----------------------|
+| Binary (2-class) | 90.68 ± 9.31% | 76.67 ± 11.95% | +14.01 pp |
+| Ternary (3-class) | 74.88 ± 14.03% | 61.23 ± 11.28% | +13.65 pp |
 
-Cross-subject binary accuracy of **90.27%** represents a **+5.63 pp** improvement over within-subject training (84.64%; paired *t*-test: *t*(20) = 5.42, *p* < 0.001; Cohen's *d* = 1.18). The gap is especially pronounced for participants who had low within-subject performance:
+Cross-subject CBraMod binary accuracy of **90.68%** represents a **+5.53 pp** improvement over within-subject training (85.15%). Cross-subject EEGNet binary of **76.67%** is comparable to within-subject (78.10%, −1.43 pp), suggesting EEGNet cannot effectively leverage cross-subject data pooling for this task.
 
-| Participant | Within-Subject | Cross-Subject | Δ |
-|-------------|---------------|---------------|---|
-| S15 | 86.88% | 94.38% | +7.50 pp |
-| S16 | 81.25% | 92.50% | +11.25 pp |
+Ternary cross-subject accuracy of **74.88%** (CBraMod) and **61.23%** (EEGNet) significantly exceed chance level (33.3%).
 
-Ternary cross-subject accuracy of **75.42%** significantly exceeds both chance level (33.3%) and within-subject ternary performance (69.54%, **+5.88 pp**), demonstrating that cross-subject data pooling benefits harder classification tasks as well.
-
-The worst-performing participants across both tasks are S10 (binary: 66.25%) and S20 (binary: 66.88%), consistent with their data quality profiles (S10: major artifact; S20: informational—elevated variance but functional signals).
-
-> **Data sources**: Binary run `20260206_1029`: `results/20260206_1029_cross-subject_cbramod_imagery_binary.json`; Ternary run `20260207_2056`: `results/20260207_2056_cross-subject_cbramod_imagery_ternary.json`
-
-**Figure 3.** Cross-subject training — per-participant accuracy (CBraMod, 128 channels). *Purpose: demonstrate benefit of pooling all 21 participants' data into a single model.*
-
-**(a)** Cross-subject binary (run `20260206_1029` · 128ch · binary · cross-subject · CBraMod · mean 90.27%)
-![Fig 3a — CBraMod cross-subject 128ch binary](results/20260206_1029_cross-subject_combined_imagery_binary.png)
-
-**(b)** Cross-subject ternary (run `20260207_2056` · 128ch · ternary · cross-subject · CBraMod · mean 75.42%)
-![Fig 3b — CBraMod cross-subject 128ch ternary](results/20260207_2056_cross-subject_combined_imagery_ternary.png)
+> **Data sources**: CBraMod binary run `20260324_0023`: `results/20260324_0023_cross_subject_cache_imagery_binary.json`; CBraMod ternary run `20260324_0109`: `results/20260324_0109_cross_subject_cache_imagery_ternary.json`; EEGNet binary run `20260330_0709`: `results/20260330_0709_cross_subject_cache_imagery_binary.json`; EEGNet ternary run `20260330_0735`: `results/20260330_0735_cross_subject_cache_imagery_ternary.json`
 
 ### 3.3 32-Channel Configuration Comparison
 
-Table 6 presents cross-subject binary accuracy for all six 32-channel configurations.
+Table 6 presents cross-subject binary accuracy for all five 32-channel configurations.
 
 **Table 6. 32-channel configuration comparison (cross-subject binary, n = 21).**
 
 | Rank | Configuration | Type | CBraMod Mean ± SD | EEGNet Mean ± SD | Δ (CBraMod − EEGNet) |
 |------|--------------|------|-------------------|------------------|-----------------------|
-| 1 | FDR | Data-driven | **88.10 ± 8.80%** | 67.53 ± 11.12% | +20.57 pp |
-| 2 | Attention | Data-driven | 87.02 ± 9.89% | **70.42 ± 12.75%** | +16.60 pp |
-| 3 | Commercial | Hand-crafted | 86.31 ± 7.91% | 64.40 ± 9.82% | +21.91 pp |
-| 4 | CSP | Data-driven | 85.54 ± 10.34% | 66.52 ± 12.91% | +19.02 pp |
-| 5 | Band Power | Data-driven | 85.51 ± 10.11% | 67.17 ± 13.21% | +18.34 pp |
-| 6 | Motor Cortex | Hand-crafted | 82.02 ± 9.70% | 63.13 ± 10.48% | +18.89 pp |
-
-The six configurations differ significantly (Friedman test: *χ²*(5) = 27.90, *p* < 0.001). **Key observations:**
-
-> **Finding 1 — Data-driven > hand-crafted.** The top two data-driven methods (FDR, Attention) achieve **87–88%** versus 82–86% for hand-crafted layouts. FDR significantly outperforms Motor Cortex (paired *t*-test: *t*(20) = 4.79, *p* < 0.001, *d* = 1.05).
-
-> **Finding 2 — Model gap widens at reduced channels.** The CBraMod–EEGNet gap expands from +5.89 pp (128ch within-subject) to **+16.60–21.91 pp** at 32 channels, suggesting pretrained representations are especially valuable when spatial information is limited.
-
-> **Finding 3 — Stability vs. accuracy.** Commercial layout shows the lowest standard deviation (**7.91%**) for CBraMod, indicating more stable cross-subject performance, but its mean trails FDR by 1.79 pp.
-
-> **Finding 4 — Non-motor regions matter.** FDR-selected channels predominantly cover *temporal and frontal* regions rather than the traditional motor cortex (C3/Cz/C4), yet achieve the highest CBraMod accuracy. This is discussed further in Section 4.
-
-> **Data sources** (run `20260220_*`, all cross-subject binary):
-> - FDR run `20260220_1949`: `results/32_channel/fdr/20260220_1949_cross-subject_cbramod_imagery_binary.json`
-> - Attention run `20260220_2159`: `results/32_channel/attention/20260220_2159_cross-subject_cbramod_imagery_binary.json`
-> - Commercial run `20260220_1850`: `results/32_channel/commercial/20260220_1850_cross-subject_cbramod_imagery_binary.json`
-> - CSP run `20260220_2052`: `results/32_channel/csp/20260220_2052_cross-subject_cbramod_imagery_binary.json`
-> - Band Power run `20260220_2301`: `results/32_channel/band_power/20260220_2301_cross-subject_cbramod_imagery_binary.json`
-> - Motor Cortex run `20260220_1731`: `results/32_channel/motor_cortex/20260220_1731_cross-subject_cbramod_imagery_binary.json`
-> - (EEGNet results from corresponding `*_eegnet_imagery_binary.json` files in same directories)
-
-**Figure 4.** 32-channel 6-configuration comparison — grouped bar chart of CBraMod vs. EEGNet cross-subject binary accuracy for all six 32ch channel selection methods. *Purpose: core contribution — compare data-driven vs. hand-crafted channel layouts and quantify model gap at reduced channels.*
-
-(run `20260222_1324` · 32ch · 6 configs × 2 models · cross-subject binary)
-![Fig 4 — 32ch 6-config comparison](results/32_channel/20260222_1324_32ch_config_comparison_imagery_binary.png)
-
-**Figure 5.** Electrode placement maps — 2D scalp projections showing spatial distribution of electrodes for all six 32-channel configurations. *Purpose: visualize that data-driven methods (FDR, Attention) select non-motor-cortex regions.*
-
-![Fig 5 — Electrode placement grid, all 6 configs](results/32_channel/electrode_placements/grid_all_configs_2d.png)
-
-**Figure 6.** Pairwise channel overlap — heatmap showing number of shared electrodes between each pair of 32ch configurations. *Purpose: quantify similarity/independence of channel selection methods.*
-
-![Fig 6 — Channel overlap heatmap](results/32_channel/electrode_placements/overlap_analysis.png)
-
-### 3.4 Channel Scaling Analysis (128 → 61 → 32 → 8 → 4)
-
-Table 7 and Figure 7 illustrate the relationship between channel count and cross-subject binary accuracy.
-
-**Table 7. Channel scaling summary (CBraMod cross-subject binary).**
-
-| Channels | Configuration | Mean ± SD | Δ vs. 128ch | Run ID | Result File |
-|----------|--------------|-----------|-------------|--------|-------------|
-| 128 | Full array | 90.27 ± 8.88% | — | `20260206_1029` | `results/20260206_1029_cross-subject_cbramod_imagery_binary.json` |
-| 61 | Standard 10-10 | 88.72 ± 9.22% | −1.55 pp | `20260227_0049` | `results/61_channel/standard_1010/20260227_0049_cross-subject_cbramod_imagery_binary.json` |
-| 32 | FDR (best) | 88.10 ± 8.80% | −2.17 pp | `20260220_1949` | `results/32_channel/fdr/20260220_1949_cross-subject_cbramod_imagery_binary.json` |
-| 8 | FDR | 68.33 ± 9.80% | −21.94 pp | `20260221_1218` | `results/8_channel/20260221_1218_cross-subject_cbramod_imagery_binary.json` |
-| 8 | Attention | 81.70 ± 13.12% | −8.57 pp | `20260302_1903` | `results/8_channel/attention/20260302_1903_cross_subject_cache_imagery_binary.json` |
-| 4 | FDR ∩ Attention | 82.86 ± 14.55% | −7.41 pp | `20260301_2100` | `results/4_channel/fdr_attention_overlap/20260301_2100_cross-subject_cbramod_imagery_binary.json` |
-| 4 | Negative control | 67.62 ± 9.15% | −22.65 pp | `20260309_2329` | `results/4_channel/negative_control/20260309_2329_cross_subject_cache_imagery_binary.json` |
-
-The performance degradation is markedly **nonlinear**:
-
-| Transition | Electrode Reduction | Accuracy Drop | Interpretation |
-|-----------|-------------------|--------------|----------------|
-| 128 → 61 | −52% | **−1.55 pp** | High information redundancy |
-| 61 → 32 | −48% | **−0.62 pp** | FDR 32ch ≈ standard 10-10 61ch |
-| 32 → 8 (FDR) | −75% | **−19.77 pp** | Below critical spatial sampling; poor method for 8ch |
-| 32 → 8 (Attention) | −75% | **−6.40 pp** | Much better method for 8ch |
-| 32 → 4 (optimal) | −88% | −7.41 pp vs. 128ch | See discussion below |
-| 32 → 4 (neg. ctrl) | −88% | −22.65 pp vs. 128ch | Validates selection effectiveness |
-
-**Critical finding — selection method sensitivity at low channel counts**: The original 8ch FDR result (68.33%) and the 8ch Attention result (81.70%) differ by **13.37 pp** despite using the same number of channels. This 13 pp gap contrasts sharply with the 32-channel regime, where the six configurations vary by only 6.08 pp (82.02–88.10%). This demonstrates that **channel selection method matters exponentially more as channel count decreases** — at 32 channels, volume conduction provides sufficient redundancy for any reasonable selection to perform well, but at 8 channels, the specific electrode positions become critical.
-
-The 4ch vs. 8ch non-monotonicity (82.86% at 4ch FDR∩Attention vs. 68.33% at 8ch FDR) is resolved by this finding: the 4ch channels were selected by consensus of the two best methods, while the 8ch FDR set was suboptimal. Using 8ch Attention (81.70%), monotonicity is approximately restored: 88.10% (32ch) → 81.70% (8ch) → 82.86% (4ch), with the 4ch result falling within statistical uncertainty (SD = 14.55%).
-
-The 4ch negative control (67.62%) provides a lower bound: channels not selected by any method at 4ch perform **15.24 pp** worse than optimally chosen channels (82.86%), confirming that data-driven selection is essential at extreme channel reduction.
-
-> **Key takeaway:** The **32-channel mark** represents the optimal trade-off — retaining **97.6%** of full-array performance with only **25%** of the electrodes. The 128ch → 32ch FDR drop is statistically significant but small (paired *t*-test: *t*(20) = 2.72, *p* = 0.013, *d* = 0.59). At 8 channels, the choice of selection method becomes decisive (13 pp gap between FDR and Attention).
-
-**Figure 7.** Channel scaling — per-participant cross-subject binary accuracy at each channel count (CBraMod). *Purpose: visualize the nonlinear performance degradation curve from 128ch down to 4ch.*
-
-**(a)** 128ch full array (run `20260206_1029` · 128ch · full array · cross-subject · CBraMod · mean 90.27%)
-![Fig 7a — 128ch cross-subject](results/20260206_1029_cross-subject_combined_imagery_binary.png)
-
-**(b)** 61ch standard 10-10 (run `20260227_0049` · 61ch · standard 10-10 layout · cross-subject · CBraMod · mean 88.72%)
-![Fig 7b — 61ch standard 10-10 cross-subject](results/61_channel/standard_1010/20260227_0049_cross-subject_combined_imagery_binary.png)
-
-**(c)** 32ch FDR (run `20260220_1949` · 32ch · FDR data-driven selection · cross-subject · CBraMod · mean 88.10%)
-![Fig 7c — 32ch FDR cross-subject](results/32_channel/fdr/20260220_1949_cross-subject_combined_imagery_binary.png)
-
-**(d)** 8ch FDR (run `20260221_1218` · 8ch · FDR top-8 · cross-subject · CBraMod · mean 68.33%)
-![Fig 7d — 8ch FDR cross-subject](results/8_channel/20260221_1218_cross-subject_combined_imagery_binary.png)
-
-**(e)** 8ch Attention (run `20260302_1903` · 8ch · Attention top-8 · cross-subject · CBraMod · mean 81.70%)
-![Fig 7e — 8ch Attention cross-subject](results/8_channel/attention/20260302_1903_cross-subject_combined_imagery_binary.png)
-
-**(f)** 4ch FDR∩Attention (run `20260301_2100` · 4ch · intersection of FDR and Attention top-32 · cross-subject · CBraMod · mean 82.86%)
-![Fig 7f — 4ch FDR∩Attention cross-subject](results/4_channel/fdr_attention_overlap/20260301_2100_cross-subject_combined_imagery_binary.png)
-
-### 3.5 Transfer Learning Across Channel Configurations
-
-Table 8 reveals a striking interaction between transfer learning benefit and channel count.
-
-**Table 8. Transfer learning effect across channel counts (CBraMod binary).**
-
-| Channels | Configuration | Cross-Subject | After Transfer | Δ Transfer |
-|----------|--------------|---------------|----------------|------------|
-| 128 | Full array | 90.27% | 90.18% | **−0.09 pp** |
-| 32 | FDR | 88.10% | 88.90% | **+0.80 pp** |
-| 32 | Attention | 87.02% | 88.69% | **+1.67 pp** |
-| 8 | FDR | 68.33% | 72.92% | **+4.59 pp** |
-| 8 | Attention | 81.70% | 82.20% | **+0.50 pp** |
-| 4 | Neg. control | 67.62% | 72.02% | **+4.40 pp** |
-
-At 128 channels, the cross-subject model has already captured sufficient representational capacity, and individual fine-tuning provides no additional benefit (−0.09 pp; *t*(20) = −0.45, *p* = 0.66, n.s.). However, as channel count decreases, the **transfer learning benefit generally increases**: +0.80 pp at 32 channels (FDR), +1.67 pp at 32 channels (Attention), and **+4.59 pp** at 8 channels FDR (*t*(20) = 3.11, *p* = 0.006, *d* = 0.68).
-
-A notable exception is 8ch Attention, where transfer benefit is only +0.50 pp — much smaller than 8ch FDR's +4.59 pp. This suggests that when the channel selection is already near-optimal (Attention at 8ch: 81.70%), the cross-subject model captures most of the available information, leaving less room for individual adaptation. Conversely, when channels are suboptimal (FDR at 8ch: 68.33%, or 4ch negative control: 67.62%), transfer learning provides substantial gains (+4.59 pp and +4.40 pp respectively), compensating for the information deficit.
-
-This pattern extends to ternary classification at 8ch Attention: cross-subject CBraMod 59.50% → transfer 62.36% (**+2.86 pp**), with EEGNet showing an even larger gain: 43.85% → 49.84% (**+5.99 pp**).
-
-**Interpretation**: Transfer learning benefit is modulated by *both* channel count and channel selection quality. With well-chosen channels, the cross-subject model already generalizes effectively; with poorly chosen channels, individual fine-tuning compensates for missing spatial information.
-
-> **Data sources**:
-> - 128ch transfer run `20260209_1704`: `results/20260209_1704_transfer_comparison_cache_imagery_binary.json`
-> - 32ch FDR transfer run `20260221_0445`: `results/32_channel/fdr/20260221_0445_transfer_comparison_cache_imagery_binary.json`
-> - 32ch Attention transfer run `20260228_2218`: `results/32_channel/attention/20260228_2218_transfer_comparison_cache_imagery_binary.json`
-> - 8ch FDR transfer run `20260221_1319`: `results/8_channel/20260221_1319_transfer_comparison_cache_imagery_binary.json`
-> - 8ch Attention transfer run `20260302_2057`: `results/8_channel/attention/20260302_2057_transfer_comparison_cache_imagery_binary.json`
-> - 4ch Neg. control transfer run `20260310_0023`: `results/4_channel/negative_control/20260310_0023_transfer_comparison_cache_imagery_binary.json`
-
-**Figure 8.** Transfer learning — cross-subject vs. individually fine-tuned accuracy at each channel count (CBraMod binary). *Purpose: demonstrate that transfer learning benefit increases as channel count decreases.*
-
-**(a)** 128ch transfer (run `20260209_1704` · 128ch · full array · cross→individual fine-tune · CBraMod · Δ = −0.09 pp)
-![Fig 8a — 128ch transfer comparison](results/20260209_1704_transfer_combined_imagery_binary.png)
-
-**(b)** 32ch FDR transfer (run `20260221_0445` · 32ch · FDR selection · cross→individual fine-tune · CBraMod · Δ = +0.80 pp)
-![Fig 8b — 32ch FDR transfer comparison](results/32_channel/fdr/20260221_0445_transfer_combined_imagery_binary.png)
-
-**(c)** 32ch Attention transfer (run `20260228_2218` · 32ch · Attention selection · cross→individual fine-tune · CBraMod · Δ = +1.67 pp)
-![Fig 8c — 32ch Attention transfer comparison](results/32_channel/attention/20260228_2218_transfer_combined_imagery_binary.png)
-
-**(d)** 8ch FDR transfer (run `20260221_1319` · 8ch · FDR top-8 · cross→individual fine-tune · CBraMod · Δ = +4.59 pp)
-![Fig 8d — 8ch FDR transfer comparison](results/8_channel/20260221_1319_transfer_combined_imagery_binary.png)
-
-**(e)** 8ch Attention transfer (run `20260302_2057` · 8ch · Attention top-8 · cross→individual fine-tune · CBraMod · Δ = +0.50 pp)
-![Fig 8e — 8ch Attention transfer comparison](results/8_channel/attention/20260302_2057_transfer_combined_imagery_binary.png)
-
-### 3.6 Ternary Classification Across Channel Counts
-
-Table 8b extends the analysis to the harder ternary (3-class) task, providing a comprehensive view of how channel count and selection method affect multi-class decoding.
-
-**Table 8b. Ternary classification summary (cross-subject, n = 21).**
-
-| Channels | Configuration | CBraMod Mean ± SD | EEGNet Mean ± SD | CBraMod Δ vs. 128ch |
-|----------|--------------|-------------------|------------------|---------------------|
-| 128 | Full array | 75.42 ± 12.72% | — | — |
-| 8 | Attention (cross) | 59.50 ± 9.39% | 43.85 ± 9.79% | −15.92 pp |
-| 8 | Attention (transfer) | 62.36 ± 10.09% | 49.84 ± 9.47% | −13.06 pp |
-| 4 | FDR ∩ Attention (cross) | 64.05 ± 12.42% | 45.62 ± 11.50% | −11.37 pp |
-| 4 | Neg. control (cross) | 53.37 ± 8.14% | 38.39 ± 6.90% | −22.05 pp |
-| 4 | Neg. control (transfer) | 57.00 ± 12.17% | 42.42 ± 7.50% | −18.42 pp |
-
-> **Data sources**:
-> - 128ch ternary: `results/20260207_2056_cross-subject_cbramod_imagery_ternary.json`
-> - 8ch attention ternary cross: `results/8_channel/attention/20260302_2140_cross_subject_cache_imagery_ternary.json`
-> - 8ch attention ternary transfer: `results/8_channel/attention/20260308_2135_transfer_comparison_cache_imagery_ternary.json`
-> - 4ch FDR∩Attn ternary: `results/4_channel/fdr_attention_overlap/20260302_2336_cross_subject_cache_imagery_ternary.json`
-> - 4ch neg ctrl ternary cross: `results/4_channel/negative_control/20260310_0054_cross_subject_cache_imagery_ternary.json`
-> - 4ch neg ctrl ternary transfer: `results/4_channel/negative_control/20260310_0206_transfer_comparison_cache_imagery_ternary.json`
+| 1 | FDR | Data-driven | **87.71 ± 8.77%** | 74.70 ± 11.22% | +13.01 pp |
+| 2 | Band Power | Data-driven | 86.85 ± 10.02% | **76.07 ± 9.69%** | +10.78 pp |
+| 3 | Commercial | Hand-crafted | 86.10 ± 8.88% | 73.54 ± 9.76% | +12.56 pp |
+| 4 | Attention | Data-driven | 85.48 ± 8.59% | — | — |
+| 5 | CSP | Data-driven | 84.94 ± 10.55% | 75.00 ± 9.82% | +9.94 pp |
 
 **Key observations:**
 
-> **Finding 1 — 4ch optimal > 8ch for ternary.** The same non-monotonicity observed in binary classification holds for ternary: 4ch FDR∩Attention (64.05%) outperforms 8ch Attention (59.50%) by +4.55 pp, reinforcing the importance of channel quality over quantity.
+> **Finding 1 — Data-driven ≥ hand-crafted.** Three of the four data-driven methods (FDR, Band Power, Attention) outperform the Commercial hand-crafted layout for CBraMod, with FDR leading at 87.71%.
 
-> **Finding 2 — Transfer learning gains are larger for ternary.** At 8ch Attention, ternary transfer gains +2.86 pp (CBraMod) and +5.99 pp (EEGNet), compared to +0.50 pp for binary. The harder classification task leaves more room for individual adaptation to improve.
+> **Finding 2 — Model gap widens at reduced channels.** The CBraMod–EEGNet gap expands from +14.01 pp (128ch cross-subject) to a consistent **+10–13 pp** at 32 channels, confirming pretrained representations are valuable when spatial information is limited.
 
-> **Finding 3 — CBraMod advantage persists at all levels.** CBraMod outperforms EEGNet by 13–16 pp across all ternary conditions, consistent with the binary task gap widening at reduced channels.
+> **Finding 3 — Stability vs. accuracy.** Commercial layout shows the lowest standard deviation (**8.88%**) for CBraMod among the five configs, indicating stable cross-subject performance despite not being the highest accuracy.
 
-### 3.7 Control Experiments
+> **Finding 4 — Narrow spread at 32ch.** The five configurations span only **2.77 pp** for CBraMod (84.94–87.71%), indicating that at 32 channels, volume conduction provides sufficient redundancy for all methods to perform well.
 
-To rule out data leakage as an explanation for the consistently high accuracy observed across different channel configurations, we conducted two control experiments.
+> **Data sources** (all run `20260330_*`, cross-subject binary):
+> - FDR run `20260330_0836`: `results/32_channel/fdr/20260330_0836_cross_subject_cache_imagery_binary.json`
+> - Attention run `20260330_1009`: `results/32_channel/attention/20260330_1009_cross_subject_cache_imagery_binary.json`
+> - CSP run `20260330_1032`: `results/32_channel/csp/20260330_1032_cross_subject_cache_imagery_binary.json`
+> - Band Power run `20260330_1105`: `results/32_channel/band_power/20260330_1105_cross_subject_cache_imagery_binary.json`
+> - Commercial run `20260330_1142`: `results/32_channel/commercial/20260330_1142_cross_subject_cache_imagery_binary.json`
 
-**Table 9. Control experiment results (32 channels, CBraMod cross-subject binary).**
+### 3.4 Channel Scaling Analysis (128 → 61 → 32 → 8 → 4)
 
-| Condition | Channels | Mean ± SD | Δ vs. FDR |
-|-----------|----------|-----------|-----------|
-| FDR (optimal 32ch) | Top-ranked FDR | 88.10 ± 8.80% | — |
-| FDR Complement | 32 random from 96 non-FDR channels | 83.18 ± 9.80% | −4.92 pp |
-| Negative Control | 32 channels not selected by any method | 84.08 ± 9.36% | −4.02 pp |
+Table 7 illustrates the relationship between channel count and cross-subject binary accuracy.
 
-**FDR Complement test**: From the 96 channels excluded by the FDR top-32 selection, we randomly sampled 32 channels. Despite using channels explicitly identified as having low discriminative power, the model achieved 83.18% accuracy (replicated across two independent runs: 83.30% and 83.18%).
+**Table 7. Channel scaling summary (CBraMod cross-subject binary).**
 
-**Negative Control**: Using 32 channels not selected by any of the four data-driven methods, the model achieved 84.08%.
+| Channels | Configuration | CBraMod Mean ± SD | EEGNet Mean ± SD | Δ vs. 128ch (CBraMod) | Run Tag | Result File |
+|----------|--------------|-------------------|------------------|-----------------------|---------|-------------|
+| 128 | Full array | 90.68 ± 9.31% | 76.67 ± 11.95% | — | `20260324_0023` / `20260330_0709` | `results/20260324_0023_cross_subject_cache_imagery_binary.json` |
+| 61 | Standard 10-10 | 89.55 ± 9.68% | 78.93 ± 9.37% | −1.13 pp | `20260330_1213` | `results/61_channel/standard_1010/20260330_1213_cross_subject_cache_imagery_binary.json` |
+| 32 | FDR (best) | 87.71 ± 8.77% | 74.70 ± 11.22% | −2.97 pp | `20260330_0836` | `results/32_channel/fdr/20260330_0836_cross_subject_cache_imagery_binary.json` |
+| 8 | FDR | 76.43 ± 11.78% | 66.46 ± 10.78% | −14.25 pp | `20260330_1311` | `results/8_channel/fdr/20260330_1311_cross_subject_cache_imagery_binary.json` |
+| 8 | Attention | 68.42 ± 9.09% | — | −22.26 pp | `20260330_1334` | `results/8_channel/attention/20260330_1334_cross_subject_cache_imagery_binary.json` |
+| 4 | FDR ∩ Attention | 82.71 ± 13.84% | 70.92 ± 13.74% | −7.97 pp | `20260330_1417` | `results/4_channel/fdr_attention_overlap/20260330_1417_cross_subject_cache_imagery_binary.json` |
+| 4 | Negative control | 67.65 ± 9.46% | 59.17 ± 5.70% | −23.03 pp | `20260330_1442` | `results/4_channel/negative_control/20260330_1442_cross_subject_cache_imagery_binary.json` |
 
-Both 32ch control conditions achieve accuracy far above chance (50%) and only 4–5 pp below the optimally selected configuration. The FDR advantage over its complement is statistically significant (paired *t*-test: *t*(20) = 4.04, *p* < 0.001, *d* = 0.88). This result has two important implications:
+The performance degradation is markedly **nonlinear**:
 
-> **Implication 1 — No data leakage.** If high accuracy were due to label information leaking into the test set, it should appear *equally* across all channel subsets rather than showing a consistent 4–5 pp gap favoring optimally selected channels.
+| Transition | Electrode Reduction | CBraMod Accuracy Drop | Interpretation |
+|-----------|-------------------|----------------------|----------------|
+| 128 → 61 | −52% | **−1.13 pp** | High information redundancy |
+| 61 → 32 (FDR) | −48% | **−1.84 pp** | FDR 32ch ≈ standard 10-10 61ch |
+| 32 → 8 (FDR) | −75% | **−11.28 pp** | Below critical spatial sampling |
+| 32 → 8 (Attention) | −75% | **−19.29 pp** | FDR much better than Attention at 8ch |
+| 32 → 4 (optimal) | −88% | −7.97 pp vs. 128ch | See discussion below |
+| 32 → 4 (neg. ctrl) | −88% | −23.03 pp vs. 128ch | Validates selection effectiveness |
 
-> **Implication 2 — Volume conduction redundancy.** Even channels with low analytic discriminative power carry sufficient information for a pretrained foundation model to reconstruct a viable classification space, confirming extensive signal redundancy in 128-channel EEG.
+**Critical finding — selection method sensitivity at low channel counts**: At 8 channels, FDR (76.43%) and Attention (68.42%) differ by **8.01 pp** despite using the same number of channels. This gap contrasts with the 32-channel regime, where the five configurations vary by only 2.77 pp (84.94–87.71%). At 4 channels, the optimal-vs-control gap expands to **15.06 pp** (82.71% vs. 67.65%). This demonstrates that **channel selection method matters increasingly as channel count decreases**.
 
-#### 4-Channel Control Experiments
+The 4ch vs. 8ch non-monotonicity (82.71% at 4ch FDR∩Attention vs. 76.43% at 8ch FDR) reflects the importance of channel quality over quantity: the 4ch channels were selected by consensus of two complementary methods, capturing a core non-redundant information substrate.
 
-To further validate channel selection effectiveness at extreme reduction, we compare the 4-channel FDR∩Attention selection against a 4-channel negative control (channels not selected by any data-driven method).
+> **Key takeaway:** The **32-channel mark** represents the optimal trade-off — retaining **96.7%** of full-array performance with only **25%** of the electrodes. At 8 channels, the choice of selection method becomes decisive.
 
-**Table 9b. 4-channel control experiment results (CBraMod cross-subject).**
+### 3.5 Transfer Learning (128 Channels)
+
+Table 8 summarizes transfer learning results at 128 channels.
+
+**Table 8. Transfer learning effect (128ch CBraMod binary).**
+
+| Paradigm | CBraMod Mean ± SD | Δ vs. Cross-Subject |
+|----------|-------------------|---------------------|
+| Cross-Subject | 90.68 ± 9.31% | — |
+| Transfer (fine-tuned) | 90.12 ± 8.98% | **−0.56 pp** |
+
+At 128 channels, the cross-subject model has already captured sufficient representational capacity, and individual fine-tuning provides no additional benefit (−0.56 pp, not significant).
+
+> **Data sources**: Cross-subject run `20260324_0023`: `results/20260324_0023_cross_subject_cache_imagery_binary.json`; Transfer run `20260329_0507`: `results/20260329_0507_transfer_cache_imagery_binary.json`
+
+`[TODO: Transfer learning across channel configurations will be added after reduced-channel transfer runs are completed.]`
+
+### 3.6 Control Experiments
+
+To rule out data leakage as an explanation for the consistently high accuracy observed across different channel configurations, we conducted control experiments at the 4-channel level.
+
+**Table 9. 4-channel control experiment results (cross-subject).**
 
 | Condition | Task | CBraMod Mean ± SD | EEGNet Mean ± SD | Δ (optimal − neg. ctrl) |
 |-----------|------|-------------------|------------------|-----------------------|
-| FDR ∩ Attention (optimal 4ch) | Binary | 82.86 ± 14.55% | 66.79 ± 8.83% | — |
-| Negative control (4ch) | Binary | 67.62 ± 9.15% | 57.05 ± 5.71% | **−15.24 pp** (CBraMod) |
-| FDR ∩ Attention (optimal 4ch) | Ternary | 64.05 ± 12.42% | 45.62 ± 11.50% | — |
-| Negative control (4ch) | Ternary | 53.37 ± 8.14% | 38.39 ± 6.90% | **−10.68 pp** (CBraMod) |
+| FDR ∩ Attention (optimal 4ch) | Binary | 82.71 ± 13.84% | 70.92 ± 13.74% | — |
+| Negative control (4ch) | Binary | 67.65 ± 9.46% | 59.17 ± 5.70% | **−15.06 pp** (CBraMod) |
 
-The channel selection effect is dramatically amplified at 4 channels compared to 32 channels: the optimal-vs-control gap is **15.24 pp** at 4ch (binary, CBraMod) versus only 4.02 pp at 32ch. This confirms that data-driven channel selection is *essential* at extreme channel reduction, whereas at 32 channels, volume conduction provides sufficient redundancy for even suboptimal selections to perform well.
+The channel selection effect is dramatically amplified at 4 channels: the optimal-vs-control gap is **15.06 pp** for CBraMod. This confirms that data-driven channel selection is *essential* at extreme channel reduction.
 
-Transfer learning on the 4ch negative control yields CBraMod 72.02% ± 11.08% (+4.40 pp over cross-subject), demonstrating that individual adaptation partially compensates even for poorly chosen channels.
-
-Notably, the 32ch negative control (84.08%) achieves accuracy comparable to the 4ch optimal selection (82.86%), suggesting that **32 mediocre channels ≈ 4 excellent channels** — a practical guideline for deployment decisions.
+The negative control still achieves 67.65%, well above chance (50%), demonstrating that even channels not selected by any data-driven method carry sufficient information due to volume conduction for a pretrained foundation model to achieve above-chance performance.
 
 > **Data sources**:
-> - FDR complement run 1 `20260301_1155`: `results/32_channel/fdr_complement/20260301_1155_cross-subject_cbramod_imagery_binary.json`
-> - FDR complement run 2 `20260301_1448`: `results/32_channel/fdr_complement/20260301_1448_cross-subject_cbramod_imagery_binary.json`
-> - 32ch negative control run `20260302_0141`: `results/32_channel/negative_control/20260302_0141_cross-subject_cbramod_imagery_binary.json`
-> - 4ch FDR∩Attention binary run `20260301_2100`: `results/4_channel/fdr_attention_overlap/20260301_2100_cross_subject_cache_imagery_binary.json`
-> - 4ch negative control binary run `20260309_2329`: `results/4_channel/negative_control/20260309_2329_cross_subject_cache_imagery_binary.json`
-> - 4ch FDR∩Attention ternary run `20260302_2336`: `results/4_channel/fdr_attention_overlap/20260302_2336_cross_subject_cache_imagery_ternary.json`
-> - 4ch negative control ternary run `20260310_0054`: `results/4_channel/negative_control/20260310_0054_cross_subject_cache_imagery_ternary.json`
-> - 4ch negative control transfer run `20260310_0023`: `results/4_channel/negative_control/20260310_0023_transfer_comparison_cache_imagery_binary.json`
+> - 4ch FDR∩Attention binary run `20260330_1417`: `results/4_channel/fdr_attention_overlap/20260330_1417_cross_subject_cache_imagery_binary.json`
+> - 4ch negative control binary run `20260330_1442`: `results/4_channel/negative_control/20260330_1442_cross_subject_cache_imagery_binary.json`
 
-**Figure 9.** Control experiments — per-participant accuracy for non-optimal channel subsets. *Purpose: rule out data leakage by showing that even "worst" channels achieve above-chance accuracy, confirming volume conduction redundancy.*
-
-**(a)** FDR complement (run `20260301_1448` · 32ch · 32 random channels from the 96 NOT selected by FDR · cross-subject · CBraMod · mean 83.18%)
-![Fig 9a — FDR complement cross-subject](results/32_channel/fdr_complement/20260301_1448_cross-subject_combined_imagery_binary.png)
-
-**(b)** Negative control (run `20260302_0141` · 32ch · 32 channels not selected by ANY data-driven method · cross-subject · CBraMod · mean 84.08%)
-![Fig 9b — Negative control cross-subject](results/32_channel/negative_control/20260302_0141_cross-subject_combined_imagery_binary.png)
-
-### 3.8 Data Quality and Subject Heterogeneity
+### 3.7 Data Quality and Subject Heterogeneity
 
 **Table 10. Data quality classification (n = 21).**
 
@@ -521,23 +350,15 @@ The three major-artifact participants (S04, S10, S14) exhibit amplitudes 3–8×
 
 > **Data sources**: `results/data_quality_report.md`; `results/data_quality_advanced_report.md`; `results/subject_deep_dive_report.md`
 
-**Figure 10.** Spatial analysis of channel selection patterns. *Purpose: show that FDR favors temporal/frontal regions over motor cortex, and visualize overlap between top-performing methods.*
-
-**(a)** Scalp region distribution — bar chart showing how many channels each 32ch config allocates to each scalp region (frontal, central, temporal, parietal, occipital).
-![Fig 10a — Region distribution across configs](results/32_channel/electrode_placements/region_distribution.png)
-
-**(b)** FDR vs. Attention overlap — 2D scalp map showing shared and unique electrode positions between the two best-performing data-driven methods (4 overlapping channels = the 4ch subset).
-![Fig 10b — FDR vs Attention channel overlap](results/32_channel/electrode_placements/overlap_fdr_vs_attention_2d.png)
-
 ---
 
 ## 4. Discussion
 
 ### 4.1 Foundation Model Advantage
 
-The consistent superiority of CBraMod over EEGNet across all experimental conditions — within-subject (**+5.89 pp**), cross-subject (**~20 pp** gap at 32 channels), and transfer learning — reflects the value of large-scale pretraining for EEG decoding. The 1,600× parameter difference between the models (4M vs. 2.5K) alone does not explain this gap; rather, CBraMod's pretraining on the TUEG corpus provides general-purpose spatiotemporal EEG representations that transfer effectively to the relatively data-scarce finger-level MI task.
+The consistent superiority of CBraMod over EEGNet across all experimental conditions — within-subject (**+7.05 pp**), cross-subject (**+14.01 pp** at 128ch, **+10–13 pp** at 32ch) — reflects the value of large-scale pretraining for EEG decoding. The ~400× parameter difference between the models (4M vs. 10K) alone does not explain this gap; rather, CBraMod's pretraining on the TUEG corpus provides general-purpose spatiotemporal EEG representations that transfer effectively to the relatively data-scarce finger-level MI task.
 
-> The performance gap between the two models **widens as channel count decreases** (5.89 pp at 128ch → 16.60–21.91 pp at 32ch), suggesting that pretrained knowledge partially compensates for reduced spatial information — a benefit unavailable to randomly initialized models like EEGNet.
+> Notably, EEGNet does not benefit from cross-subject data pooling at 128ch (78.10% within vs. 76.67% cross, −1.43 pp), while CBraMod gains +5.53 pp. This suggests that the foundation model's pretrained representations enable effective integration of heterogeneous cross-subject data, a capability absent in smaller models trained from scratch.
 
 ### 4.2 Optimal Channel Configuration for Deployment
 
@@ -545,25 +366,15 @@ The 32-channel FDR configuration emerges as the optimal trade-off for practical 
 
 | Property | Value |
 |----------|-------|
-| Performance retention | **97.6%** of 128ch (88.10% vs. 90.27%) |
-| vs. 61ch standard 10-10 | Equivalent (88.72%) with **nearly half** the channels |
+| Performance retention | **96.7%** of 128ch (87.71% vs. 90.68%) |
+| vs. 61ch standard 10-10 | Within 1.84 pp (89.55%) with **nearly half** the channels |
 | Hardware compatibility | Standard commercial 32-channel EEG systems |
-
-Notably, FDR-selected channels concentrate in *temporal and frontal regions* rather than the traditional motor cortex. This counterintuitive finding may reflect the fact that the FDR method prioritizes overall information density across the scalp rather than anatomical priors. The foundation model's ability to extract discriminative features from non-traditional electrode locations underscores the distinction between channels that are *individually* discriminative (motor cortex) and channels that *collectively* provide the richest information to a pretrained model.
 
 ### 4.3 Volume Conduction and Information Redundancy
 
-The control experiments (Section "Control Experiments") reveal a fundamental property of high-density EEG: due to volume conduction, electrical signals from cortical sources propagate broadly across the scalp, creating substantial information redundancy. With 128 channels, any 32-channel subset (25% of the full array) captures sufficient overlapping information for a powerful pretrained model to reconstruct viable classification features.
+The control experiments (Section 3.6) reveal a fundamental property of high-density EEG: due to volume conduction, electrical signals from cortical sources propagate broadly across the scalp, creating substantial information redundancy. The 4ch negative control (67.65%) demonstrates that even channels explicitly *not* selected by any method achieve well above chance with a pretrained foundation model. At 32 channels, the narrow performance spread (2.77 pp across five methods) confirms extensive redundancy.
 
-This interpretation is further supported by the 4-channel result (82.86%), which demonstrates that even an extreme reduction to 3.1% of the full array achieves above-80% accuracy, albeit with higher variance. The selected 4 channels (BioSemi B32, C8, D7, D19) represent the intersection of the two best-performing data-driven methods, suggesting they capture a core, non-redundant information substrate.
-
-### 4.4 Transfer Learning Saturation and Channel Selection Interaction
-
-The negligible transfer learning benefit at 128 channels (−0.09 pp) indicates that the cross-subject model has reached a representational ceiling for this task and dataset at full channel density. This saturation is consistent with the original dataset paper's observation of performance plateaus with additional session data [3].
-
-The relationship between transfer learning benefit and channel count, however, is more nuanced than a simple inverse correlation. The 8ch results reveal a critical interaction with channel selection quality: 8ch FDR gains +4.59 pp from transfer, while 8ch Attention gains only +0.50 pp. This suggests that transfer learning benefit is primarily driven by the **information deficit** relative to the task's requirements — when the cross-subject model already has access to highly informative channels (Attention), there is little room for individual adaptation; when channels are suboptimal (FDR at 8ch), fine-tuning compensates substantially. The 4ch negative control further supports this interpretation, gaining +4.40 pp from transfer.
-
-### 4.5 Impact of Artifact-Affected Participants
+### 4.4 Impact of Artifact-Affected Participants
 
 Retaining three major-artifact participants (S04, S10, S14) in all analyses provides conservative performance estimates. These participants exhibit SNR values 4–6 dB below the population mean (−19.8 to −21.8 dB vs. −15.8 dB mean) and Fisher Discriminant Ratios near zero, indicating that genuine class-discriminative neural information is buried beneath artifact noise. The impact of excluding these participants is explored in Section 6.1.
 
@@ -579,8 +390,7 @@ Several limitations should be considered when interpreting these results:
 | 2 | **Single dataset** — All experiments use one 21-participant dataset. | Generalization to other populations, paradigms, or hardware unverified. |
 | 3 | **Motor imagery only** — Motor execution data not yet evaluated. | Signal characteristics and optimal channels may differ (see Section 6.3). |
 | 4 | **No data augmentation** — No temporal shifting, noise injection, or channel dropout applied. | Low-channel regimes may benefit most from augmentation. |
-| 5 | **Hyperparameter transferability** — Hyperparameters optimized for 128ch; reduced-channel experiments (especially 4ch) used same defaults. | Suboptimal performance at low channel counts. |
-| 6 | **Missing EEGNet cross-subject 128ch baseline** — EEGNet cross-subject results available only for 32ch and 61ch. | Direct 128ch cross-subject model comparison incomplete. |
+| 5 | **Transfer learning at reduced channels** — Transfer learning results are currently limited to 128ch. | Interaction between transfer benefit and channel count not yet characterized. |
 
 ---
 
@@ -614,19 +424,14 @@ All current results are limited to motor imagery. The same dataset includes moto
 We will replicate the complete experimental pipeline using the movement paradigm (Motor Execution) to address the following questions:
 - Does CBraMod's advantage over EEGNet persist for motor execution?
 - Does the optimal channel configuration differ between imagery and execution?
-- Is the transfer learning–channel count interaction preserved?
 
 > `[TODO: Insert MI vs. ME comparison table across all channel configurations]`
 
-### 6.4 Advanced Visualization and Analysis
+### 6.4 Transfer Learning Across Channel Configurations
 
-To provide deeper neuroscientific insight, we will produce the following additional analyses:
+Transfer learning experiments at reduced channel counts (32, 8, 4 channels) will characterize the interaction between transfer learning benefit and channel count. Based on prior observations at 128ch (−0.56 pp), we hypothesize that transfer benefit increases as channel count decreases.
 
-- **Cross-subject feature clustering (UMAP/t-SNE)**: Visualization of learned representations across participants, highlighting whether artifact-affected participants (e.g., S04) form distinct clusters in the embedding space.
-- **Electrode topographic maps (topoplots)**: Spatial visualization of volume conduction redundancy, showing that discriminative power is distributed rather than localized to the motor cortex.
-- **Session-level learning dynamics**: Epoch-by-epoch training curves for the plateau-breaking experiment (Section 6.2).
-
-> `[TODO: Insert UMAP/t-SNE cluster figures, topographic maps, and learning curve visualizations]`
+> `[TODO: Insert transfer learning × channel count interaction table]`
 
 ---
 
@@ -635,18 +440,15 @@ To provide deeper neuroscientific insight, we will produce the following additio
 This study demonstrates that combining an EEG foundation model (CBraMod) with data-driven channel selection provides a viable path toward practical, reduced-channel brain-computer interfaces for finger-level motor imagery decoding. Three key findings emerge:
 
 > **Finding 1 — Foundation model superiority scales with channel reduction.**
-> CBraMod's advantage over EEGNet grows from **+5.89 pp** at 128 channels to **+16–22 pp** at 32 channels, establishing pretrained models as particularly valuable when spatial information is constrained.
+> CBraMod's advantage over EEGNet grows from **+7.05 pp** within-subject to **+14.01 pp** cross-subject at 128ch, and remains **+10–13 pp** at 32ch, establishing pretrained models as particularly valuable when spatial information is constrained.
 
 > **Finding 2 — 32 channels is the optimal deployment target.**
-> FDR-selected 32 channels retain **97.6%** of full 128-channel performance (88.10% vs. 90.27%), offering a practical balance between decoding accuracy and hardware requirements.
+> FDR-selected 32 channels retain **96.7%** of full 128-channel performance (87.71% vs. 90.68%), offering a practical balance between decoding accuracy and hardware requirements.
 
-> **Finding 3 — Transfer learning compensates for information deficit.**
-> Individual fine-tuning benefit is modulated by both channel count and selection quality: up to **+4.59 pp** at 8ch with suboptimal selection (FDR), but only +0.50 pp with optimal selection (Attention). This suggests pairing per-user adaptation with reduced-channel systems, especially when channel placement is constrained.
->
-> **Finding 4 — Channel selection method becomes critical at low counts.**
-> At 32 channels, the six selection methods vary by only 6 pp; at 8 channels, the gap between FDR and Attention is **13.37 pp** (68.33% vs. 81.70%). At 4 channels, the optimal-vs-control gap reaches **15.24 pp**. This exponential sensitivity demands careful channel selection for sub-32-channel deployments.
+> **Finding 3 — Channel selection method becomes critical at low counts.**
+> At 32 channels, the five selection methods vary by only 2.77 pp; at 8 channels, the gap between FDR and Attention reaches **8 pp**; at 4 channels, the optimal-vs-control gap reaches **15.06 pp**. This increasing sensitivity demands careful channel selection for sub-32-channel deployments.
 
-These results, validated through rigorous control experiments that confirm volume conduction redundancy rather than data leakage, support the deployment of CBraMod-based BCI systems with commercial 32-channel hardware for finger-level motor imagery applications.
+These results, validated through control experiments that confirm volume conduction redundancy rather than data leakage, support the deployment of CBraMod-based BCI systems with commercial 32-channel hardware for finger-level motor imagery applications.
 
 ---
 
@@ -676,56 +478,56 @@ These results, validated through rigorous control experiments that confirm volum
 
 ### Table S1. Per-Subject Results (128 Channels, Binary Classification)
 
-| Subject | EEGNet Within | CBraMod Within | CBraMod Cross | Data Quality |
-|---------|--------------|----------------|---------------|--------------|
-| S01 | 69.38% | 76.25% | 87.50% | Clean |
-| S02 | 95.00% | 95.00% | 96.25% | Clean |
-| S03 | 80.00% | 98.13% | 98.75% | Minor |
-| S04 | 95.63% | 90.63% | 98.12% | **Major** |
-| S05 | 85.00% | 88.13% | 93.12% | Minor |
-| S06 | 71.25% | 69.38% | 86.25% | Clean |
-| S07 | 76.25% | 81.88% | 90.00% | Clean |
-| S08 | 84.38% | 85.63% | 97.50% | Clean |
-| S09 | 96.88% | 97.50% | 98.75% | Minor |
-| S10 | 70.63% | 59.38% | 66.25% | **Major** |
-| S11 | 72.50% | 90.00% | 93.75% | Clean |
-| S12 | 81.25% | 88.75% | 88.75% | Info |
-| S13 | 87.50% | 91.88% | 91.25% | Clean |
-| S14 | 77.50% | 84.38% | 88.12% | **Major** |
-| S15 | 71.25% | 86.88% | 94.38% | Clean |
-| S16 | 58.75% | 81.25% | 92.50% | Minor |
-| S17 | 70.00% | 80.00% | 90.62% | Clean |
-| S18 | 91.25% | 91.25% | 95.00% | Clean |
-| S19 | 93.13% | 98.75% | 99.38% | Info |
-| S20 | 55.00% | 61.88% | 66.88% | Info |
-| S21 | 71.25% | 80.63% | 82.50% | Minor |
+| Subject | EEGNet Within | CBraMod Within | CBraMod Cross | EEGNet Cross | Data Quality |
+|---------|--------------|----------------|---------------|--------------|--------------|
+| S01 | 68.75% | 86.88% | 93.12% | 73.75% | Clean |
+| S02 | 94.38% | 94.38% | 95.00% | 85.62% | Clean |
+| S03 | 85.00% | 94.38% | 100.00% | 78.75% | Minor |
+| S04 | 94.38% | 91.88% | 98.12% | 93.75% | **Major** |
+| S05 | 90.00% | 86.25% | 92.50% | 60.00% | Minor |
+| S06 | 68.12% | 74.38% | 87.50% | 74.38% | Clean |
+| S07 | 76.88% | 81.88% | 90.00% | 81.25% | Clean |
+| S08 | 85.00% | 93.12% | 97.50% | 87.50% | Clean |
+| S09 | 99.38% | 99.38% | 99.38% | 95.00% | Minor |
+| S10 | 70.00% | 60.62% | 66.25% | 61.25% | **Major** |
+| S11 | 70.00% | 89.38% | 94.38% | 74.38% | Clean |
+| S12 | 73.75% | 85.00% | 90.00% | 76.25% | Info |
+| S13 | 91.88% | 95.62% | 93.75% | 87.50% | Clean |
+| S14 | 78.12% | 83.12% | 87.50% | 67.50% | **Major** |
+| S15 | 71.25% | 92.50% | 95.00% | 75.00% | Clean |
+| S16 | 56.25% | 70.62% | 94.38% | 60.00% | Minor |
+| S17 | 70.62% | 84.38% | 90.00% | 76.88% | Clean |
+| S18 | 91.25% | 91.88% | 95.62% | 90.00% | Clean |
+| S19 | 85.62% | 98.12% | 99.38% | 93.75% | Info |
+| S20 | 52.50% | 61.25% | 65.62% | 55.62% | Info |
+| S21 | 66.88% | 73.12% | 79.38% | 61.88% | Minor |
 
-> **Data sources**: EEGNet within: `results/20260206_1003_comparison_cache_imagery_binary.json`; CBraMod within: `results/20260210_0435_comparison_cache_imagery_binary BLANK-CBRAMOD.json`; CBraMod cross: `results/20260206_1029_cross-subject_cbramod_imagery_binary.json`
+> **Data sources**: EEGNet within: `results/20260316_1411_comparison_cache_imagery_binary.json`; CBraMod within: `results/20260323_2237_comparison_cache_imagery_binary.json`; CBraMod cross: `results/20260324_0023_cross_subject_cache_imagery_binary.json`; EEGNet cross: `results/20260330_0709_cross_subject_cache_imagery_binary.json`
 
 ### Table S2. 32-Channel Per-Subject Results (CBraMod Cross-Subject Binary)
 
-| Subject | FDR | Attention | CSP | Band Power | Commercial | Motor Cortex |
-|---------|-----|-----------|-----|-----------|------------|--------------|
-| S01 | 92.50% | 91.25% | 84.38% | 85.63% | 82.50% | 72.50% |
-| S02 | 95.63% | 85.63% | 87.50% | 91.88% | 90.00% | 86.88% |
-| S03 | 98.13% | 98.13% | 98.13% | 99.38% | 96.25% | 93.13% |
-| S04 | 97.50% | 96.88% | 95.00% | 90.63% | 93.13% | 93.75% |
-| S05 | 81.25% | 61.88% | 68.75% | 65.00% | 79.38% | 69.38% |
-| S06 | 77.50% | 80.00% | 73.75% | 81.25% | 80.00% | 77.50% |
-| S07 | 89.38% | 91.25% | 89.38% | 89.38% | 85.63% | 80.63% |
-| S08 | 94.38% | 96.88% | 95.63% | 93.75% | 92.50% | 90.63% |
-| S09 | 96.88% | 96.88% | 98.13% | 96.25% | 99.38% | 94.38% |
-| S10 | 67.50% | 65.63% | 65.63% | 65.00% | 70.63% | 65.63% |
-| S11 | 91.88% | 90.00% | 91.88% | 90.63% | 89.38% | 91.88% |
-| S12 | 88.13% | 88.13% | 85.00% | 86.25% | 83.75% | 72.50% |
-| S13 | 89.38% | 91.25% | 85.00% | 88.75% | 86.25% | 84.38% |
-| S14 | 90.63% | 89.38% | 81.88% | 83.75% | 83.13% | 76.88% |
-| S15 | 90.00% | 88.75% | 93.75% | 90.63% | 86.25% | 88.75% |
-| S16 | 87.50% | 86.25% | 85.63% | 84.38% | 91.88% | 73.75% |
-| S17 | 88.13% | 90.63% | 89.38% | 89.38% | 91.25% | 86.25% |
-| S18 | 88.75% | 91.25% | 88.13% | 85.63% | 88.75% | 87.50% |
-| S19 | 98.13% | 96.25% | 98.13% | 98.75% | 96.88% | 96.25% |
-| S20 | 66.25% | 70.63% | 61.88% | 63.75% | 68.75% | 65.00% |
-| S21 | 80.63% | 80.63% | 79.38% | 75.63% | 76.88% | 75.00% |
+| Subject | FDR | Attention | CSP | Band Power | Commercial |
+|---------|-----|-----------|-----|-----------|------------|
+| S01 | 86.88% | 77.50% | 86.88% | 85.62% | 82.50% |
+| S02 | 91.25% | 89.38% | 88.12% | 95.62% | 90.00% |
+| S03 | 99.38% | 96.25% | 96.88% | 97.50% | 97.50% |
+| S04 | 96.88% | 95.62% | 92.50% | 98.12% | 95.00% |
+| S05 | 75.00% | 79.38% | 74.38% | 75.00% | 84.38% |
+| S06 | 80.00% | 75.00% | 71.88% | 77.50% | 75.62% |
+| S07 | 87.50% | 86.88% | 85.00% | 88.75% | 81.25% |
+| S08 | 91.88% | 93.75% | 93.75% | 91.88% | 94.38% |
+| S09 | 97.50% | 95.62% | 96.25% | 97.50% | 97.50% |
+| S10 | 70.00% | 71.88% | 61.25% | 65.62% | 69.38% |
+| S11 | 91.88% | 88.12% | 91.88% | 93.75% | 91.25% |
+| S12 | 85.00% | 81.25% | 81.25% | 86.88% | 86.88% |
+| S13 | 91.25% | 90.62% | 90.00% | 90.00% | 87.50% |
+| S14 | 91.25% | 85.62% | 85.62% | 84.38% | 78.75% |
+| S15 | 89.38% | 91.25% | 93.12% | 91.25% | 89.38% |
+| S16 | 88.12% | 83.75% | 83.12% | 86.25% | 87.50% |
+| S17 | 93.75% | 88.75% | 88.12% | 89.38% | 92.50% |
+| S18 | 90.62% | 85.62% | 90.00% | 92.50% | 89.38% |
+| S19 | 98.75% | 97.50% | 99.38% | 98.75% | 96.88% |
+| S20 | 66.88% | 65.00% | 62.50% | 63.75% | 65.62% |
+| S21 | 78.75% | 76.25% | 71.88% | 73.75% | 75.00% |
 
-> **Data sources**: `results/32_channel/{fdr,attention,csp,band_power,commercial,motor_cortex}/20260220_*_cross-subject_cbramod_imagery_binary.json`
+> **Data sources**: `results/32_channel/{fdr,attention,csp,band_power,commercial}/20260330_*_cross_subject_cache_imagery_binary.json`

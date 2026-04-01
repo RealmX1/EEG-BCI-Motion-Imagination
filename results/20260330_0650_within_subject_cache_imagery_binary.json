@@ -1,0 +1,40 @@
+{
+  "metadata": {
+    "training_type": "within_subject",
+    "paradigm": "imagery",
+    "task": "binary",
+    "run_tag": "20260330_0650",
+    "timestamp": "2026-03-30T06:53:27.052106",
+    "n_subjects": null,
+    "is_complete": false,
+    "preprocessing_version": "v2.0"
+  },
+  "wandb_groups": {
+    "eegnet": "eegnet_imagery_binary_20260330_0650"
+  },
+  "last_updated": "2026-03-30T06:53:27.052106",
+  "results": {
+    "eegnet": {
+      "S01": {
+        "subject_id": "S01",
+        "task_type": "binary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.6955855303494789,
+        "test_acc": 0.71875,
+        "test_acc_majority": 0.71875,
+        "epochs_trained": 16,
+        "training_time": 79.45989450000343
+      },
+      "S02": {
+        "subject_id": "S02",
+        "task_type": "binary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.8007257332930148,
+        "test_acc": 0.90625,
+        "test_acc_majority": 0.90625,
+        "epochs_trained": 23,
+        "training_time": 108.1674274999823
+      }
+    }
+  }
+}

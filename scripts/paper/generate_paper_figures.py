@@ -679,6 +679,181 @@ def generate_32ch_comparison_figure():
 
 
 # =============================================================================
+# Figure 9: Extra Sessions Paradigm Summary
+# =============================================================================
+
+def generate_extra_sessions_paradigm_figure():
+    """
+    Extra sessions 三范式总览（CBraMod binary, N = 16）.
+
+    目的：
+      1. 将 within-subject / cross-subject / transfer-init 放到同一主文图中
+      2. 直观展示“初始点更高 != 增量更大”的范式差异
+
+    数据来源:
+      within-subject: results/20260324_2131_extra_sessions_cache_imagery_binary.json
+      cross-subject:  results/20260326_1409_cross_subject_extra_sessions_cache_imagery_binary.json
+      transfer-init:  results/20260329_1357_extra_sessions_cache_imagery_binary.json
+    """
+    import matplotlib.pyplot as plt
+
+    step_order = ['baseline', 'sess03', 'sess04', 'sess05']
+    step_labels = ['Baseline', '+Sess03', '+Sess04', '+Sess05']
+    x = np.arange(len(step_order))
+
+    configs = [
+        {
+            'label': 'Within-Subject',
+            'path': 'results/20260324_2131_extra_sessions_cache_imagery_binary.json',
+            'loader': extract_extra_session_step_accs,
+            'color': '#1976D2',
+            'marker': 'o',
+        },
+        {
+            'label': 'Cross-Subject (21-subj train)',
+            'path': 'results/20260326_1409_cross_subject_extra_sessions_cache_imagery_binary.json',
+            'loader': extract_cross_subject_extra_session_step_accs,
+            'color': '#EF6C00',
+            'marker': 's',
+        },
+        {
+            'label': 'Transfer-Init',
+            'path': 'results/20260329_1357_extra_sessions_cache_imagery_binary.json',
+            'loader': extract_extra_session_step_accs,
+            'color': '#2E7D32',
+            'marker': 'D',
+        },
+    ]
+
+    series = []
+    for cfg in configs:
+        path = Path(cfg['path'])
+        if not path.exists():
+            logger.warning(f'Missing: {cfg["path"]}')
+            continue
+        cache = load_json_cache(cfg['path'])
+        step_accs = cfg['loader'](cache, 'cbramod')
+        means = np.array([
+            np.mean(step_accs[step]) if step_accs.get(step) else np.nan
+            for step in step_order
+        ])
+        sds = np.array([
+            np.std(step_accs[step]) if step_accs.get(step) else 0.0
+            for step in step_order
+        ])
+        if np.isnan(means).all():
+            continue
+        series.append({
+            **cfg,
+            'means': means,
+            'sds': sds,
+            'delta': means[-1] - means[0],
+        })
+
+    if len(series) < 2:
+        logger.error('Insufficient data for extra_sessions_paradigm figure')
+        return
+
+    fig, (ax_line, ax_gain) = plt.subplots(
+        1, 2, figsize=(13, 5.4), gridspec_kw={'width_ratios': [2.2, 1]}
+    )
+
+    for item in series:
+        ax_line.plot(
+            x, item['means'],
+            color=item['color'],
+            marker=item['marker'],
+            linewidth=2.6,
+            markersize=8,
+            label=item['label'],
+            zorder=3,
+        )
+        ax_line.fill_between(
+            x,
+            item['means'] - item['sds'],
+            item['means'] + item['sds'],
+            color=item['color'],
+            alpha=0.12,
+            zorder=1,
+        )
+        ax_line.annotate(
+            f'{item["means"][-1]:.2f}%',
+            xy=(x[-1], item['means'][-1]),
+            xytext=(8, 0),
+            textcoords='offset points',
+            color=item['color'],
+            fontsize=9,
+            fontweight='bold',
+            va='center',
+        )
+
+    ax_line.set_xticks(x)
+    ax_line.set_xticklabels(step_labels, fontsize=11)
+    ax_line.set_ylabel('Mean Accuracy ± SD (%)', fontsize=12)
+    ax_line.set_title('A. Accuracy Trajectory', fontsize=13, fontweight='bold')
+    ax_line.grid(True, alpha=0.25)
+    ax_line.legend(loc='lower right', fontsize=9)
+
+    y_min = min(float(np.nanmin(item['means'] - item['sds'])) for item in series)
+    y_max = max(float(np.nanmax(item['means'] + item['sds'])) for item in series)
+    ax_line.set_ylim(max(75, y_min - 2.5), min(100, y_max + 2.5))
+
+    gain_x = np.arange(len(series))
+    gains = [item['delta'] for item in series]
+    gain_bars = ax_gain.bar(
+        gain_x,
+        gains,
+        color=[item['color'] for item in series],
+        width=0.65,
+        alpha=0.9,
+    )
+    for bar, item in zip(gain_bars, series):
+        height = bar.get_height()
+        ax_gain.text(
+            bar.get_x() + bar.get_width() / 2,
+            height + 0.18 if height >= 0 else height - 0.18,
+            f'{height:+.2f} pp',
+            ha='center',
+            va='bottom' if height >= 0 else 'top',
+            fontsize=9,
+            fontweight='bold',
+            color=item['color'],
+        )
+        ax_gain.text(
+            bar.get_x() + bar.get_width() / 2,
+            0.2,
+            f'Final {item["means"][-1]:.2f}%',
+            ha='center',
+            va='bottom',
+            fontsize=8,
+            rotation=90,
+            color='#444444',
+        )
+
+    ax_gain.axhline(0, color='gray', linewidth=1, alpha=0.6)
+    ax_gain.set_xticks(gain_x)
+    ax_gain.set_xticklabels(
+        ['Within', 'Cross', 'Transfer'],
+        rotation=15,
+        ha='right',
+        fontsize=10,
+    )
+    ax_gain.set_ylabel('Gain vs Baseline (pp)', fontsize=12)
+    ax_gain.set_title('B. Net Gain by +Sess05', fontsize=13, fontweight='bold')
+    ax_gain.grid(axis='y', alpha=0.25)
+    ax_gain.set_ylim(min(-1.5, min(gains) - 0.8), max(7.5, max(gains) + 1.0))
+
+    fig.suptitle('Extra Sessions Across Training Paradigms (CBraMod Binary, N = 16)', fontsize=15, y=1.02)
+    fig.tight_layout()
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = OUTPUT_DIR / 'extra_sessions_paradigm_binary.png'
+    fig.savefig(out_path, dpi=220, bbox_inches='tight')
+    plt.close(fig)
+    logger.info(f'Saved: {out_path}')
+
+
+# =============================================================================
 # Figure S1: Extra Sessions Strategy Comparison
 # =============================================================================
 
@@ -687,7 +862,7 @@ def generate_extra_sessions_strategy_figure():
     三种评估策略 (per_session / fixed_combined / fixed_sess02) 折线对比.
 
     数据来源:
-      per_session:    results/20260329_1357_extra_sessions_cache_imagery_binary.json
+      per_session:    results/20260324_2131_extra_sessions_cache_imagery_binary.json
       fixed_combined: results/20260325_0514_extra_sessions_cache_fixed_combined_imagery_binary.json
       fixed_sess02:   results/20260325_1208_extra_sessions_cache_fixed_sess02_imagery_binary.json
     """
@@ -696,7 +871,7 @@ def generate_extra_sessions_strategy_figure():
 
     strategy_configs = {
         'per_session': {
-            'path': 'results/20260329_1357_extra_sessions_cache_imagery_binary.json',
+            'path': 'results/20260324_2131_extra_sessions_cache_imagery_binary.json',
             'label': 'per_session (default)',
             'linestyle': '-',
             'marker': 'o',
@@ -984,6 +1159,7 @@ FIGURE_GENERATORS = {
     'further_pretraining': generate_further_pretraining_figure,
     'inference_latency': generate_inference_latency_figure,
     '32ch_comparison': generate_32ch_comparison_figure,
+    'extra_sessions_paradigm': generate_extra_sessions_paradigm_figure,
     'extra_sessions_strategy': generate_extra_sessions_strategy_figure,
     'figure2': generate_figure2_128ch_cross_subject,
     'figure3b': generate_figure3b_32ch_fdr,
