@@ -111,13 +111,13 @@ run_tail uv run python scripts/experiments/run_transfer_comparison.py \
 echo ""
 echo "=== [5/6] Extra Sessions (from JSON cache) ==="
 
-echo "  Binary (20260329_1357)..."
+echo "  Binary (20260324_2131)..."
 run_tail uv run python scripts/paper/generate_extra_sessions_plots.py \
-  --task binary --run-tag 20260329_1357
+  --task binary --run-tag 20260324_2131
 
-echo "  Ternary (20260329_1503)..."
+echo "  Ternary (20260331_0827)..."
 run_tail uv run python scripts/paper/generate_extra_sessions_plots.py \
-  --task ternary --run-tag 20260329_1503
+  --task ternary --run-tag 20260331_0827
 
 # ============================================
 # Part 6: 论文专属新图表 (Sections 3.3, 3.6, 3.7)
@@ -133,6 +133,9 @@ run_tail uv run python scripts/paper/generate_paper_figures.py --figure further_
 
 echo "  Inference latency..."
 run_tail uv run python scripts/paper/generate_paper_figures.py --figure inference_latency
+
+echo "  Extra sessions paradigm summary..."
+run_tail uv run python scripts/paper/generate_paper_figures.py --figure extra_sessions_paradigm
 
 echo "  Extra sessions strategy comparison..."
 run_tail uv run python scripts/paper/generate_paper_figures.py --figure extra_sessions_strategy

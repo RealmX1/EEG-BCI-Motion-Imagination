@@ -708,6 +708,7 @@ def generate_extra_sessions_paradigm_figure():
             'loader': extract_extra_session_step_accs,
             'color': '#1976D2',
             'marker': 'o',
+            'label_offset_y': 6,
         },
         {
             'label': 'Cross-Subject (21-subj train)',
@@ -715,6 +716,7 @@ def generate_extra_sessions_paradigm_figure():
             'loader': extract_cross_subject_extra_session_step_accs,
             'color': '#EF6C00',
             'marker': 's',
+            'label_offset_y': 0,
         },
         {
             'label': 'Transfer-Init',
@@ -722,6 +724,7 @@ def generate_extra_sessions_paradigm_figure():
             'loader': extract_extra_session_step_accs,
             'color': '#2E7D32',
             'marker': 'D',
+            'label_offset_y': -6,
         },
     ]
 
@@ -779,7 +782,7 @@ def generate_extra_sessions_paradigm_figure():
         ax_line.annotate(
             f'{item["means"][-1]:.2f}%',
             xy=(x[-1], item['means'][-1]),
-            xytext=(8, 0),
+            xytext=(8, item.get('label_offset_y', 0)),
             textcoords='offset points',
             color=item['color'],
             fontsize=9,
@@ -889,6 +892,7 @@ def generate_extra_sessions_strategy_figure():
             'marker': 's',
         },
     }
+    strategy_order = list(strategy_configs.keys())
 
     steps = ['baseline', 'sess03', 'sess04', 'sess05']
     step_labels = ['Baseline', '+Sess03', '+Sess04', '+Sess05']
@@ -930,61 +934,248 @@ def generate_extra_sessions_strategy_figure():
         logger.error('No strategy data loaded — check file paths')
         return
 
-    # Plot: 2 panels (left=EEGNet, right=CBraMod)
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharey=True)
+    def _spread_label_positions(
+        target_ys: List[float],
+        lower: float,
+        upper: float,
+        min_gap: float = 1.9,
+    ) -> List[float]:
+        """Greedy vertical label spreading for a small number of endpoint labels."""
+        if not target_ys:
+            return []
 
-    for ax, model in zip(axes, models):
-        for strat_name, cfg in strategy_configs.items():
+        adjusted = list(target_ys)
+        order = sorted(range(len(adjusted)), key=lambda idx: adjusted[idx])
+        for i in range(1, len(order)):
+            prev_idx = order[i - 1]
+            curr_idx = order[i]
+            adjusted[curr_idx] = max(adjusted[curr_idx], adjusted[prev_idx] + min_gap)
+
+        overshoot = adjusted[order[-1]] - upper
+        if overshoot > 0:
+            adjusted = [y - overshoot for y in adjusted]
+
+        undershoot = lower - adjusted[order[0]]
+        if undershoot > 0:
+            adjusted = [y + undershoot for y in adjusted]
+
+        for i in range(1, len(order)):
+            prev_idx = order[i - 1]
+            curr_idx = order[i]
+            adjusted[curr_idx] = max(adjusted[curr_idx], adjusted[prev_idx] + min_gap)
+
+        return [float(np.clip(y, lower, upper)) for y in adjusted]
+
+    # Precompute series for each model to support cleaner labeling + exact-value tables.
+    series_by_model: Dict[str, List[Dict[str, object]]] = {model: [] for model in models}
+    for model in models:
+        for strat_name in strategy_order:
             if strat_name not in all_data or model not in all_data[strat_name]:
                 continue
             step_data = all_data[strat_name][model]
-            means = [np.mean(step_data[s]) if step_data[s] else np.nan for s in steps]
-            sds = [np.std(step_data[s]) if step_data[s] else 0 for s in steps]
+            means = np.array([
+                np.mean(step_data[s]) if step_data[s] else np.nan for s in steps
+            ])
+            sds = np.array([
+                np.std(step_data[s]) if step_data[s] else 0.0 for s in steps
+            ])
+            if np.isnan(means).all():
+                continue
+            series_by_model[model].append({
+                'name': strat_name,
+                'cfg': strategy_configs[strat_name],
+                'means': means,
+                'sds': sds,
+                'delta': float(means[-1] - means[0]),
+                'color': strategy_colors[strat_name],
+            })
 
-            x = np.arange(len(steps))
-            color = strategy_colors[strat_name]
+    # Plot: top row = line charts, bottom row = exact-value tables.
+    fig = plt.figure(figsize=(15.2, 8.0))
+    gs = fig.add_gridspec(
+        2, 2,
+        height_ratios=[4.0, 1.45],
+        hspace=0.14,
+        wspace=0.12,
+    )
+    axes = [
+        fig.add_subplot(gs[0, 0]),
+        fig.add_subplot(gs[0, 1]),
+    ]
+    axes[1].sharey(axes[0])
+    table_axes = [
+        fig.add_subplot(gs[1, 0]),
+        fig.add_subplot(gs[1, 1]),
+    ]
 
-            ax.plot(x, means, marker=cfg['marker'], linestyle=cfg['linestyle'],
-                    color=color, linewidth=2, markersize=8, label=cfg['label'],
-                    zorder=3)
-            ax.fill_between(x, np.array(means) - np.array(sds),
-                            np.array(means) + np.array(sds),
-                            color=color, alpha=0.12)
+    all_means = []
+    for model_series in series_by_model.values():
+        for item in model_series:
+            means = item['means']
+            sds = item['sds']
+            all_means.extend((means - sds).tolist())
+            all_means.extend((means + sds).tolist())
 
-            # Annotate delta at end (stagger vertically to avoid overlap)
-            if not np.isnan(means[0]) and not np.isnan(means[-1]):
-                delta = means[-1] - means[0]
-                sign = '+' if delta >= 0 else ''
-                y_offsets = {'per_session': 12, 'fixed_combined': -4, 'fixed_sess02': -18}
-                ax.annotate(f'{sign}{delta:.1f}pp',
-                            xy=(x[-1], means[-1]),
-                            xytext=(8, y_offsets.get(strat_name, 0)),
-                            textcoords='offset points',
-                            fontsize=9, fontweight='bold', color=color)
+    y_min = 50.0
+    y_max = 100.0
+    if all_means:
+        y_min = max(50, np.nanmin(all_means) - 2.0)
+        y_max = min(100, np.nanmax(all_means) + 2.0)
+    label_lower = y_min + 1.2
+    label_upper = y_max - 1.2
+    x = np.arange(len(steps))
+
+    for ax, ax_table, model in zip(axes, table_axes, models):
+        model_series = series_by_model[model]
+        for item in model_series:
+            cfg = item['cfg']
+            means = item['means']
+            sds = item['sds']
+            color = item['color']
+
+            ax.plot(
+                x, means,
+                marker=cfg['marker'],
+                linestyle=cfg['linestyle'],
+                color=color,
+                linewidth=2.2,
+                markersize=8,
+                label=cfg['label'],
+                zorder=3,
+            )
+            ax.fill_between(
+                x,
+                means - sds,
+                means + sds,
+                color=color,
+                alpha=0.12,
+                zorder=1,
+            )
+
+        if model_series:
+            start_positions = _spread_label_positions(
+                [float(item['means'][0]) for item in model_series],
+                lower=label_lower,
+                upper=label_upper,
+            )
+            end_positions = _spread_label_positions(
+                [float(item['means'][-1]) for item in model_series],
+                lower=label_lower,
+                upper=label_upper,
+            )
+
+            for item, start_y, end_y in zip(model_series, start_positions, end_positions):
+                means = item['means']
+                color = item['color']
+
+                # Baseline absolute value label.
+                ax.plot(
+                    [x[0], x[0] - 0.05, x[0] - 0.17],
+                    [means[0], means[0], start_y],
+                    color=color,
+                    linewidth=1.0,
+                    alpha=0.9,
+                    clip_on=False,
+                )
+                ax.text(
+                    x[0] - 0.2,
+                    start_y,
+                    f'{means[0]:.2f}%',
+                    ha='right',
+                    va='center',
+                    fontsize=8.6,
+                    fontweight='bold',
+                    color=color,
+                    bbox={
+                        'boxstyle': 'round,pad=0.18',
+                        'facecolor': 'white',
+                        'edgecolor': color,
+                        'alpha': 0.88,
+                        'linewidth': 0.8,
+                    },
+                    clip_on=False,
+                )
+
+                # Final absolute value + total gain label.
+                ax.plot(
+                    [x[-1], x[-1] + 0.05, x[-1] + 0.17],
+                    [means[-1], means[-1], end_y],
+                    color=color,
+                    linewidth=1.0,
+                    alpha=0.9,
+                    clip_on=False,
+                )
+                ax.text(
+                    x[-1] + 0.2,
+                    end_y,
+                    f'{means[-1]:.2f}%\n({item["delta"]:+.2f} pp)',
+                    ha='left',
+                    va='center',
+                    fontsize=8.6,
+                    fontweight='bold',
+                    color=color,
+                    bbox={
+                        'boxstyle': 'round,pad=0.22',
+                        'facecolor': 'white',
+                        'edgecolor': color,
+                        'alpha': 0.88,
+                        'linewidth': 0.8,
+                    },
+                    clip_on=False,
+                )
 
         ax.set_title(model_labels[model], fontsize=14, fontweight='bold')
         ax.set_xticks(np.arange(len(steps)))
         ax.set_xticklabels(step_labels, fontsize=11)
-        ax.set_xlabel('Training Data', fontsize=12)
         ax.grid(True, alpha=0.3)
         ax.legend(loc='lower right', fontsize=9)
+        ax.set_xlim(-0.45, len(steps) - 1 + 0.62)
+        ax.set_ylim(y_min, y_max)
 
     axes[0].set_ylabel('Mean Accuracy ± SD (%)', fontsize=12)
 
-    # Set y-axis range based on data
-    all_means = []
-    for strat_data in all_data.values():
-        for model_data in strat_data.values():
-            for accs in model_data.values():
-                if accs:
-                    all_means.extend(accs)
-    if all_means:
-        y_min = max(50, np.min(all_means) - 10)
-        y_max = min(100, np.max(all_means) + 5)
-        axes[0].set_ylim(y_min, y_max)
+    for ax_table, model in zip(table_axes, models):
+        ax_table.axis('off')
+        table_rows = []
+        for item in series_by_model[model]:
+            means = item['means']
+            table_rows.append([
+                item['cfg']['label'].replace(' (default)', ''),
+                f'{means[0]:.2f}',
+                f'{means[1]:.2f}',
+                f'{means[2]:.2f}',
+                f'{means[3]:.2f}',
+                f'{item["delta"]:+.2f}',
+            ])
 
-    fig.suptitle('Extra Sessions: Evaluation Strategy Comparison (Binary, N = 16)', fontsize=15, y=1.02)
-    fig.tight_layout()
+        table = ax_table.table(
+            cellText=table_rows,
+            colLabels=['Strategy', 'BL', '+S03', '+S04', '+S05', 'Δ'],
+            loc='center',
+            cellLoc='center',
+            colLoc='center',
+            colWidths=[0.28, 0.11, 0.11, 0.11, 0.11, 0.1],
+        )
+        table.auto_set_font_size(False)
+        table.set_fontsize(8.5)
+        table.scale(1.0, 1.28)
+        for (row, col), cell in table.get_celld().items():
+            cell.set_linewidth(0.6)
+            if row == 0:
+                cell.set_facecolor('#F2F2F2')
+                cell.set_text_props(fontweight='bold')
+            elif col == 0:
+                cell.set_text_props(
+                    fontweight='bold',
+                    color=series_by_model[model][row - 1]['color'],
+                )
+                cell.set_facecolor('#FBFBFB')
+    fig.suptitle(
+        'Extra Sessions: Evaluation Strategy Comparison (Binary, N = 16)',
+        fontsize=15,
+        y=0.97,
+    )
+    fig.subplots_adjust(top=0.86, bottom=0.08, left=0.06, right=0.97)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     out_path = OUTPUT_DIR / 'extra_sessions_strategy_comparison.png'

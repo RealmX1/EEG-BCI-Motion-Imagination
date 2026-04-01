@@ -6,8 +6,8 @@ Extra Sessions 图表重绘脚本（从 JSON cache 加载）.
 JSON cache 文件加载结果并重新生成图表。
 
 Usage:
-    uv run python scripts/paper/generate_extra_sessions_plots.py --task binary --run-tag 20260329_1357
-    uv run python scripts/paper/generate_extra_sessions_plots.py --task ternary --run-tag 20260329_1503
+    uv run python scripts/paper/generate_extra_sessions_plots.py --task binary --run-tag 20260324_2131
+    uv run python scripts/paper/generate_extra_sessions_plots.py --task ternary --run-tag 20260331_0827
 """
 
 import argparse
@@ -77,7 +77,7 @@ def load_extra_sessions_cache(cache_path: Path) -> dict:
 def main():
     parser = argparse.ArgumentParser(description='Extra Sessions 图表重绘')
     parser.add_argument('--task', required=True, choices=['binary', 'ternary'])
-    parser.add_argument('--run-tag', required=True, help='Run tag (e.g., 20260329_1357)')
+    parser.add_argument('--run-tag', required=True, help='Run tag (e.g., 20260324_2131)')
     parser.add_argument('--paradigm', default='imagery')
     parser.add_argument('--output-dir', default='paper/figures')
     args = parser.parse_args()

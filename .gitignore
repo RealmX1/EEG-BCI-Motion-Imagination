@@ -94,6 +94,9 @@ results/finetune/
 results/experiments.db
 results/experiments.db-wal
 results/experiments.db-shm
+scripts/experiments/results/experiments.db
+scripts/experiments/results/experiments.db-wal
+scripts/experiments/results/experiments.db-shm
 
 # Cache index (auto-generated)
 .cache_index.json
