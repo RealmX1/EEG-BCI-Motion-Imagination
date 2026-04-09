@@ -23,8 +23,17 @@ dependencies = [
     "rich>=14.3.3",
 ]
 
-# Note: PyTorch with CUDA must be installed separately:
-# uv pip install torch --index-url https://download.pytorch.org/whl/cu124
+# Note: PyTorch with CUDA must be installed separately. The correct wheel
+# index depends on your GPU architecture — see README.md ("Installation")
+# and docs/TROUBLESHOOTING.md for the per-GPU table. Quick reference:
+#   RTX 50xx (Blackwell, sm_120):
+#     uv pip install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu128
+#   RTX 30xx/40xx (Ampere/Ada):
+#     uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+#   RTX 20xx (Turing):
+#     uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# DO NOT use cu124 on Blackwell — it has no sm_120 kernels and silently
+# returns is_available()=True while every CUDA op crashes.
 
 [project.optional-dependencies]
 dev = [
