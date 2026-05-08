@@ -1448,11 +1448,14 @@ def find_compatible_cross_subject_results(
         return None
 
     # 搜索 cross-subject 结果文件
-    # 支持两种格式: *cross-subject_{model}_{paradigm}_{task}.json
-    #               *cross-subject_comparison_cache_{paradigm}_{task}.json
+    # 支持三种格式:
+    #   *cross-subject_{model}_{paradigm}_{task}.json (legacy hyphen, single-model)
+    #   *cross-subject_comparison_cache_{paradigm}_{task}.json (legacy hyphen, multi-model)
+    #   *cross_subject_cache_{paradigm}_{task}.json (current underscore, multi-model)
     patterns = [
         f'*cross-subject_{model_type}_{paradigm}_{task}.json',
         f'*cross-subject_comparison_cache_{paradigm}_{task}.json',
+        f'*cross_subject_cache_{paradigm}_{task}.json',
     ]
 
     all_files = []
@@ -1494,22 +1497,30 @@ def find_compatible_cross_subject_results(
                     continue
 
             # 提取 per_subject_test_acc
-            # 支持两种格式: 直接在 results 中或在嵌套结构中
+            # 支持三种格式:
+            # 1. data['per_subject_test_acc']                (legacy single-model)
+            # 2. data['results']['per_subject_test_acc']     (legacy comparison cache, model-agnostic)
+            # 3a. data['results'][model_type]['per_subject_test_acc']  (current multi-model nested)
+            # 3b. data['results'][model_type] = {S01: {...}, ...}      (legacy multi-model with subject dicts)
             per_subject_acc = None
             if 'results' in data and isinstance(data['results'], dict):
-                # 可能是 comparison cache 格式
                 if 'per_subject_test_acc' in data.get('results', {}):
                     per_subject_acc = data['results']['per_subject_test_acc']
                 elif model_type in data['results']:
-                    # 模型在 results 字典中
                     model_data = data['results'][model_type]
                     if isinstance(model_data, dict):
-                        # 可能是 subjects 字典
-                        per_subject_acc = {
-                            k: v.get('test_acc_majority', v.get('test_acc', 0))
-                            for k, v in model_data.items()
-                            if isinstance(v, dict)
-                        }
+                        if 'per_subject_test_acc' in model_data:
+                            # Format 3a: nested {model: {per_subject_test_acc: {...}}}
+                            per_subject_acc = model_data['per_subject_test_acc']
+                        else:
+                            # Format 3b: nested {model: {S01: {test_acc_majority: ...}, ...}}
+                            per_subject_acc = {
+                                k: v.get('test_acc_majority', v.get('test_acc', 0))
+                                for k, v in model_data.items()
+                                if isinstance(v, dict)
+                            }
+                            if not per_subject_acc:
+                                per_subject_acc = None
             elif 'per_subject_test_acc' in data:
                 per_subject_acc = data['per_subject_test_acc']
 

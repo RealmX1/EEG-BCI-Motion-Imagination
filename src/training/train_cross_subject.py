@@ -154,9 +154,12 @@ def load_multi_subject_data(
     )
     log_data.info(f"Train data: {len(subjects)} subjects, {len(train_dataset)} segs")
 
-    # For unified mode, test data is loaded per-subtask during evaluation
+    # For unified mode, test data is loaded per-subtask during evaluation.
+    # For quaternary, test_folders is empty (see discovery.py): the holdout
+    # comes from temporal_split_with_offline_test on train_dataset, so we
+    # also skip loading test_datasets here.
     test_datasets = {}
-    if not unified_mode:
+    if not unified_mode and test_folders:
         for subject_id in subjects:
             test_ds = FingerEEGDataset(
                 str(data_root),
@@ -173,8 +176,10 @@ def load_multi_subject_data(
 
         total_test_segs = sum(len(ds) for ds in test_datasets.values())
         log_data.info(f"Test data: {len(test_datasets)} subjects, {total_test_segs} segs total")
-    else:
+    elif unified_mode:
         log_data.info("Unified mode: test data loaded per-subtask during evaluation")
+    else:
+        log_data.info("Test data: holdout from train_dataset via offline_test_indices")
 
     return train_dataset, test_datasets
 
@@ -429,13 +434,24 @@ def train_cross_subject(
         split_desc = "Temporal per Subject - Offline 70/15/15 + Online 80/20" if is_unified else "Temporal per Subject"
         print_section_header(f"Data Splitting ({split_desc})")
 
+    needs_offline_test = is_unified or task == 'quaternary'
     with Timer("data_splitting", print_on_exit=(verbose >= 2)):
-        if is_unified:
+        if needs_offline_test:
             train_indices, val_indices, offline_test_indices = temporal_split_with_offline_test(
                 train_dataset, group_attr='subject_id',
             )
         else:
             train_indices, val_indices = temporal_split_cross_subject(train_dataset)
+
+    # Sanity check: holdout must not overlap with train/val (regression guard)
+    if needs_offline_test and offline_test_indices:
+        _train_set = set(train_indices)
+        _val_set = set(val_indices)
+        _test_set = set(offline_test_indices)
+        _tt = _test_set & _train_set
+        _tv = _test_set & _val_set
+        assert not _tt, f"Leakage: {len(_tt)} segments overlap between train and offline_test"
+        assert not _tv, f"Leakage: {len(_tv)} segments overlap between val and offline_test"
 
     # Pre-compute per-subtask val groups for unified mode
     unified_val_groups = None
@@ -647,18 +663,40 @@ def train_cross_subject(
                     print(f"  {st}: {colored(f'{st_mean:.2%} +/- {st_std:.2%}', st_color)} "
                           f"({st_n} subjects{suffix})")
     else:
-        for subject_id, test_dataset in test_datasets.items():
-            test_indices = list(range(len(test_dataset)))
-            test_acc, _ = majority_vote_accuracy(
-                model, test_dataset, test_indices, device
-            )
-            per_subject_test_acc[subject_id] = test_acc
-
-            if verbose >= 1:
-                acc_color = Colors.BRIGHT_GREEN if test_acc > 0.7 else (
-                    Colors.YELLOW if test_acc > 0.5 else Colors.RED
+        if task == 'quaternary' and offline_test_indices:
+            # Quaternary: held-out Offline slice lives inside train_dataset,
+            # filtered per subject (no separate test_datasets to load).
+            for subject_id in subjects:
+                subj_test_indices = [
+                    i for i in offline_test_indices
+                    if train_dataset.trial_infos[i].subject_id == subject_id
+                ]
+                if not subj_test_indices:
+                    continue
+                test_acc, _ = majority_vote_accuracy(
+                    model, train_dataset, subj_test_indices, device
                 )
-                print(f"  {subject_id}: {colored(f'{test_acc:.2%}', acc_color)}")
+                per_subject_test_acc[subject_id] = test_acc
+
+                if verbose >= 1:
+                    acc_color = Colors.BRIGHT_GREEN if test_acc > 0.7 else (
+                        Colors.YELLOW if test_acc > 0.5 else Colors.RED
+                    )
+                    print(f"  {subject_id}: {colored(f'{test_acc:.2%}', acc_color)} "
+                          f"({len(subj_test_indices)} held-out segs)")
+        else:
+            for subject_id, test_dataset in test_datasets.items():
+                test_indices = list(range(len(test_dataset)))
+                test_acc, _ = majority_vote_accuracy(
+                    model, test_dataset, test_indices, device
+                )
+                per_subject_test_acc[subject_id] = test_acc
+
+                if verbose >= 1:
+                    acc_color = Colors.BRIGHT_GREEN if test_acc > 0.7 else (
+                        Colors.YELLOW if test_acc > 0.5 else Colors.RED
+                    )
+                    print(f"  {subject_id}: {colored(f'{test_acc:.2%}', acc_color)}")
 
         # Overall test accuracy (mean across subjects)
         if per_subject_test_acc:

@@ -25,7 +25,11 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from src.preprocessing.data_loader import PreprocessConfig
-from src.training.common import apply_config_overrides, temporal_split_by_group
+from src.training.common import (
+    apply_config_overrides,
+    temporal_split_by_group,
+    temporal_split_with_offline_test,
+)
 from src.training.train_within_subject import (
     get_default_config,
     get_task_type_patterns,
@@ -148,13 +152,32 @@ class SubjectPrefetcher:
                 reject_trials=False,
             )
 
-        train_indices, val_indices = temporal_split_by_group(
-            train_dataset, group_attr='session_type', val_ratio=0.2,
-        )
+        # Quaternary has no separate Online_Finetune test session — carve a
+        # 70/15/15 holdout out of Offline (matches train_within_subject's
+        # non-prefetched path). For binary/ternary the test set is the
+        # already-loaded Online_Finetune session.
+        test_indices: Optional[list] = None
+        if self._task == 'quaternary':
+            train_indices, val_indices, test_indices = temporal_split_with_offline_test(
+                train_dataset, group_attr='session_type',
+            )
+            # Sanity: holdout must not overlap train/val (regression guard)
+            _train_set = set(train_indices)
+            _val_set = set(val_indices)
+            _test_set = set(test_indices)
+            _tt = _test_set & _train_set
+            _tv = _test_set & _val_set
+            assert not _tt, f"Leakage: {len(_tt)} segs train↔offline_test"
+            assert not _tv, f"Leakage: {len(_tv)} segs val↔offline_test"
+        else:
+            train_indices, val_indices = temporal_split_by_group(
+                train_dataset, group_attr='session_type', val_ratio=0.2,
+            )
 
         return {
             'train_dataset': train_dataset,
             'train_indices': train_indices,
             'val_indices': val_indices,
             'test_dataset': test_dataset,
+            'test_indices': test_indices,
         }

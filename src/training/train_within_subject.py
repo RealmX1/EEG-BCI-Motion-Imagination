@@ -475,9 +475,12 @@ def train_single_subject(
                 print_metric("Cache", "disabled", Colors.DIM)
 
         # Load TEST data (Session 2 Finetune - completely held out)
-        # For unified mode, test data is loaded per-subtask during evaluation
+        # For unified mode, test data is loaded per-subtask during evaluation.
+        # For quaternary, task_patterns['test'] is empty (see discovery.py): the
+        # holdout comes from temporal_split_with_offline_test on train_dataset
+        # below, surfaced via test_indices_precomputed.
         test_dataset = None
-        if not is_unified:
+        if not is_unified and task_patterns['test']:
             if verbose >= 2:
                 print(colored("\n  Loading test data (Session 2 Finetune)...", Colors.DIM))
             with Timer("test_data_loading", print_on_exit=(verbose >= 2)):
@@ -525,11 +528,27 @@ def train_single_subject(
                 n_trials = len(train_dataset.get_unique_trials())
                 print_metric("Total training trials", n_trials, Colors.CYAN)
 
-            if is_unified:
-                # Unified: 3-way split for offline (70/15/15), 2-way for online (80/20)
+            needs_offline_test = is_unified or config['task'] == 'quaternary'
+            if needs_offline_test:
+                # Unified: 3-way split for offline (70/15/15), 2-way for online (80/20).
+                # Quaternary: only Offline data exists, so the same util produces
+                # a clean 70/15/15 holdout (online branch is empty).
                 train_indices, val_indices, offline_test_indices = temporal_split_with_offline_test(
                     train_dataset, group_attr='session_type',
                 )
+                # For quaternary in non-unified mode, surface the holdout via
+                # test_indices_precomputed so the existing index-based eval path
+                # fires (line ~854) without independently reloading Offline data.
+                if config['task'] == 'quaternary' and not is_unified:
+                    test_indices_precomputed = offline_test_indices
+                    # Sanity check: holdout must not overlap train/val
+                    _train_set = set(train_indices)
+                    _val_set = set(val_indices)
+                    _test_set = set(offline_test_indices)
+                    _tt = _test_set & _train_set
+                    _tv = _test_set & _val_set
+                    assert not _tt, f"Leakage: {len(_tt)} segs train↔offline_test"
+                    assert not _tv, f"Leakage: {len(_tv)} segs val↔offline_test"
             else:
                 # Stratified temporal split: split within each session to ensure
                 # similar distributions (prevents validation set from being 100%

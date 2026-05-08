@@ -66,7 +66,13 @@ def get_session_folders_for_split(
     # Special case: quaternary task only has Offline data
     # No Online 4class folders exist in the dataset
     if task == 'quaternary':
-        # Both train and test use Offline data; temporal split is done by caller
+        # Train uses Offline; test must be a holdout slice of Offline taken
+        # from the train dataset (callers use temporal_split_with_offline_test
+        # to reserve the holdout). Returning [] here prevents accidentally
+        # reloading the full Offline pool as a "test set" — that path would
+        # overlap with the train pool and inflate accuracy.
+        if split == 'test':
+            return []
         return [offline]
 
     # Map task to n_class for binary/ternary

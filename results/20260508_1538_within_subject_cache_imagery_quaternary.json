@@ -1,0 +1,230 @@
+{
+  "metadata": {
+    "training_type": "within_subject",
+    "paradigm": "imagery",
+    "task": "quaternary",
+    "run_tag": "20260508_1538",
+    "timestamp": "2026-05-08T16:10:57.798486",
+    "n_subjects": null,
+    "is_complete": false,
+    "preprocessing_version": "v2.0"
+  },
+  "wandb_groups": {
+    "eegnet": "eegnet_imagery_quaternary_20260508_1538"
+  },
+  "last_updated": "2026-05-08T16:10:57.798486",
+  "results": {
+    "eegnet": {
+      "S01": {
+        "subject_id": "S01",
+        "task_type": "quaternary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.36353751359188113,
+        "test_acc": 0.4157303370786517,
+        "test_acc_majority": 0.4157303370786517,
+        "epochs_trained": 29,
+        "training_time": 128.00537540001096
+      },
+      "S02": {
+        "subject_id": "S02",
+        "task_type": "quaternary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.4043010752688172,
+        "test_acc": 0.4777777777777778,
+        "test_acc_majority": 0.4777777777777778,
+        "epochs_trained": 19,
+        "training_time": 83.83142070000758
+      },
+      "S03": {
+        "subject_id": "S03",
+        "task_type": "quaternary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.4697354113809351,
+        "test_acc": 0.5393258426966292,
+        "test_acc_majority": 0.5393258426966292,
+        "epochs_trained": 22,
+        "training_time": 95.50226649997057
+      },
+      "S04": {
+        "subject_id": "S04",
+        "task_type": "quaternary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.42030360531309297,
+        "test_acc": 0.47058823529411764,
+        "test_acc_majority": 0.47058823529411764,
+        "epochs_trained": 23,
+        "training_time": 77.57305110001471
+      },
+      "S05": {
+        "subject_id": "S05",
+        "task_type": "quaternary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.4882852292020374,
+        "test_acc": 0.6210526315789474,
+        "test_acc_majority": 0.6210526315789474,
+        "epochs_trained": 24,
+        "training_time": 110.66471949999686
+      },
+      "S06": {
+        "subject_id": "S06",
+        "task_type": "quaternary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.37683284457478006,
+        "test_acc": 0.4772727272727273,
+        "test_acc_majority": 0.4772727272727273,
+        "epochs_trained": 18,
+        "training_time": 41.69594290002715
+      },
+      "S07": {
+        "subject_id": "S07",
+        "task_type": "quaternary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.446901051105473,
+        "test_acc": 0.5617977528089888,
+        "test_acc_majority": 0.5617977528089888,
+        "epochs_trained": 22,
+        "training_time": 96.75564390001819
+      },
+      "S08": {
+        "subject_id": "S08",
+        "task_type": "quaternary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.392533526640087,
+        "test_acc": 0.4606741573033708,
+        "test_acc_majority": 0.4606741573033708,
+        "epochs_trained": 15,
+        "training_time": 66.50112109998008
+      },
+      "S09": {
+        "subject_id": "S09",
+        "task_type": "quaternary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.4626099706744868,
+        "test_acc": 0.5909090909090909,
+        "test_acc_majority": 0.5909090909090909,
+        "epochs_trained": 30,
+        "training_time": 127.16899269999703
+      },
+      "S10": {
+        "subject_id": "S10",
+        "task_type": "quaternary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.33943187289359655,
+        "test_acc": 0.47761194029850745,
+        "test_acc_majority": 0.47761194029850745,
+        "epochs_trained": 19,
+        "training_time": 63.48965889995452
+      },
+      "S11": {
+        "subject_id": "S11",
+        "task_type": "quaternary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.3924098671726755,
+        "test_acc": 0.3764705882352941,
+        "test_acc_majority": 0.3764705882352941,
+        "epochs_trained": 14,
+        "training_time": 59.91240450000623
+      },
+      "S12": {
+        "subject_id": "S12",
+        "task_type": "quaternary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.3258064516129032,
+        "test_acc": 0.35555555555555557,
+        "test_acc_majority": 0.35555555555555557,
+        "epochs_trained": 22,
+        "training_time": 96.0656434999546
+      },
+      "S13": {
+        "subject_id": "S13",
+        "task_type": "quaternary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.4087203119461184,
+        "test_acc": 0.46153846153846156,
+        "test_acc_majority": 0.46153846153846156,
+        "epochs_trained": 30,
+        "training_time": 132.33642559999134
+      },
+      "S14": {
+        "subject_id": "S14",
+        "task_type": "quaternary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.40155728587319245,
+        "test_acc": 0.41379310344827586,
+        "test_acc_majority": 0.41379310344827586,
+        "epochs_trained": 17,
+        "training_time": 74.36332650005352
+      },
+      "S15": {
+        "subject_id": "S15",
+        "task_type": "quaternary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.36794354838709675,
+        "test_acc": 0.3854166666666667,
+        "test_acc_majority": 0.3854166666666667,
+        "epochs_trained": 23,
+        "training_time": 106.88917760003824
+      },
+      "S16": {
+        "subject_id": "S16",
+        "task_type": "quaternary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.3602716468590832,
+        "test_acc": 0.45263157894736844,
+        "test_acc_majority": 0.45263157894736844,
+        "epochs_trained": 24,
+        "training_time": 111.72575630003121
+      },
+      "S17": {
+        "subject_id": "S17",
+        "task_type": "quaternary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.4622512010981469,
+        "test_acc": 0.5851063829787234,
+        "test_acc_majority": 0.5851063829787234,
+        "epochs_trained": 18,
+        "training_time": 84.02206849999493
+      },
+      "S18": {
+        "subject_id": "S18",
+        "task_type": "quaternary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.3494057724957555,
+        "test_acc": 0.37894736842105264,
+        "test_acc_majority": 0.37894736842105264,
+        "epochs_trained": 22,
+        "training_time": 102.09192019997863
+      },
+      "S19": {
+        "subject_id": "S19",
+        "task_type": "quaternary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.674347158218126,
+        "test_acc": 0.8333333333333334,
+        "test_acc_majority": 0.8333333333333334,
+        "epochs_trained": 23,
+        "training_time": 95.45376549998764
+      },
+      "S20": {
+        "subject_id": "S20",
+        "task_type": "quaternary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.2930390492359932,
+        "test_acc": 0.30526315789473685,
+        "test_acc_majority": 0.30526315789473685,
+        "epochs_trained": 19,
+        "training_time": 88.21763059997465
+      },
+      "S21": {
+        "subject_id": "S21",
+        "task_type": "quaternary",
+        "model_type": "eegnet",
+        "best_val_acc": 0.36674937965260546,
+        "test_acc": 0.4,
+        "test_acc_majority": 0.4,
+        "epochs_trained": 32,
+        "training_time": 100.50831989996368
+      }
+    }
+  }
+}

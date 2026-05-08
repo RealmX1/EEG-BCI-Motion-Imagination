@@ -1,0 +1,25 @@
+{
+  "metadata": {
+    "training_type": "within_subject",
+    "paradigm": "imagery",
+    "task": "quaternary",
+    "run_tag": "20260508_1538",
+    "timestamp": "2026-05-08T16:10:57.808483",
+    "n_subjects": null,
+    "is_complete": true,
+    "preprocessing_version": "v2.0"
+  },
+  "wandb_groups": {},
+  "last_updated": "2026-05-08T16:10:57.808483",
+  "results": {},
+  "summary": {
+    "eegnet": {
+      "mean": 0.47813317571610847,
+      "std": 0.11351631394280483,
+      "min": 0.30526315789473685,
+      "max": 0.8333333333333334,
+      "median": 0.46153846153846156,
+      "n_subjects": 21
+    }
+  }
+}
