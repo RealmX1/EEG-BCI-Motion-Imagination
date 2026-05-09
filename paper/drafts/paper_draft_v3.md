@@ -747,7 +747,7 @@ V2 使用了更多数据（78,232 vs 30,282 segments，主要增量来自 Stiege
 
 #### 3.7.1 EEGNet 容量阶梯（16K → 30M，128 通道）
 
-为检验 EEGNet 相对 CBraMod 的差距是否仅源自参数容量限制（~16K vs ~30M，~1900× 差距），我们将 EEGNet 的 MLP 分类头扩展为多层结构，构建四档容量阶梯：EEGNet baseline (16K, 单 Linear 头)、EEGNet-Mid (1.90M, [1024, 1024] + LayerNorm + ELU)、EEGNet-Huge v3 (5.84M, [2048, 2048] + LayerNorm)、以及两个 ~20–30M 量级版本 EEGNet-Huge v1 (19.99M, [4096, 4096], 无 LN) / v2 (30.22M, [5120, 5120], 无 LN)。所有版本共享 EEGNet 原始 conv stem（n_channels = 128, F1 = 32, D = 4, F2 = 256, kernel_length = 64）；HP 在两阶段调试中找到稳定配置（v3 / Mid 共用 lr = 8e-4 至 1.5e-3、wd = 0.03–0.05、CAWD scheduler；详见 `docs/handoffs/2026-05-09_eegnet_huge.md`）。
+为检验 EEGNet 相对 CBraMod 的差距是否仅源自参数容量限制（~16K vs ~30M，~1900× 差距），我们沿 (conv stem, MLP 头) 双轴扩展 EEGNet，构建四档容量阶梯：EEGNet baseline (16K, **F1=16, D=4, F2=64**, 单 Linear 头，沿用 §3.1–§3.3 的 EEGNet-16,4 配置)、EEGNet-Mid (1.90M, **F1=32, D=4, F2=256**, [1024, 1024] + LayerNorm + ELU)、EEGNet-Huge v3 (5.84M, [2048, 2048] + LayerNorm)、以及两个 ~20–30M 量级版本 EEGNet-Huge v1 (19.99M, [4096, 4096], 无 LN) / v2 (30.22M, [5120, 5120], 无 LN)。**Mid / Huge 系列均共享扩展后的 conv stem (F1=32, D=4, F2=256, kernel_length=64)，与 baseline 的 F1=16/F2=64 不同**——因此 baseline → Mid 的首跳同时改变 conv stem (F1: 16→32, F2: 64→256) 与 MLP 头（单 Linear → 双层 [1024,1024]），严格意义上未隔离 conv stem 单轴 vs MLP 头单轴的贡献；Mid → v3 → v1/v2 三档则沿 MLP 头单轴扩参（conv stem 完全相同）。HP 在两阶段调试中找到稳定配置（v3 / Mid 共用 lr = 8e-4 至 1.5e-3、wd = 0.03–0.05、CAWD scheduler；详见 `docs/handoffs/2026-05-09_eegnet_huge.md`）。
 
 **表 18a. EEGNet 容量阶梯准确率（N = 21，128 通道二分类）。**
 
@@ -815,7 +815,7 @@ V2 使用了更多数据（78,232 vs 30,282 segments，主要增量来自 Stiege
 | CBraMod random-init | 30.48M | 否 | 86.34% | 加 TUEG 预训练 → **+4.34 pp** |
 | CBraMod baseline | 30.48M | TUEG | 90.68% | — |
 
-三个 Δ 的量级揭示：(i) **架构归纳偏置（transformer + ACPE 与 EEG 信号统计的对齐）是 cross-subject 范式下最大贡献**（~+35 pp），远大于 TUEG 预训练（~+4 pp）；(ii) **EEGNet 架构内的容量扩展不仅无益反而显著有害**（~−25 pp，~30M 量级在两套独立 HP 下均落入 chance）。被试内任务分解方向相反：EEGNet baseline 78.10% → EEGNet-Huge v3 67.71%（仅 −10 pp）→ CBraMod random-init 62.05%（仍低于 EEGNet baseline）→ CBraMod baseline 85.15%——TUEG 预训练 +27 pp 主导，架构与容量贡献为负。
+三个 Δ 的量级揭示：(i) **架构归纳偏置（transformer + ACPE 与 EEG 信号统计的对齐）是 cross-subject 范式下最大贡献**（~+35 pp），远大于 TUEG 预训练（~+4 pp）；(ii) **EEGNet 架构内的容量扩展不仅无益反而显著有害**（~−25 pp，~30M 量级在两套独立 HP 下均落入 chance）。被试内任务分解方向相反：以 binary 为例，EEGNet baseline 78.10% → EEGNet-Huge v3 67.71%（仅 −10 pp）→ CBraMod random-init 62.05%（仍低于 EEGNet baseline）→ CBraMod baseline 85.15%——TUEG 预训练贡献 **+23.10 pp（binary）/ +30.79 pp（ternary）, 平均 ~+27 pp** 主导（下文及摘要 / §7 Finding 1 / §4.1 沿用此平均值），架构与容量贡献为负。
 
 这一**范式依赖的分解结构**与 §4.1 的"基座模型价值随数据约束放大"叙事自洽：cross-subject 范式（21 × 训练数据）信号充足时，**架构归纳偏置主导**，预训练只是锦上添花；within-subject 范式（每被试 ~70 trial）信号稀缺时，**预训练先验主导**，架构容量本身反而是负担。容量在两条轴上都未充当主要变量——这是本研究最具实操意义的方法论命题：在 EEG decoding 中，盲目扩参不是改进路径；架构归纳偏置（与信号统计性质对齐的 transformer + 通道位置编码）和预训练表征（在通用 EEG 语料上训得的低维流形）才是关键，二者在不同数据规模下分别主导。
 
@@ -982,7 +982,7 @@ V3 实验为上述归因提供了一个直接的拆分。将 V2 的 Stieger2021 
 
 5. **4ch Band Power 的可复现性与跨范式稳健性**：4ch BP (78.75%) 是本批最大反例，但仅在 cross-subject binary 上观察到；其在三分类、XSI-FT、被试内、运动执行范式下是否同样保持优势需要独立验证。
 
-6. **EEGNet 容量扩展沿 conv stem 轴的补全**：§3.7.1 已沿 MLP 分类头轴线把 EEGNet 扩展到 16K → 1.90M → 5.84M → 30M 四档，cross-subject 准确率单调下降（76.67% → 51.37% → 50%）证实"capacity 不是瓶颈"。但 conv stem 维度（F1 = 8 / 16 / 32 / 64，D = 2 / 4 / 8）的容量扩展尚未独立测试——若 conv stem 扩参也呈现同方向反向 scaling，则可把"容量在 EEGNet 架构内一律有害"的结论从单轴推广到二维 (stem, head) 容量平面；若 conv stem 扩参反而有益，则反向 scaling 仅限于 MLP 头，conv stem 仍是潜在改进点。一项最小验证是固定 MLP 头为单 Linear，扫 F1 ∈ {16, 32, 64, 128}，观察 cross-subject 是否单调；预算 ~6 hr GPU。
+6. **EEGNet 容量扩展沿 conv stem 单轴的隔离**：§3.7.1 沿 (conv stem, MLP 头) 双轴扩展了 EEGNet——baseline → Mid 的首跳同时改了 conv stem (F1: 16→32, F2: 64→256) 与 MLP 头（单 Linear → 双层 [1024,1024]）；Mid → v3 → v1/v2 三档则沿 MLP 头单轴扩参（conv stem 不变）。三档 MLP 单轴的 cross-subject 单调下降（57.65% → 51.37% → 50%）已可成立"在 F1=32 conv stem 之上 MLP 扩参无益"，但 baseline → Mid 的 −19 pp 一跳无法归因到单一轴。一项最小隔离实验是固定 MLP 头为单 Linear，扫 F1 ∈ {16, 32, 64, 128}（D=4 不变），观察 cross-subject 是否仍呈反向 scaling；若是，则可把"容量在 EEGNet 架构内一律有害"从 (F1=32, MLP 头) 单轴扩展为 (F1, MLP 头) 二维容量平面的全域结论；若 conv stem 扩参反而有益，则现有 baseline → Mid 的 −19 pp 主要来自 MLP 头（双层取代单层）的过拟合而非容量本身。预算 ~6 hr GPU。
 
 7. **其他基座模型与预训练目标的独立验证**：§3.7 random-init ablation 已就 CBraMod 特定情境下"架构 vs TUEG masked autoencoding 预训练"的贡献完成初步剥离，但本研究的"基座模型价值随数据约束放大"结论是否在其他 backbone（LaBraM、LaBraM-base 等）和其他预训练目标（contrastive、predictive 等）上重现仍属开放问题。一项最小验证可在同一 finger MI 数据集上跑 LaBraM × {original-weights, random-init} 同样 6 个 condition 的对照，看 within / cross 两段式差距结构是否再现；若再现，则该机制可被升格为"EEG 基座模型的通用属性"而非"CBraMod 特异属性"。
 
