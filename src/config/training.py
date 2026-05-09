@@ -201,6 +201,7 @@ def get_default_config(model_type: str, task: str, n_channels: int = None) -> di
                 'F2': 64,               # F1×D=64 (HPO within)
                 'kernel_length': 64,
                 'dropout_rate': 0.27,   # 0.5→0.27 (HPO within: 0.271)
+                'mlp_hidden_dims': None,  # None → single Linear head; list (e.g. [4096,4096]) → MLP head (EEGNet-Huge ablation)
             },
             'training': {
                 'scheduler': default_scheduler,

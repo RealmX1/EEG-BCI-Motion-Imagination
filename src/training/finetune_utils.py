@@ -66,16 +66,37 @@ def load_pretrained_model(
             dropout=0.1,
         )
     else:
-        # EEGNet - need to get config from checkpoint or use defaults
+        sd = checkpoint['model_state_dict']
+        F1 = sd['temporal_conv.weight'].shape[0]
+        F1D = sd['spatial_conv.weight'].shape[0]
+        D = F1D // F1
+        F2 = sd['separable_conv2.weight'].shape[0]
+        kernel_length = sd['temporal_conv.weight'].shape[3]
+        # Infer mlp_hidden_dims from Sequential head keys.
+        # Single-Linear baseline has fc.weight → mlp_hidden_dims=None.
+        # MLP head has fc.<idx>.weight for Linear (2D) and possibly LayerNorm (1D);
+        # we filter to Linear (ndim == 2) layers only — last is the output, the rest are hidden.
+        if 'fc.weight' in sd:
+            mlp_hidden_dims = None
+        else:
+            linear_indices = sorted({
+                int(k.split('.')[1])
+                for k in sd
+                if k.startswith('fc.') and k.endswith('.weight') and sd[k].ndim == 2
+            })
+            mlp_hidden_dims = [
+                sd[f'fc.{idx}.weight'].shape[0] for idx in linear_indices[:-1]
+            ] or None
         model = EEGNet(
             n_channels=n_channels,
             n_samples=n_samples,
             n_classes=n_classes,
-            F1=8,
-            D=2,
-            F2=16,
-            kernel_length=64,
+            F1=F1,
+            D=D,
+            F2=F2,
+            kernel_length=kernel_length,
             dropout_rate=0.5,
+            mlp_hidden_dims=mlp_hidden_dims,
         )
 
     # Load state dict

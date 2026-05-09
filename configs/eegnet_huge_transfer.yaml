@@ -1,0 +1,28 @@
+# EEGNet-Huge transfer ablation (v3, ~5.84M params).
+# Fine-tunes from cross-subject EEGNet-Huge-v3 checkpoint.
+# Architecture spec: docs/handoffs/2026-05-09_eegnet_huge.md
+model:
+  name: EEGNet-Huge-v3
+  F1: 32
+  D: 4
+  F2: 256
+  kernel_length: 64
+  dropout_rate: 0.4
+  mlp_hidden_dims: [2048, 2048]
+
+training:
+  scheduler: cosine_annealing_warmup_decay
+  epochs: 500
+  batch_size: 64
+  learning_rate: 5.0e-4
+  weight_decay: 0.03
+  label_smoothing: 0.05
+  gradient_clip: 1.0
+
+scheduler_config:
+  phase_epochs: 10
+  phase_decay: 0.5
+  lr_ramp_ratio: 0.2
+  eta_min: 1.0e-6
+  exploration_epochs: 4
+  exploration_batch_size: 32

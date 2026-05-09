@@ -1,0 +1,50 @@
+# ⚠️ ARCHIVED — v2 smoke configuration (FAILED, do not reuse as-is)
+#
+# This was the smoke-test config for the original EEGNet-Huge plan ([5120, 5120]
+# MLP head, no LayerNorm, lr=1e-4, weight_decay=0.1). The full v2 cross-subject
+# run derived from this template (`20260509_0735_eegnet_imagery_binary`) FAILED
+# to converge: train loss stayed at 0.693 (chance entropy) for all 16 epochs
+# before patience triggered early stop, all 21 subjects test acc = 50.07%.
+# Identical failure mode to v1 (`20260509_0201`, [4096, 4096], lr=5e-5).
+#
+# Root causes (diagnosed 2026-05-09):
+#   1. No LayerNorm in the deep MLP head → BF16 gradients dampened/dying ELU
+#   2. MLP too wide ([5120, 5120] / [4096, 4096]) for the 332K cross-subject
+#      segments — over-parameterization in a flat loss landscape
+#
+# Superseded by v3 / Mid (configs/eegnet_huge_*.yaml, configs/eegnet_mid_*.yaml):
+#   - LayerNorm after each MLP Linear (src/models/eegnet.py:142-148)
+#   - Narrower MLP: [2048, 2048] (v3, 5.84M) or [1024, 1024] (Mid, 1.90M)
+#   - Higher LR: 8e-4 cross / 1.5e-3 within / 5e-4 transfer
+#   - Lighter weight_decay: 0.05 / 0.03
+#
+# Kept here for historical traceability of the capacity ablation curve. If you
+# need a smoke test, write a new file based on configs/eegnet_huge_within.yaml
+# (the v3 success config) with epochs=3 and exploration_epochs=1.
+#
+# DO NOT USE for real experiments.
+model:
+  name: EEGNet-Huge
+  F1: 32
+  D: 4
+  F2: 256
+  kernel_length: 64
+  dropout_rate: 0.5
+  mlp_hidden_dims: [5120, 5120]
+
+training:
+  scheduler: cosine_annealing_warmup_decay
+  epochs: 3                    # smoke only
+  batch_size: 64
+  learning_rate: 1.0e-4
+  weight_decay: 0.1
+  label_smoothing: 0.05
+  gradient_clip: 1.0
+
+scheduler_config:
+  phase_epochs: 2
+  phase_decay: 0.5
+  lr_ramp_ratio: 0.5
+  eta_min: 1.0e-6
+  exploration_epochs: 1
+  exploration_batch_size: 32

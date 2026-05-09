@@ -13,7 +13,7 @@ Configuration matches the original FINGER-EEG-BCI paper:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Tuple, Optional
+from typing import List, Optional, Tuple
 
 
 class Conv2dWithConstraint(nn.Conv2d):
@@ -55,6 +55,7 @@ class EEGNet(nn.Module):
         F2: int = 16,
         kernel_length: int = 64,  # 0.5s @ 128Hz
         dropout_rate: float = 0.5,
+        mlp_hidden_dims: Optional[List[int]] = None,
     ):
         """
         Initialize EEGNet.
@@ -68,6 +69,11 @@ class EEGNet(nn.Module):
             F2: Number of pointwise filters (default 16, should be F1 * D)
             kernel_length: Length of temporal kernel in samples (default 64)
             dropout_rate: Dropout probability (default 0.5)
+            mlp_hidden_dims: Optional list of hidden sizes for MLP classifier head.
+                When None (default), uses the canonical single-Linear head for
+                backward compatibility. When provided (e.g. [4096, 4096]),
+                replaces the head with Linear → ELU → Dropout → ... → Linear,
+                used by the EEGNet-Huge scaling ablation.
         """
         super().__init__()
 
@@ -127,7 +133,22 @@ class EEGNet(nn.Module):
         self._calculate_output_size()
 
         # Classification head
-        self.fc = nn.Linear(self.feature_size, n_classes)
+        if mlp_hidden_dims:
+            # LayerNorm after each Linear stabilizes deep MLPs in BF16; without
+            # it, v1/v2 of the EEGNet-Huge ablation (no LayerNorm, [4096,4096] /
+            # [5120,5120]) failed to escape the chance-loss basin on cross_subject.
+            layers: List[nn.Module] = []
+            in_dim = self.feature_size
+            for hidden in mlp_hidden_dims:
+                layers.append(nn.Linear(in_dim, hidden))
+                layers.append(nn.LayerNorm(hidden))
+                layers.append(nn.ELU())
+                layers.append(nn.Dropout(dropout_rate))
+                in_dim = hidden
+            layers.append(nn.Linear(in_dim, n_classes))
+            self.fc = nn.Sequential(*layers)
+        else:
+            self.fc = nn.Linear(self.feature_size, n_classes)
 
     def _calculate_output_size(self):
         """Calculate the flattened feature size."""

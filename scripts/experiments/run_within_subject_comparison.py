@@ -44,6 +44,15 @@ Usage:
     uv run python scripts/experiments/run_within_subject_comparison.py --replot 20260321_0934
 """
 
+import os
+# Force matplotlib non-interactive backend BEFORE any transitive matplotlib import.
+# Otherwise on Windows + Python 3.12 the default TkAgg backend creates tkinter
+# Variable/Image objects whose __del__ may run on a PyTorch DataLoader / CUDA
+# worker thread; that triggers Tcl_AsyncDelete cross-thread check → Tcl_Panic
+# → abort() (exit 3) after ~3-5 subjects of milestone plots accumulate.
+# (Same fix as run_transfer_comparison.py:42)
+os.environ.setdefault('MPLBACKEND', 'Agg')
+
 import argparse
 import logging
 import sys

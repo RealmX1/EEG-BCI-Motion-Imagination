@@ -237,6 +237,7 @@ def create_cross_subject_model(
             F2=model_config['F2'],
             kernel_length=model_config['kernel_length'],
             dropout_rate=model_config['dropout_rate'],
+            mlp_hidden_dims=model_config.get('mlp_hidden_dims'),
         )
 
     return model

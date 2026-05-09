@@ -1,0 +1,31 @@
+# EEGNet-Mid cross-subject (~1.9M params, 117x baseline, 32.5% of v3, 6.2% of CBraMod).
+#
+# Sits between the original dataset paper's deepEEGNet (~1M upper estimate) and
+# our successful v3 (5.84M). Same conv stem + HP as v3 — only mlp_hidden_dims
+# changes from [2048, 2048] to [1024, 1024], for a clean single-variable scaling
+# study. Used to fill in the EEGNet capacity-curve datapoint.
+model:
+  name: EEGNet-Mid
+  F1: 32
+  D: 4
+  F2: 256
+  kernel_length: 64
+  dropout_rate: 0.4
+  mlp_hidden_dims: [1024, 1024]   # 1.9M total (vs v3 [2048,2048] = 5.84M)
+
+training:
+  scheduler: cosine_annealing_warmup_decay
+  epochs: 500
+  batch_size: 64
+  learning_rate: 8.0e-4
+  weight_decay: 0.05
+  label_smoothing: 0.05
+  gradient_clip: 1.0
+
+scheduler_config:
+  phase_epochs: 15
+  phase_decay: 0.5
+  lr_ramp_ratio: 0.3
+  eta_min: 1.0e-6
+  exploration_epochs: 6
+  exploration_batch_size: 32
