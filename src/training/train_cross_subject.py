@@ -74,6 +74,7 @@ from src.training.common import (
 )
 from src.config.training import SCHEDULER_PRESETS, get_cross_subject_config
 from src.utils.device import get_device, set_seed
+from src.utils.label_shuffle import apply_within_subject_label_shuffle
 from src.utils.logging import SectionLogger
 from src.utils.timing import Timer, print_section_header, print_metric, colored, Colors
 from src.utils.wandb_logger import (
@@ -273,6 +274,9 @@ def train_cross_subject(
     resume_checkpoint: bool = False,
     # Session folders override (for extra sessions experiments)
     session_folders_override: Optional[Dict[str, List[str]]] = None,
+    # P0.3 negative-control: within-subject trial-level label permutation
+    shuffle_labels: bool = False,
+    shuffle_seed: int = 42,
 ) -> Dict:
     """
     Cross-subject pretraining.
@@ -428,6 +432,20 @@ def train_cross_subject(
     if verbose >= 2:
         print_metric("Total train segments", len(train_dataset), Colors.CYAN)
         print_metric("Subjects with test data", len(test_datasets), Colors.MAGENTA)
+
+    # ========== NEGATIVE CONTROL: LABEL SHUFFLE (P0.3) ==========
+    # Within-subject trial-level permutation. Applied to BOTH train and per-subject
+    # test datasets. Expected outcome on a clean pipeline: test acc ≈ chance level.
+    if shuffle_labels:
+        if verbose >= 1:
+            print(colored(
+                f"  [Negative Control] Applying within-subject label shuffle "
+                f"(seed={shuffle_seed}) to train + {len(test_datasets)} test datasets",
+                Colors.MAGENTA, bold=True,
+            ))
+        apply_within_subject_label_shuffle(train_dataset, shuffle_seed, logger=log_data)
+        for subject_id, test_ds in test_datasets.items():
+            apply_within_subject_label_shuffle(test_ds, shuffle_seed, logger=log_data)
 
     # ========== TEMPORAL SPLIT ==========
     offline_test_indices = []

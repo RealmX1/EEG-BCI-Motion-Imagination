@@ -47,6 +47,11 @@ Usage:
     uv run python scripts/experiments/run_cross_subject_comparison.py --replot 20260321_0934
 """
 
+# Force matplotlib non-interactive backend BEFORE any transitive matplotlib import.
+# See run_transfer_comparison.py for the full Tcl_AsyncDelete failure mode.
+import os
+os.environ.setdefault('MPLBACKEND', 'Agg')
+
 import argparse
 import logging
 import sys
@@ -373,8 +378,30 @@ Examples:
         '--baseline', action='store_true',
         help='Mark this run as a designated baseline in ExperimentDB'
     )
+    parser.add_argument(
+        '--further-pretrained-cbramod', type=str, default=None,
+        help='Path to further-pretrained CBraMod backbone weights (.pth) to load before cross-subject training '
+             '(only affects cbramod; EEGNet ignores this option)'
+    )
+
+    # P0.3 negative-control: within-subject trial-level label permutation
+    parser.add_argument(
+        '--shuffle-labels', action='store_true',
+        help='[Negative control] Within-subject trial-level label permutation. '
+             'Train and per-subject test labels are both shuffled. Used to verify '
+             'cross-subject pipeline has no input->label leakage (expected: chance acc).'
+    )
+    parser.add_argument(
+        '--shuffle-seed', type=int, default=42,
+        help='RNG seed for label shuffle (only used with --shuffle-labels, default: 42)'
+    )
 
     args = parser.parse_args()
+
+    # Negative-control runs must never be marked as baselines
+    if args.shuffle_labels and args.baseline:
+        parser.error('--shuffle-labels and --baseline are mutually exclusive '
+                     '(label-shuffle runs are negative controls, not baselines)')
 
     # Auto-redirect results to results/{n}_channel/{config}/ when using reduced channel mode
     if args.channels != FULL_N_CHANNELS and args.results_dir == 'results':
@@ -439,6 +466,12 @@ Examples:
     # Generate or resume run tag
     run_tag = resolve_run_tag(args, args.paradigm, args.task, args.results_dir, cache_type=CacheType.CROSS_SUBJECT)
 
+    # Tag negative-control runs so they are easy to filter out of baseline searches.
+    # Skip when resuming an existing run that already has the suffix.
+    if args.shuffle_labels and '_labelshuffle_' not in run_tag:
+        run_tag = f"{run_tag}_labelshuffle_seed{args.shuffle_seed}"
+        log_main.info(f"[Negative Control] Run tag tagged: {run_tag}")
+
     paradigm_desc = PARADIGM_CONFIG[args.paradigm]['description']
     log_main.info(f"Paradigm: {paradigm_desc}")
 
@@ -464,6 +497,15 @@ Examples:
 
     # Build config_overrides: YAML base → CLI overrides
     config_overrides = build_config_overrides(args)
+
+    if args.further_pretrained_cbramod:
+        if 'cbramod' not in args.models:
+            parser.error('--further-pretrained-cbramod requires cbramod in --models')
+        if not Path(args.further_pretrained_cbramod).exists():
+            parser.error(f'--further-pretrained-cbramod path not found: {args.further_pretrained_cbramod}')
+        config_overrides = config_overrides or {}
+        config_overrides.setdefault('model', {})['pretrained_path'] = args.further_pretrained_cbramod
+        log_main.info(f"CBraMod backbone init: {args.further_pretrained_cbramod}")
 
     # Load existing cache for resume
     cache = {}
@@ -523,6 +565,8 @@ Examples:
             wandb_entity=args.wandb_entity,
             verbose=verbose,
             resume_checkpoint=should_resume_epoch,
+            shuffle_labels=args.shuffle_labels,
+            shuffle_seed=args.shuffle_seed,
         )
 
         results[model_type] = model_results
