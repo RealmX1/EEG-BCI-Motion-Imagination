@@ -29,6 +29,7 @@ import json
 import numpy as np
 import lmdb
 import mne
+from scipy.stats import kurtosis as scipy_kurtosis
 
 mne.set_log_level("ERROR")
 
@@ -59,6 +60,13 @@ PATCH_SIZE = 200         # 每 patch 采样点 (1s × 200Hz)
 N_PATCHES = 30           # 每段 patch 数 (30s)
 SKIP_SECONDS = 5         # 首尾跳过秒数（MOABB 返回已切割的 run，无需长跳过）
 AMP_THRESHOLD = 500      # µV，幅值阈值（宽松阈值，仅排除明显伪影）
+
+# Strict filter（V4/V5 DAPT 用）：通用更严格的物理伪迹过滤
+# 设计动机：替代 dataset-specific trial-level annotations（后者需要 trial 对齐重写整条
+# pipeline）。300µV per-segment-max 比 500µV 更紧，能切掉残留眼动/肌电；per-channel
+# kurtosis>10 切掉单通道脉冲性伪迹（断电极、接触不良）。
+STRICT_AMP_THRESHOLD = 300   # µV
+STRICT_KURT_THRESHOLD = 10   # per-channel kurtosis
 
 
 # ─────────────────────────────────────────────
@@ -242,12 +250,50 @@ def filter_segments(segments: np.ndarray) -> np.ndarray:
     return segments[mask]
 
 
+def filter_segments_strict(
+    segments: np.ndarray,
+    amp_thresh: float = STRICT_AMP_THRESHOLD,
+    kurt_thresh: float = STRICT_KURT_THRESHOLD,
+) -> tuple[np.ndarray, dict]:
+    """更严格的质量过滤：amplitude + per-channel kurtosis。
+
+    Returns:
+        (filtered_segments, stats_dict) — stats 含各步骤丢弃数量
+    """
+    n0 = len(segments)
+    if n0 == 0:
+        return segments, {"n_in": 0, "dropped_amp": 0, "dropped_kurt": 0, "n_out": 0}
+
+    # 1. Amplitude filter（更严阈值）
+    amp_mask = np.max(np.abs(segments), axis=(1, 2, 3)) < amp_thresh
+    n_after_amp = int(amp_mask.sum())
+
+    # 2. Per-channel kurtosis filter
+    # Reshape (n_seg, n_ch, 30, 200) → (n_seg, n_ch, 6000) for per-channel kurtosis
+    flat = segments.reshape(segments.shape[0], segments.shape[1], -1)
+    # scipy.stats.kurtosis 默认 Fisher（normal=0），nan_policy=propagate
+    kurt = scipy_kurtosis(flat, axis=2, fisher=True, nan_policy="omit")  # (n_seg, n_ch)
+    # 取每个 segment 中"最坏"的通道 kurtosis；NaN（恒定信号）按超阈处理
+    max_kurt = np.nanmax(kurt, axis=1)
+    kurt_mask = (max_kurt < kurt_thresh) & np.isfinite(max_kurt)
+
+    combined = amp_mask & kurt_mask
+    out = segments[combined]
+    return out, {
+        "n_in": n0,
+        "dropped_amp": int(n0 - n_after_amp),
+        "dropped_kurt": int(n_after_amp - len(out)),
+        "n_out": int(len(out)),
+    }
+
+
 def process_single_dataset(
     dataset_name: str,
     lmdb_dir: Path,
     subjects: list | None = None,
     max_subjects: int | None = None,
     dry_run: bool = False,
+    artifact_filter: str = "basic",
 ) -> dict:
     """
     处理单个 MOABB 数据集并写入 LMDB。
@@ -264,10 +310,13 @@ def process_single_dataset(
     stats = {
         "dataset": dataset_name,
         "status": "unknown",
+        "artifact_filter": artifact_filter,
         "n_subjects_processed": 0,
         "n_subjects_failed": 0,
         "n_segments_total": 0,
         "n_segments_filtered": 0,
+        "n_dropped_amp": 0,    # strict 模式下：被 amplitude 过滤掉的段数
+        "n_dropped_kurt": 0,   # strict 模式下：被 kurtosis 过滤掉的段数
         "n_channels": 0,
         "total_duration_hours": 0,
         "lmdb_path": None,
@@ -308,7 +357,8 @@ def process_single_dataset(
                         return stats
 
         # 准备 LMDB
-        lmdb_path = lmdb_dir / f"{dataset_name}_pretrain"
+        lmdb_suffix = "_pretrain_filtered" if artifact_filter == "strict" else "_pretrain"
+        lmdb_path = lmdb_dir / f"{dataset_name}{lmdb_suffix}"
         lmdb_path.mkdir(parents=True, exist_ok=True)
         stats["lmdb_path"] = str(lmdb_path)
 
@@ -355,7 +405,12 @@ def process_single_dataset(
                             total_segments_before += n_before
 
                             # 质量过滤
-                            segments = filter_segments(segments)
+                            if artifact_filter == "strict":
+                                segments, fstats = filter_segments_strict(segments)
+                                stats["n_dropped_amp"] += fstats["dropped_amp"]
+                                stats["n_dropped_kurt"] += fstats["dropped_kurt"]
+                            else:
+                                segments = filter_segments(segments)
                             n_after = len(segments)
                             total_segments_after += n_after
 
@@ -470,6 +525,15 @@ def main():
         default=None,
         help="统计报告 JSON 输出路径",
     )
+    parser.add_argument(
+        "--artifact-filter",
+        choices=["basic", "strict"],
+        default="basic",
+        help=(
+            "过滤强度。basic = 现有 500 µV per-segment-max（默认，与 V1/V2/V3 一致）；"
+            "strict = 300 µV + per-channel kurtosis>10（V4/V5 DAPT 用，输出到 _filtered 后缀目录）"
+        ),
+    )
     args = parser.parse_args()
 
     lmdb_dir = Path(args.lmdb_dir)
@@ -485,7 +549,12 @@ def main():
     print(f"预处理管线配置:")
     print(f"  目标采样率: {TARGET_SFREQ} Hz")
     print(f"  段长: {PATCH_DURATION} 秒 ({N_PATCHES} patches × {PATCH_SIZE} 采样点)")
-    print(f"  幅值阈值: {AMP_THRESHOLD} uV")
+    if args.artifact_filter == "strict":
+        print(f"  Filter: STRICT - {STRICT_AMP_THRESHOLD} uV amplitude + kurtosis<{STRICT_KURT_THRESHOLD}")
+        print(f"  输出后缀: _pretrain_filtered")
+    else:
+        print(f"  Filter: BASIC - {AMP_THRESHOLD} uV per-segment-max only")
+        print(f"  输出后缀: _pretrain")
     print(f"  首尾跳过: {SKIP_SECONDS} 秒")
     print(f"  LMDB 输出: {lmdb_dir}")
     print(f"  数据集: {dataset_names}")
@@ -500,6 +569,7 @@ def main():
             lmdb_dir,
             max_subjects=args.max_subjects,
             dry_run=args.dry_run,
+            artifact_filter=args.artifact_filter,
         )
         all_stats.append(stats)
 
@@ -549,6 +619,9 @@ def main():
             "patch_duration": PATCH_DURATION,
             "amp_threshold": AMP_THRESHOLD,
             "skip_seconds": SKIP_SECONDS,
+            "artifact_filter": args.artifact_filter,
+            "strict_amp_threshold": STRICT_AMP_THRESHOLD,
+            "strict_kurt_threshold": STRICT_KURT_THRESHOLD,
         },
         "datasets": all_stats,
     }

@@ -1,0 +1,25 @@
+{
+  "metadata": {
+    "training_type": "within_subject",
+    "paradigm": "imagery",
+    "task": "binary",
+    "run_tag": "20260510_1950",
+    "timestamp": "2026-05-10T20:10:08.480215",
+    "n_subjects": null,
+    "is_complete": true,
+    "preprocessing_version": "v2.0"
+  },
+  "wandb_groups": {},
+  "last_updated": "2026-05-10T20:10:08.480215",
+  "results": {},
+  "summary": {
+    "cbramod": {
+      "mean": 0.8404761904761906,
+      "std": 0.1076262244762462,
+      "min": 0.56875,
+      "max": 0.975,
+      "median": 0.86875,
+      "n_subjects": 21
+    }
+  }
+}
