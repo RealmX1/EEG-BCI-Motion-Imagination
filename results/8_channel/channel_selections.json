@@ -107,6 +107,31 @@
         "126": 2.503377914428711
       },
       "description": "Band Power — Mu(8-13Hz) + Beta(13-30Hz) ANOVA F-statistic"
+    },
+    "negative_control": {
+      "indices": [
+        6,
+        11,
+        13,
+        20,
+        25,
+        47,
+        51,
+        56
+      ],
+      "description": "Negative control — 8 random channels from the complement of all 5 tested 32ch configs (commercial, fdr, csp, attention, band_power) union (seed=42)",
+      "seed": 42,
+      "biosemi_labels": [
+        "A7",
+        "A12",
+        "A14",
+        "A21",
+        "A26",
+        "B16",
+        "B20",
+        "B25"
+      ],
+      "created_at": "2026-05-11T01:09:44.246543"
     }
   }
 }

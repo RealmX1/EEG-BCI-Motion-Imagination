@@ -13,7 +13,9 @@
       "band_power"
     ],
     "checkpoint_tag": "baseline",
-    "note": "Train-only data (no test leakage), includes OfflineImagery, attention uses CBraMod gradient only (no EEGNet)"
+    "note": "Train-only data (no test leakage), includes OfflineImagery, attention uses CBraMod gradient only (no EEGNet)",
+    "negative_control_restored_at": "2026-05-11T01:09:06.472446",
+    "negative_control_source": "channel_selections_pre_hpo_review.json (matches historical run 20260302_0141)"
   },
   "configs": {
     "fdr": {
@@ -299,6 +301,85 @@
         "126": 2.503377914428711
       },
       "description": "Band Power — Mu(8-13Hz) + Beta(13-30Hz) ANOVA F-statistic"
+    },
+    "negative_control": {
+      "indices": [
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        18,
+        19,
+        21,
+        25,
+        29,
+        35,
+        41,
+        43,
+        45,
+        46,
+        57,
+        58,
+        61,
+        72,
+        73,
+        74,
+        75,
+        82,
+        84,
+        88,
+        95,
+        99,
+        105,
+        109,
+        121
+      ],
+      "description": "Negative control - 31 pure-complement (NOT in any of original 6 configs) + 1 seed=42 random pad from 4-method union (fdr/attention/csp/band_power) to reach exact n=32 (runner enforces len==n_channels at channel_selection.py:156)",
+      "seed": 42,
+      "n_pure_complement": 31,
+      "n_padded": 1,
+      "pad_channels": [
+        29
+      ],
+      "biosemi_labels": [
+        "A8",
+        "A9",
+        "A10",
+        "A11",
+        "A12",
+        "A13",
+        "A14",
+        "A19",
+        "A20",
+        "A22",
+        "A26",
+        "A30",
+        "B4",
+        "B10",
+        "B12",
+        "B14",
+        "B15",
+        "B26",
+        "B27",
+        "B30",
+        "C9",
+        "C10",
+        "C11",
+        "C12",
+        "C19",
+        "C21",
+        "C25",
+        "C32",
+        "D4",
+        "D10",
+        "D14",
+        "D26"
+      ],
+      "created_at": "2026-05-11T17:56:44.981967",
+      "supersedes_31_index_version_from": "pre_hpo_review.json"
     }
   }
 }
