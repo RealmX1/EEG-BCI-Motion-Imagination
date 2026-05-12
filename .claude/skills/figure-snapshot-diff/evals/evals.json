@@ -1,0 +1,26 @@
+{
+  "skill_name": "figure-snapshot-diff",
+  "evals": [
+    {
+      "id": 0,
+      "name": "direct-compare-two-dirs",
+      "prompt": "I have two directories of PNG images I want to visually compare. The 'before' snapshot is at `c:\\Users\\zhang\\Desktop\\github\\EEG-BCI\\paper\\figures_backup_20260512_pre_standardization\\` and the 'after' (current) at `c:\\Users\\zhang\\Desktop\\github\\EEG-BCI\\paper\\figures\\`. Both contain ~19 PNGs. I just finished a refactor of my matplotlib plotting code and want to see which figures actually changed visually. Build me an interactive HTML page where I can drag-wipe between before and after for each pair. Save the HTML to your outputs directory as `compare.html`.",
+      "expected_output": "An HTML file `compare.html` that contains a <img-comparison-slider> component for each PNG pair that differs between the two directories, with at least 15 sliders. Should NOT include sliders for byte-identical pairs (those should show a notice instead).",
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "preemptive-snapshot",
+      "prompt": "I'm about to make a substantial styling change to my matplotlib code — switching the color palette across all my paper figures from default to a colorblind-friendly palette. The figures live at `c:\\Users\\zhang\\Desktop\\github\\EEG-BCI\\paper\\figures\\` (about 19 PNGs). Before I touch any code, I want to capture the current state of those figures so I can compare visually after the change. Set up a snapshot for me. Save any output files you produce (the snapshot directory listing, a confirmation, etc.) under your outputs directory.",
+      "expected_output": "The agent should create a snapshot directory (likely named `figures_snapshot_<tag>_<timestamp>/` under `paper/`), copy all PNGs into it, and confirm with the file count. The agent should NOT yet build a comparison HTML (that step happens after modification).",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "compare-with-descriptions",
+      "prompt": "I have a backup at `c:\\Users\\zhang\\Desktop\\github\\EEG-BCI\\paper\\figures_backup_20260512_pre_standardization\\` and the current files at `c:\\Users\\zhang\\Desktop\\github\\EEG-BCI\\paper\\figures\\`. I want a comparison HTML where these 3 specific figures have nice labels and change descriptions in the nav + section headings:\n\n- `channel_method_ranking_flip.png` → label `图 4b`, description: `removed inline rank annotations, added top-of-axis sorted stack`\n- `sensitivity_scaling.png` → label `图 4c`, description: `replaced inline annotate with force-directed labels on dual y-axis`\n- `extra_sessions_binary.png` → label `图 7`, description: `softened mean line (alpha + zorder), raised scatter contrast with white edges`\n\nOther figures can fall back to their filenames. Save the HTML to your outputs as `compare_labeled.html`. Page title should be `Paper revision 2026-05 — figure changes`.",
+      "expected_output": "An HTML file with the three named figures showing their paper labels (图 4b, 图 4c, 图 7) in both the nav anchor text and the section <h2> heading, plus the change descriptions. Other figures use filename fallback. Page <h1>/<title> is the requested title.",
+      "files": []
+    }
+  ]
+}
