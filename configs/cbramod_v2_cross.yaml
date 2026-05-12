@@ -1,0 +1,25 @@
+# V2 (further_pretrain_20260323_0609) cross-subject 下游评估 — 路径 X apples-to-apples baseline
+# 与 cbramod_v3_cross.yaml 同 HPO，唯 pretrained_path 不同
+model:
+  classifier_type: two_layer
+  dropout_rate: 0.37
+  freeze_backbone: false
+  pretrained_path: checkpoints/cbramod/further_pretrain_20260323_0609/best_model.pth
+
+training:
+  scheduler: cosine_annealing_warmup_decay
+  epochs: 500
+  batch_size: 256
+  backbone_lr: 1.3e-4
+  classifier_lr: 2.21e-4
+  weight_decay: 0.13
+  label_smoothing: 0.05
+  gradient_clip: 1.4
+
+scheduler_config:
+  phase_epochs: 10
+  phase_decay: 0.50
+  lr_ramp_ratio: 0.1
+  eta_min: 1.0e-6
+  exploration_epochs: 3
+  exploration_batch_size: 128
