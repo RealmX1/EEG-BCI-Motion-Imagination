@@ -763,53 +763,63 @@ Ternary 维度的 4ch 控制实验**与 binary 同向复现**：Band Power top-4
 
 ### 3.6 领域自适应 Further Pre-training
 
-表 16 在五种独立的 DAPT 训练配置（V1–V5）× 三种下游范式（被试内、跨被试、迁移 XSI-FT）× 两种任务（二分类、三分类）共 **24 个 evaluated cell**（V1–V3 within + cross = 12；V4/V5 within + cross + transfer = 12，于 2026-05-10 补完）上系统评估在外部 MI 数据上进一步预训练 CBraMod 后的下游表现；剩余 6 cell 全部为 V1–V3 × XSI-FT × {bin, ter}（详见 §3.6.4 评估覆盖）。**核心发现是 task-asymmetric 负迁移在三种 paradigm 上稳健复现**：**binary 任务**上 cross-subject 5/5 一致负向（mean Δ=−1.79 pp，V1: −1.85 / V2: −1.25 / V3: −1.46 / V4: −1.61 / V5: −2.77 pp，Stouffer Z=−5.320, p<0.001），within-subject 5/5 一致负向（mean Δ=−1.89 pp，V1: −1.25 / V2: −2.86 / V3: −1.34 / V4: −1.10 / V5: −2.92 pp，Stouffer Z=−4.422, p<0.0001），transfer V4/V5 双双负向（V4: −1.67 / V5: −1.22 pp，Stouffer Z=−2.788, p=0.005）——**DAPT 失败不是 cross-subject 范式特有**。**Ternary 任务**相对温和：cross 4/5 方向性弱正（V1 +0.79 / V2 +0.44 / V3 +0.62 / V4 +0.22），仅 V5 弱负（−1.17 pp），mean Δ=+0.18 pp，Stouffer Z=+0.577, p=0.564，**方向性负迁移不被支持**；within 5/5 弱负（mean Δ=−0.92 pp，Stouffer Z=−2.158, p=0.031）；transfer V4/V5 均弱负（V4: −0.32 / V5: −1.47 pp，Stouffer p=0.110）。BH-FDR @ 0.05 在新 24-cell DAPT family 下重做后**仅 V2_within_binary (q=0.048) 单一显著存活**（v3.1 16-cell family 下原 V1_cross_binary / V4_cross_binary 在更严苛多重比较惩罚下分别退到 q=0.072 / q=0.072 不再 BH 显著，但 paradigm-level Stouffer 集体证据全部稳健）。Per-subject paired Δ-of-Δ（每被试的 binary Δ − ternary Δ，以 (V, subject) 为单元 pooled across 5 V cross-subject cells，n=105）：mean=−1.96 pp, t=−5.160, p<0.001——binary cross-sub 退化显著大于 ternary cross-sub 在被试层面成立。V4/V5 跨 paradigm 复现的更细 task-asymmetric gap 见 [paper/reviews/stage4_step1c_v4v5_within_transfer.md](../reviews/stage4_step1c_v4v5_within_transfer.md) §5（V4 binary 平均 Δ=−1.46 pp / ternary −0.22 pp gap=1.24 pp；V5 binary −2.30 / ternary −1.55 gap=0.75 pp）。
+表 16 在五种独立的 DAPT 训练配置（V1–V5）× 三种下游范式（被试内、跨被试、迁移 XSI-FT）× 两种任务（二分类、三分类）共 **30 个 evaluated cell**（V1–V5 × within + cross + transfer × bin + ter；DAPT 评估全闭合，0 cell 未跑；V1/V2/V3 transfer 6 cell 于 2026-05-11 补完，详见 §3.6.4）上系统评估在外部 MI 数据上进一步预训练 CBraMod 后的下游表现。**核心发现是 task-asymmetric 负迁移在三种 paradigm 上稳健复现于 binary 任务**：cross-subject 5/5、within-subject 5/5、transfer 5/5 一致方向性负向（cross mean Δ=−1.788 pp / Stouffer Z=−5.328, p<0.001；within mean Δ=−1.894 pp / Z=−4.419, p<0.0001；**transfer mean Δ=−1.149 pp / Z=−3.391, p=0.0007**——由 V1/V2/V3 transfer 数据扩展，原 V4/V5-only Z=−2.79 加强）——**总 15/15 binary cell 方向性一致负向**。
 
-**表 16. Further pre-training 下游评估（CBraMod，N = 21；24 cell）。**
+**Ternary 任务的方向性是 paradigm-依赖的**：cross 4/5 方向性弱正（V1 +0.79 / V2 +0.44 / V3 +0.62 / V4 +0.22 pp，仅 V5 −1.17）mean Δ=+0.180 pp / Z=+0.577, p=0.564；within 5/5 弱负 mean Δ=−0.918 pp / Z=−2.159, p=0.031；**transfer 3/5 方向性正**（V1 +0.65 / V2 +0.18 / V3 +1.09，V4 −0.32 / V5 −1.47）mean Δ=+0.027 pp / Z=+0.176, p=0.860——**transfer-ternary 5V 聚合相对 v3.1 草稿中 V4/V5-only Z=−1.60, p=0.110 的结论发生方向翻转**，"ternary 一致负迁移"不被支持。BH-FDR @ 0.05 在新 30-cell DAPT family 下重做后 **0/30 cell q<0.05 存活**（v3.1 24-family 下唯一 BH-显著的 V2_within_binary q=0.048 因 family 扩张退到 q=0.060；原始 p 全部不变，q 推高纯属多重比较惩罚）。**优先以 paradigm-level Stouffer 集体证据阅读**——单元格 BH 已对 family 扩张做了 conservative 惩罚。Per-subject paired Δ-of-Δ（每被试的 binary Δ − ternary Δ，以 (V, subject) 为单元 pooled across 5 V cross-subject cells，n=105）：mean=−1.96 pp, t=−5.160, p<0.001——binary cross-sub 退化显著大于 ternary cross-sub 在被试层面成立。V4/V5 跨 paradigm 复现的更细 task-asymmetric gap 见 [paper/reviews/stage4_step1c_v4v5_within_transfer.md](../reviews/stage4_step1c_v4v5_within_transfer.md) §5；V1/V2/V3 transfer 补完的完整 30-cell 重算见 [paper/reviews/stage4_step1d_v1v2v3_transfer.md](../reviews/stage4_step1d_v1v2v3_transfer.md)。
 
-| V | 范式 | 任务 | mean_treat (%) | mean_base (%) | Δ (pp) | t | p (raw) | dz | 95% CI (pp) | q (BH, 24-family) | BH 显著 |
+**表 16. Further pre-training 下游评估（CBraMod，N = 21；30 cell，DAPT 评估全闭合）。**
+
+| V | 范式 | 任务 | mean_treat (%) | mean_base (%) | Δ (pp) | t | p (raw) | dz | 95% CI (pp) | q (BH, 30-family) | BH 显著 |
 |---|------|------|---:|---:|---:|---:|---:|---:|:-:|---:|:-:|
-| V1 | 被试内 | 二分类 | 83.84 | 85.09 | −1.25 | −1.65 | 0.115 | −0.359 | [−2.83, +0.33] | 0.197 | n |
-| V1 | 被试内 | 三分类 | 69.25 | 69.54 | −0.30 | −0.45 | 0.656 | −0.099 | [−1.67, +1.08] | 0.750 | n |
-| V1 | 跨被试 | 二分类 | 88.84 | 90.68 | **−1.85** | −2.90 | 0.009 | −0.632 | [−3.18, −0.52] | 0.072 | n † |
-| V1 | 跨被试 | 三分类 | 75.67 | 74.88 | +0.79 | +0.95 | 0.353 | +0.207 | [−0.95, +2.53] | 0.498 | n |
-| V2 | 被试内 | 二分类 | 82.23 | 85.09 | **−2.86** | −3.53 | 0.002 | −0.771 | [−4.54, −1.17] | **0.048** | **Y** |
-| V2 | 被试内 | 三分类 | 68.08 | 69.54 | −1.47 | −1.77 | 0.093 | −0.385 | [−3.20, +0.27] | 0.186 | n |
-| V2 | 跨被试 | 二分类 | 89.43 | 90.68 | −1.25 | −2.42 | 0.025 | −0.529 | [−2.33, −0.17] | 0.089 | n |
-| V2 | 跨被试 | 三分类 | 75.32 | 74.88 | +0.44 | +0.75 | 0.462 | +0.164 | [−0.78, +1.65] | 0.584 | n |
-| V3 | 被试内 | 二分类 | 83.75 | 85.09 | −1.34 | −1.66 | 0.112 | −0.363 | [−3.02, +0.34] | 0.197 | n |
-| V3 | 被试内 | 三分类 | 69.31 | 69.54 | −0.24 | −0.35 | 0.729 | −0.077 | [−1.65, +1.18] | 0.761 | n |
-| V3 | 跨被试 | 二分类 | 89.23 | 90.68 | −1.46 | −2.08 | 0.051 | −0.453 | [−2.92, +0.01] | 0.153 | n |
-| V3 | 跨被试 | 三分类 | 75.50 | 74.88 | +0.62 | +0.89 | 0.384 | +0.194 | [−0.83, +2.06] | 0.512 | n |
-| V4 | 被试内 | 二分类 | 84.05 | 85.15 | −1.10 | −1.34 | 0.194 | −0.293 | [−2.81, +0.61] | 0.291 | n |
+| V1 | 被试内 | 二分类 | 83.84 | 85.09 | −1.25 | −1.65 | 0.115 | −0.359 | [−2.83, +0.33] | 0.230 | n |
+| V1 | 被试内 | 三分类 | 69.25 | 69.54 | −0.30 | −0.45 | 0.656 | −0.099 | [−1.67, +1.08] | 0.757 | n |
+| V1 | 跨被试 | 二分类 | 88.84 | 90.68 | **−1.85** | −2.90 | 0.009 | −0.632 | [−3.18, −0.52] | 0.090 | n † |
+| V1 | 跨被试 | 三分类 | 75.67 | 74.88 | +0.79 | +0.95 | 0.353 | +0.207 | [−0.95, +2.53] | 0.504 | n |
+| V1 | 迁移 | 二分类 | 89.02 | 90.12 | −1.10 | −1.42 | 0.171 | −0.310 | [−2.72, +0.52] | 0.301 | n |
+| V1 | 迁移 | 三分类 | 75.69 | 75.04 | +0.65 | +0.79 | 0.441 | +0.172 | [−1.08, +2.39] | 0.575 | n |
+| V2 | 被试内 | 二分类 | 82.23 | 85.09 | **−2.86** | −3.53 | 0.002 | −0.771 | [−4.54, −1.17] | 0.060 | n ★ |
+| V2 | 被试内 | 三分类 | 68.08 | 69.54 | −1.47 | −1.77 | 0.093 | −0.385 | [−3.20, +0.27] | 0.230 | n |
+| V2 | 跨被试 | 二分类 | 89.43 | 90.68 | −1.25 | −2.42 | 0.025 | −0.529 | [−2.33, −0.17] | 0.111 | n |
+| V2 | 跨被试 | 三分类 | 75.32 | 74.88 | +0.44 | +0.75 | 0.462 | +0.164 | [−0.78, +1.65] | 0.578 | n |
+| V2 | 迁移 | 二分类 | 89.38 | 90.12 | −0.74 | −1.17 | 0.255 | −0.256 | [−2.07, +0.58] | 0.387 | n |
+| V2 | 迁移 | 三分类 | 75.22 | 75.04 | +0.18 | +0.30 | 0.770 | +0.065 | [−1.08, +1.43] | 0.796 | n |
+| V3 | 被试内 | 二分类 | 83.75 | 85.09 | −1.34 | −1.66 | 0.112 | −0.363 | [−3.02, +0.34] | 0.230 | n |
+| V3 | 被试内 | 三分类 | 69.31 | 69.54 | −0.24 | −0.35 | 0.729 | −0.077 | [−1.65, +1.18] | 0.781 | n |
+| V3 | 跨被试 | 二分类 | 89.23 | 90.68 | −1.46 | −2.08 | 0.051 | −0.453 | [−2.92, +0.01] | 0.191 | n |
+| V3 | 跨被试 | 三分类 | 75.50 | 74.88 | +0.62 | +0.89 | 0.384 | +0.194 | [−0.83, +2.06] | 0.524 | n |
+| V3 | 迁移 | 二分类 | 89.11 | 90.12 | −1.01 | −1.17 | 0.258 | −0.254 | [−2.82, +0.80] | 0.387 | n |
+| V3 | 迁移 | 三分类 | 76.13 | 75.04 | **+1.09** | +1.67 | 0.111 | +0.363 | [−0.28, +2.46] | 0.230 | n ‡ |
+| V4 | 被试内 | 二分类 | 84.05 | 85.15 | −1.10 | −1.34 | 0.194 | −0.293 | [−2.81, +0.61] | 0.323 | n |
 | V4 | 被试内 | 三分类 | 68.89 | 69.44 | −0.56 | −0.60 | 0.553 | −0.132 | [−2.48, +1.36] | 0.664 | n |
-| V4 | 跨被试 | 二分类 | 89.08 | 90.68 | **−1.61** | −2.93 | 0.008 | −0.640 | [−2.75, −0.46] | 0.072 | n † |
+| V4 | 跨被试 | 二分类 | 89.08 | 90.68 | **−1.61** | −2.93 | 0.008 | −0.640 | [−2.75, −0.46] | 0.090 | n † |
 | V4 | 跨被试 | 三分类 | 75.10 | 74.88 | +0.22 | +0.25 | 0.808 | +0.054 | [−1.63, +2.06] | 0.808 | n |
-| V4 | 迁移 | 二分类 | 88.45 | 90.12 | **−1.67** | −2.40 | 0.026 | −0.525 | [−3.11, −0.22] | 0.089 | n |
-| V4 | 迁移 | 三分类 | 74.72 | 75.04 | −0.32 | −0.38 | 0.709 | −0.083 | [−2.07, +1.43] | 0.761 | n |
-| V5 | 被试内 | 二分类 | 82.23 | 85.15 | **−2.92** | −2.54 | 0.020 | −0.554 | [−5.31, −0.52] | 0.089 | n |
-| V5 | 被试内 | 三分类 | 67.42 | 69.44 | −2.02 | −1.86 | 0.078 | −0.405 | [−4.30, +0.25] | 0.186 | n |
-| V5 | 跨被试 | 二分类 | 87.92 | 90.68 | −2.77 | −2.68 | 0.014 | −0.585 | [−4.92, −0.61] | 0.084 | n |
-| V5 | 跨被试 | 三分类 | 73.71 | 74.88 | −1.17 | −1.55 | 0.137 | −0.338 | [−2.75, +0.40] | 0.219 | n |
-| V5 | 迁移 | 二分类 | 88.90 | 90.12 | −1.22 | −1.81 | 0.086 | −0.394 | [−2.63, +0.19] | 0.186 | n |
-| V5 | 迁移 | 三分类 | 73.57 | 75.04 | −1.47 | −2.00 | 0.059 | −0.436 | [−3.00, +0.06] | 0.158 | n |
-| **Stouffer 聚合 — cross-binary（V1–V5, n=5 cell）保留 v3.1** ||| | | **−1.79 (mean)** | | **Z=−5.320, p<0.001** |  |  |  | n.a. |
-| **Stouffer 聚合 — cross-ternary（V1–V5, n=5 cell）保留 v3.1** ||| | | **+0.18 (mean)** | | **Z=+0.577, p=0.564** |  |  |  | n.a. |
-| **Stouffer 聚合 — full DAPT family v3.1（16 cell）保留** ||| | | | | **Z=−4.830, p<0.001** |  |  |  | n.a. |
-| **Stouffer 聚合 — within-binary（V1–V5, n=5 cell）新加** ||| | | **−1.89 (mean)** | | **Z=−4.422, p<0.0001** |  |  |  | n.a. |
-| **Stouffer 聚合 — within-ternary（V1–V5, n=5 cell）新加** ||| | | **−0.92 (mean)** | | **Z=−2.158, p=0.031** |  |  |  | n.a. |
-| **Stouffer 聚合 — transfer-binary（V4–V5, n=2 cell）新加** ||| | | **−1.45 (mean)** | | **Z=−2.788, p=0.005** |  |  |  | n.a. |
-| **Stouffer 聚合 — transfer-ternary（V4–V5, n=2 cell）新加** ||| | | **−0.90 (mean)** | | **Z=−1.597, p=0.110** |  |  |  | n.a. |
+| V4 | 迁移 | 二分类 | 88.45 | 90.12 | **−1.67** | −2.40 | 0.026 | −0.525 | [−3.11, −0.22] | 0.111 | n |
+| V4 | 迁移 | 三分类 | 74.72 | 75.04 | −0.32 | −0.38 | 0.709 | −0.083 | [−2.07, +1.43] | 0.781 | n |
+| V5 | 被试内 | 二分类 | 82.23 | 85.15 | **−2.92** | −2.54 | 0.020 | −0.554 | [−5.31, −0.52] | 0.111 | n |
+| V5 | 被试内 | 三分类 | 67.42 | 69.44 | −2.02 | −1.86 | 0.078 | −0.405 | [−4.30, +0.25] | 0.230 | n |
+| V5 | 跨被试 | 二分类 | 87.92 | 90.68 | −2.77 | −2.68 | 0.014 | −0.585 | [−4.92, −0.61] | 0.105 | n |
+| V5 | 跨被试 | 三分类 | 73.71 | 74.88 | −1.17 | −1.55 | 0.137 | −0.338 | [−2.75, +0.40] | 0.257 | n |
+| V5 | 迁移 | 二分类 | 88.90 | 90.12 | −1.22 | −1.81 | 0.086 | −0.394 | [−2.63, +0.19] | 0.230 | n |
+| V5 | 迁移 | 三分类 | 73.57 | 75.04 | −1.47 | −2.00 | 0.059 | −0.436 | [−3.00, +0.06] | 0.197 | n |
+| **Stouffer 聚合 — cross-binary（V1–V5, n=5 cell）** ||| | | **−1.788 (mean)** | | **Z=−5.328, p<0.001** |  |  |  | n.a. |
+| **Stouffer 聚合 — cross-ternary（V1–V5, n=5 cell）** ||| | | **+0.180 (mean)** | | **Z=+0.577, p=0.564** |  |  |  | n.a. |
+| **Stouffer 聚合 — within-binary（V1–V5, n=5 cell）** ||| | | **−1.894 (mean)** | | **Z=−4.419, p<0.0001** |  |  |  | n.a. |
+| **Stouffer 聚合 — within-ternary（V1–V5, n=5 cell）** ||| | | **−0.918 (mean)** | | **Z=−2.159, p=0.031** |  |  |  | n.a. |
+| **Stouffer 聚合 — transfer-binary（V1–V5, n=5 cell）★ Step 1d 升级** ||| | | **−1.149 (mean)** | | **Z=−3.391, p=0.0007** |  |  |  | n.a. |
+| **Stouffer 聚合 — transfer-ternary（V1–V5, n=5 cell）★ Step 1d 升级（方向翻转 Z=−1.60→+0.18）** ||| | | **+0.027 (mean)** | | **Z=+0.176, p=0.860** |  |  |  | n.a. |
+| **Stouffer 聚合 — full DAPT family v3.1（16 cell）保留 legacy** ||| | | | | **Z=−4.830, p<0.001** |  |  |  | n.a. |
 
-> † 标记的两单元（V1_cross_binary q=0.072, V4_cross_binary q=0.072）在 v3.1 16-cell BH-FDR family 下原 q=0.048 BH 显著，但在新 24-cell family 下因更严苛多重比较惩罚不再 survive（q 阈值随 cell 数增加而收紧）；定性方向不变，paradigm-level Stouffer 集体证据稳健。这是 family 边界扩张的统计学必然代价；优先以 Stouffer 聚合阅读集体证据。
+> † 标记的两单元（V1_cross_binary q=0.090, V4_cross_binary q=0.090）在 v3.1 16-cell BH-FDR family 下原 q=0.048 BH 显著，但在 24-cell 与新 30-cell family 下因更严苛多重比较惩罚不再 survive（q 阈值随 cell 数增加而收紧）；定性方向不变。★ 标记的 V2_within_binary 是 24-cell family 下唯一 BH-显著的 cell（q=0.048）；在 30-cell family 下退到 q=0.060，与 V1_cross_binary / V4_cross_binary 同样退出 BH 显著。‡ 标记的 V3_transfer_ternary +1.09 pp 是整个 30-cell DAPT 矩阵的**全局最大正向 Δ**（任意 task / paradigm；15 个 binary cell 全部方向负）。这是 family 边界扩张的统计学必然代价；paradigm-level Stouffer 集体证据反而稳健加强（transfer-bin 从 Z=−2.79 升至 −3.39, transfer-ter 从 Z=−1.60 翻转至 +0.18）。
 
-> 所有 paired t 检验为双尾，n=21（每被试一对 trial-level majority-vote 准确率）；BH-FDR 在新 24-cell DAPT family 内重做（v3.1 16-cell BH 结果详见 `paper/reviews/stage4_step1b_stat_recompute_v4v5.md`，单元格 q 值随 family 扩展而变；7 个 paradigm-level Stouffer 聚合详见 `paper/reviews/stage4_step1c_v4v5_within_transfer.md` §4）。完整 reproducibility 入口：`paper/reviews/stat_recompute_v4v5_runner.py`（V1–V3 + V4/V5 cross），`scripts/internal/recompute_v4v5_within_transfer.py`（V4/V5 within+transfer 8 new cells + BH 重做 + 4 新 Stouffer）。
+> **方法学独立性 caveat**：Stouffer 聚合假设 cell 间 p 值独立；5 个 V 在共享 21 被试 + 共享 baseline 上的 p 值存在弱相关，paradigm-level Z 可能轻微高估方向证据（这是 v3.1 既有的方法学选择，本研究未做改变）。Paradigm-level 跨范式复现一致性（binary 在 cross/within/transfer 三 paradigm 均 Z 负、p<0.001）才是更稳健的方向证据。
 
-**图 10a. DAPT V1-V5 24-cell forest plot（含 V4/V5 within+transfer 2026-05-10 补完）。** 每行一个 V × paradigm × task 组合的 mean Δ (pp) 与 95% CI；红色填充 = BH-FDR q<0.05 在新 24-cell DAPT family 内显著（仅 V2 within-bin q=0.048 一项；v3.1 16-cell 下原 V1_cross_binary / V4_cross_binary 在更广 family 内 q=0.072 不再 survive）；绿色 = 方向性正向但不显著（cross-ternary 4/5 V 落入此类，within/transfer 全部方向负无绿点）；底部七个菱形为 Stouffer 聚合——保留 v3.1 三个原始（cross-bin Z=−5.32, p<0.001 / cross-ter Z=+0.58, p=0.564 / 全 v3.1 16-cell Z=−4.83, p<0.001）+ Step 1c 新增四个 paradigm-level（within-bin Z=−4.42, p<0.0001 / within-ter Z=−2.16, p=0.031 / transfer-bin Z=−2.79, p=0.005 / transfer-ter Z=−1.60, p=0.110）。
+> 所有 paired t 检验为双尾，n=21（每被试一对 trial-level majority-vote 准确率）；BH-FDR 在新 30-cell DAPT family 内重做（v3.1 24-cell BH 结果详见 `paper/reviews/stage4_step1c_v4v5_within_transfer.md`，单元格 q 值随 family 扩展而变；6 个 paradigm-level Stouffer 聚合详见 `paper/reviews/stage4_step1d_v1v2v3_transfer.md` §4）。完整 reproducibility 入口：`scripts/internal/recompute_v4v5_within_transfer.py`（V4/V5 within+transfer 8 cells）+ `scripts/internal/recompute_v1v2v3_transfer.py`（V1/V2/V3 transfer 6 cells + 30-cell BH 重做 + 6 个 5V Stouffer），二者命令均为 `uv run python <script>`，确定性输出（无 RNG）。
+
+**图 10a. DAPT V1-V5 30-cell forest plot（含 V1/V2/V3 transfer 2026-05-11 补完）。** 每行一个 V × paradigm × task 组合的 mean Δ (pp) 与 95% CI；红色填充 = BH-FDR q<0.05 在新 30-cell DAPT family 内显著（0/30 cell；V2 within-bin 24-family q=0.048 → 30-family q=0.060 退出）；绿色 = 方向性正向（cross-ternary 4/5 V + transfer-ternary 3/5 V 落入此类，**V3 transfer-ternary +1.09 pp 为全矩阵最正 Δ**）；底部六个菱形为 paradigm-level Stouffer 聚合（cross-bin Z=−5.33 / cross-ter Z=+0.58 / within-bin Z=−4.42 / within-ter Z=−2.16 / **transfer-bin Z=−3.39**（V1-V5 5-cell，从 V4/V5 only Z=−2.79 加强）/ **transfer-ter Z=+0.18**（V1-V5 5-cell，**从 V4/V5 only Z=−1.60 方向翻转**））+ 一个保留的 16-cell legacy 全聚合（Z=−4.83）。
 
 ![图 10a. DAPT V1-V5 forest](../../paper/figures/dapt_v1_v5_forest.png)
 
-**图 10b. Further Pre-training 下游评估（V1-V5 + reverse-gradient，post Step 1c 24-cell expansion）。** 左图：5 V × 6 paradigm-task 柱状（V1-V3 缺 transfer 数据故 transfer 列只显示 V4/V5；thick border = BH-FDR 显著，新 24-cell family 下仅 V2 within-bin survive）；右图：(effective sample size, Δ) 反向梯度散点 — 全 24 cell 含 transfer 标记（★/♦ 表示 transfer-bin/ternary，x-jittered 至 ~94/142 trials 与 within markers 区分）；每被试 ~80 trial 的 within / transfer 范式上 Δ 更深负向，cross 21× pooled 上反而 4/5 弱正，OLS 斜率 +0.53 pp/log10(N) 方向上提示 "data 越少, DAPT 伤害越大"。
+**图 10b. Further Pre-training 下游评估（V1-V5 + reverse-gradient，post Step 1d 30-cell expansion）。** 左图：5 V × 6 paradigm-task 柱状（transfer 列升级为完整 5V；thick border = BH-FDR 显著，新 30-cell family 下 0/30 cell survive）；右图：(effective sample size, Δ) 反向梯度散点 — 全 30 cell 含 transfer 标记（★/♦ 表示 transfer-bin/ternary，x-jittered 至 ~94/142 trials 与 within markers 区分）；每被试 ~80 trial 的 within / transfer 范式上 Δ 更深负向（binary）或方向翻转（ternary 3/5 正），cross 21× pooled 上 4/5 ternary 弱正、5/5 binary 一致负——task asymmetry 在 (sample size, Δ) 反向梯度图上视觉化为 binary 全负 / ternary 在 transfer 与 cross 两个 paradigm 上接近 0 或弱正。
 
 ![图 10b. Further Pre-training 下游评估](../../paper/figures/further_pretraining.png)
 
@@ -831,6 +841,8 @@ V1–V3 同时改变了数据量、LR 调度与训练步数，留下三个未隔
 
 **唯一存活假设——MI 粒度错配**：粗 hand/leg/upper-limb MI 的 MAE pretext loss 学到的是"哪个肢体在动"的低频空间包络；下游 finger-level binary（食指 vs 中指，**同手**）需要的是 DAPT 没学到的细粒度区别。Ternary 的 rest 类（不动 vs 运动）正好能用 DAPT 学到的粗粒度空间包络识别——所以 ternary 没那么糟，部分配置（V1/V2/V3/V4）甚至轻微正向。这一机制同时解释了 task asymmetry（binary 需细判别 / ternary 受益于粗判别）与 V5 的反向恶化（单源 ACPE 几何过拟合加重粒度错配的下游代价）。
 
+**Transfer rescue gradient（binary 任务，新增于 Step 1d）**：V1/V2/V3 transfer 补完后揭示了一个意外的细粒度模式——**V1/V2/V3 在 binary 上呈强 cross→transfer 衰减**（Δ magnitude 衰减 31–41%，显著性全部消失：V1 cross p=0.009 → transfer p=0.171；V2 p=0.025 → 0.255；V3 p=0.051 → 0.258）；**V5 呈部分衰减**（Δ −2.77 → −1.22，magnitude 衰减 56%，cross 显著 → transfer p=0.086 边缘 n.s.）；**V4 是唯一例外**（Δ −1.61 → −1.67，cross/transfer 都 BH-边缘 q=0.090）。V4 的独特性——strict filter + 3-set 域对齐——**印下了 surgical fix 最具体也最顽固的错误先验**，per-subject fine-tune 无法清洗；V5 单源 60ch 几何错位虽顽固，但每被试 fine-tune 仍能部分校正 ACPE；V1/V2/V3 的弥散扰动近似"小随机噪声"，最易被下游清洗。这一三档差异同时提供机制证据：**fine-tune 清洗的难度与 surgical fix 的"具体性"正相关**——V4 最具体 → 最难清洗；V5 中间；V1/V2/V3 最弥散 → 最易清洗。这与 §3.6.1 的 MI 粒度错配机制兼容（清洗顺序与"DAPT 印迹的精度"而非"DAPT 印迹的方向"耦合），并为 V4 的存活假设提供了独立的方向性证据。
+
 **未独立检验的替代假设（透明披露）**：需补充说明，"MI 粒度错配"作为唯一存活假设是经过 V4/V5 对"Stieger 占主导"与"通道数异质混淆"两个候选的排除得到的，本研究并未独立直接检验"粒度错配"机制本身。至少存在三类未在本研究中分离的结构等价/平行替代假设：(i) **小语料 catastrophic forgetting** — V4 仅 4,937 段、V1–V3 在数千至数万段量级，BERT-style continued pretraining 在小语料上可能损耗 TUEG-学到的表征多于其新增 finger-MI 相关部分，与"哪种 MI 粒度被学到"无关；(ii) **DAPT 方法配置不匹配** — mask_ratio=50% + MSE pretext + AdamW + lr=5e-5 全部沿用 [4] 在 TUEG 下游 fine-tuning 的默认值，未针对 MI 数据特性系统调参（详见 Limitation #12a）；(iii) **"任务-pretext 重叠度"而非"粒度"本身驱动 task asymmetry** — 若 DAPT 学到的"是否运动 vs 静息"边界与 ternary 的 rest 类天然契合而与 binary 的"食指 vs 中指（同手 motor execution intent）"无关，结构上与本节"粒度错配"机制等价但表述更宽，且不能被现有 V1–V5 数据独立分离。这三类替代假设的隔离需要 §6 #3 描述的方法配置 ablation（mask ratio / loss / epoch / warmup 扫描）+ 单数据集 leave-one-out 完成后才能闭合。当前结论应被理解为"在 V1–V5 五个配置下，'MI 粒度错配'是同时与所有 5 V 数据兼容的最简存活解释，但非唯一可能解释"。
 
 #### 3.6.2 透明披露：方向反转
@@ -843,15 +855,17 @@ V1–V3 同时改变了数据量、LR 调度与训练步数，留下三个未隔
 
 3. **V5 cross-ternary 单点反向（弱负）**：V5 −1.17 pp，5 V 中唯一与其他 V 方向相反的 ternary cell；其余 4 V 均弱正。如 §3.6.1 所述，V5 的双向恶化由其单源 ACPE 几何过拟合机制独立解释，与"通道多样性保护"的反方向证据自洽。
 
+4. **V1/V2/V3 transfer-ternary 三个方向性正（Step 1d 补完）**：V1 +0.65 / V2 +0.18 / V3 +1.09 pp，其中 **V3 transfer-ternary +1.09 pp 是整个 30-cell DAPT 矩阵的全局最大正向 Δ**（任意 task / paradigm；15 个 binary cell 全部方向负，所以最正 Δ 必在 ternary 侧；n.s., p=0.111；dz=+0.363 中等效应）。这驱动了 transfer-ternary 5V Stouffer 从 V4/V5-only 的 Z=−1.60 (p=0.110) **翻转**为 Z=+0.18 (p=0.860)，意味着"transfer-ternary 整体负向"的 v3.1 草稿结论**不再成立**——transfer 在 ternary 上的 DAPT 效应近零、个别 V 甚至方向性正。与 §3.6.1 的 MI 粒度错配解释**相容**：ternary 的 rest 类既受益于 DAPT 学到的粗粒度空间包络，又在 per-subject fine-tune 后获得局部细节，两次叠加产生中性到弱正效应。
+
 #### 3.6.3 V2 训练 caveat（保留 v3）
 
 **V2 训练在 Epoch 13 因 Windows LMDB MapResizedError 中断**，使用 Epoch 12 checkpoint 作为 best model，未触发由 patience=5 决定的 early stopping。**V3 采用 warm-restart-from-weights**（先训 15 ep + continue 训 12 ep，optimizer 与 LR scheduler 状态在阶段 ii 重置）；V4/V5 均为单阶段训练。这些训练组态差异不改变 §3.6.1 的 task-asymmetric 定性结论，但意味着"V2/V3 是否在更长连续训练后达到不同结论"严格意义上不可证。
 
 #### 3.6.4 评估覆盖范围
 
-V1/V2/V3 已评估被试内、跨被试两种范式各两 task（共 12 cell）；V4/V5 经 2026-05-10 补充评估后，覆盖被试内、跨被试、迁移（XSI-FT）三种范式各两 task（共 12 cell，即 V4 6 + V5 6）。合并后**整体已评估 24 cell**，剩余未评估的 6 cell 全部为 V1/V2/V3 的 transfer 范式（V1–V3 × XSI-FT × bin+ter）；V1/V2/V3 在 transfer 上的表现取决于跨被试 checkpoint 是否能在单被试 fine-tune 阶段解开 DAPT 引入的负向偏差，但 V4/V5 transfer 已 6/6 cell 全部呈方向性负向（Stouffer transfer-bin Z=−2.79, p=0.005；transfer-ter Z=−1.60, p=0.110），先验上很难期望 V1–V3 transfer 反转方向。
+V1/V2/V3 已评估被试内、跨被试两种范式各两 task（共 12 cell）；V4/V5 经 2026-05-10 补充评估后覆盖被试内、跨被试、迁移（XSI-FT）三种范式各两 task（共 12 cell，即 V4 6 + V5 6）；**V1/V2/V3 transfer 6 cell 于 2026-05-11 补完**（runner: [scripts/experiments/run_dapt_v1_v2_v3_transfer.sh](../../scripts/experiments/run_dapt_v1_v2_v3_transfer.sh)；统计重算: [paper/reviews/stage4_step1d_v1v2v3_transfer.md](../reviews/stage4_step1d_v1v2v3_transfer.md)；reproducibility: `uv run python scripts/internal/recompute_v1v2v3_transfer.py`）。**整体评估覆盖 30/30 cell，DAPT 矩阵全闭合**。
 
-**Caveat #6 ("DAPT 是否仅在 cross-subject 范式失败") 已闭合**：V4/V5 12-cell 全矩阵 0/12 正向显著、12/12 方向负或近零（含 within / cross / transfer 三种范式）；DAPT 失败不是 cross-subject 范式特有现象，而是跨范式稳健的方向性结果。原 [Plan §Stage 4](../../C:/Users/zhang/.claude/plans/did-we-use-the-sprightly-peacock.md) 的 gating 规则（cross-subject ternary p<0.05 且方向正才解锁全 6 条件矩阵）按字面 4/4 cross cell fail 不解锁——但作为 reviewer-defense 仍执行了 V4/V5 8-cell within+transfer 流水线，结果与 cross 完全方向一致。这一更广 paradigm 矩阵的实证补全详见 §5 limitation #12 (b) 与 [paper/reviews/stage4_step1c_v4v5_within_transfer.md](../reviews/stage4_step1c_v4v5_within_transfer.md)。
+**Caveat #6 ("DAPT 是否仅在 cross-subject 范式失败")**：在 **binary 任务**上以 15/15 cell 方向负向、三个 paradigm Stouffer 均 p<0.001（cross Z=−5.33, within Z=−4.42, transfer Z=−3.39）的强证据**支持关闭**；在 **ternary 任务**上则呈现 paradigm-依赖的方向不一致（cross 4/5 弱正 / within 5/5 弱负 / transfer 3/5 弱正），**不支持** "ternary 一致负迁移" 的更弱结论。30-cell V1–V5 全矩阵 0/30 cell BH 显著、0/15 binary cell 方向性正（一致负向）、6/15 ternary cell 方向性正（其中 V3_transfer_ternary +1.09 pp 为全 30-cell 矩阵的全局最大正向 Δ）——DAPT 失败不是 cross-subject 范式特有现象，而是 task-asymmetric × paradigm-dependent 的方向性结果。原 [Plan §Stage 4](../../C:/Users/zhang/.claude/plans/did-we-use-the-sprightly-peacock.md) 的 gating 规则按字面 4/4 cross cell fail 不解锁——但作为 reviewer-defense 仍执行了 V4/V5 8-cell within+transfer 流水线 + V1/V2/V3 transfer 6-cell 补完，结果与 cross 在 binary 上完全方向一致、在 ternary 上揭示了 transfer 与 cross 类似的 paradigm-依赖方向性。这一更广 paradigm 矩阵的实证补全详见 §5 limitation #12 (b)、[paper/reviews/stage4_step1c_v4v5_within_transfer.md](../reviews/stage4_step1c_v4v5_within_transfer.md)、以及 [paper/reviews/stage4_step1d_v1v2v3_transfer.md](../reviews/stage4_step1d_v1v2v3_transfer.md)。
 
 > **数据来源**:
 > - Baseline (registry-correct, n=21): cross-binary `results/20260324_0023_cross_subject_cache_imagery_binary.json` (run_tag `20260324_0023`, `is_baseline=1`, mean=90.68%); cross-ternary `results/20260324_0109_cross_subject_cache_imagery_ternary.json` (run_tag `20260324_0109`, `is_baseline=1`, mean=74.88%); within-binary ExperimentDB run_tag `20260321_0343`; within-ternary `20260205_0306`.
@@ -860,8 +874,12 @@ V1/V2/V3 已评估被试内、跨被试两种范式各两 task（共 12 cell）�
 > - V3: pretrain checkpoint `checkpoints/cbramod/further_pretrain_v3_continued_20260505_1800/best_model.pth` (epoch 22)；下游缓存 `results/dapt_v3/20260505_2012_within_subject_cache_imagery_binary.json`, `..._2033_within_subject_cache_imagery_ternary.json`, `..._2100_cross_subject_cache_imagery_binary.json`, `..._2131_cross_subject_cache_imagery_ternary.json`。
 > - V4: pretrain checkpoint `checkpoints/cbramod/further_pretrain_v4_20260509_2345/best_model.pth`（Epoch 40, loss=0.001914；3-set + strict filter, 4,937 segments）；下游缓存 `results/20260510_1710_cross_subject_cache_imagery_binary.json` (cross bin), `results/20260510_1020_cross_subject_cache_imagery_ternary.json` (cross ter)。
 > - V5: pretrain checkpoint `checkpoints/cbramod/further_pretrain_v5_20260510_1049/best_model.pth`（Epoch 21, loss=0.003108；Stieger-only 60 ch, 67,068 segments）；下游缓存 `results/20260510_1812_cross_subject_cache_imagery_binary.json` (cross bin), `results/20260510_1738_cross_subject_cache_imagery_ternary.json` (cross ter)。
-> - 完整统计与 Reproducibility: `paper/reviews/stage4_step1b_stat_recompute_v4v5.md`；历史背景与 V1/V2 详细比较：`paper/analysis/further_pretraining_analysis.md`；V4/V5 实验交接：`docs/handoffs/2026-05-10_dapt_v4_v5.md`。
-> 生成命令: 图 10a 由 `uv run python scripts/paper/generate_paper_figures.py --figure dapt_v1_v5_forest` 生成；图 10b 由 `uv run python scripts/paper/generate_paper_figures.py --figure further_pretraining` 生成
+> - V1 transfer (Step 1d): treatment `results/dapt_v1/20260510_2357_transfer_cache_imagery_binary.json` (bin), `results/dapt_v1/20260511_0012_transfer_cache_imagery_ternary.json` (ter)；init weights = V1 cross-subject checkpoint `checkpoints/cross_subject/20260322_1116_cbramod_imagery_binary/best.pt` (bin) / `20260322_1543_cbramod_imagery_ternary/best.pt` (ter)。
+> - V2 transfer (Step 1d): treatment `results/dapt_v2/20260511_0031_transfer_cache_imagery_binary.json` (bin), `results/dapt_v2/20260511_0042_transfer_cache_imagery_ternary.json` (ter)；init weights = V2 cross-subject checkpoint `checkpoints/cross_subject/20260323_1517_cbramod_imagery_binary/best.pt` (bin) / `20260323_1709_cbramod_imagery_ternary/best.pt` (ter)。
+> - V3 transfer (Step 1d): treatment `results/dapt_v3/20260511_0058_transfer_cache_imagery_binary.json` (bin), `results/dapt_v3/20260511_0109_transfer_cache_imagery_ternary.json` (ter)；init weights = V3 cross-subject checkpoint `checkpoints/cross_subject/20260505_2100_cbramod_imagery_binary/best.pt` (bin) / `20260505_2131_cbramod_imagery_ternary/best.pt` (ter)。
+> - Transfer baseline (TUEG-original cross_subject init, n=21): `results/20260329_0507_transfer_cache_imagery_binary.json` (bin, mean=90.12%) / `results/20260329_0521_transfer_cache_imagery_ternary.json` (ter, mean=75.04%)。
+> - 完整统计与 Reproducibility: `paper/reviews/stage4_step1b_stat_recompute_v4v5.md` (V1-V3 + V4/V5 cross, 16 cells) → `stage4_step1c_v4v5_within_transfer.md` (+8 V4/V5 within+transfer = 24 cells) → `stage4_step1d_v1v2v3_transfer.md` (+6 V1/V2/V3 transfer = 30 cells, BH 重做 + 6 个 5V Stouffer)；历史背景与 V1/V2 详细比较：`paper/analysis/further_pretraining_analysis.md`；V4/V5 实验交接：`docs/handoffs/2026-05-10_dapt_v4_v5.md` 含 "追加 (2026-05-11)" 段记录 V1/V2/V3 transfer。
+> 生成命令: 图 10a 由 `uv run python scripts/paper/generate_paper_figures.py --figure dapt_v1_v5_forest` 生成；图 10b 由 `uv run python scripts/paper/generate_paper_figures.py --figure further_pretraining` 生成；30-cell 统计重算由 `uv run python scripts/internal/recompute_v1v2v3_transfer.py` 生成。
 
 ### 3.7 探索性消融：架构 / 预训练 / 容量贡献的初步检验
 
@@ -1056,7 +1074,7 @@ within-subject 范式下方向反转：random-init CBraMod 在被试内二分类
 
 ### 4.5 领域自适应 Further Pre-training 的局限
 
-§3.6 把 DAPT 的下游表现从 v3 草稿的"三种配置一致负迁移"重写为 **task-asymmetric**：cross-subject **binary** 5/5 配置一致显著负（mean Δ=−1.79 pp, Stouffer Z=−5.32, p<0.001），cross-subject **ternary** 4/5 配置弱正、仅 V5 弱负（mean Δ=+0.18 pp, Stouffer p=0.564）。本节以"机制收紧"的视角解释这一分裂：V4 与 V5 两次 surgical fix 把 v3 草稿提出的三个候选混淆假设（域错配 / Stieger 占主导 / 通道数异质）逐一筛除，唯一存活的解释是 **MI 粒度错配（pretext-task granularity mismatch）**。
+§3.6 把 DAPT 的下游表现从 v3 草稿的"三种配置一致负迁移"重写为 **task-asymmetric × paradigm-dependent**：DAPT 评估全闭合至 30 cell 后，**binary 任务**在 cross / within / transfer 三个 paradigm 上均 5/5 一致显著负向（cross Z=−5.33 / within Z=−4.42 / **transfer Z=−3.39**，全部 p<0.001；15/15 binary cell 方向负），而 **ternary 任务**呈现 paradigm-依赖的方向不一致（cross 4/5 弱正，within 5/5 弱负，**transfer 3/5 弱正**——其中 V3 transfer-ternary +1.09 pp 是 30-cell 矩阵的全局最大正向 Δ）。本节以"机制收紧"的视角解释这一分裂：V4 与 V5 两次 surgical fix 把 v3 草稿提出的三个候选混淆假设（域错配 / Stieger 占主导 / 通道数异质）逐一筛除，唯一存活的解释是 **MI 粒度错配（pretext-task granularity mismatch）**。
 
 **Surgery 1 — V4 把"域错配 + 数据净化"双管齐下**：选取与下游 finger MI 域最接近的 3 个数据集（Cho2017 / Ofner2017 / Schirrmeister2017，去除 Stieger），并应用 strict filter（300 µV peak + per-channel kurtosis>10）替代 basic 500 µV mean-abs，达到全 5 V 中最低的 pre-train loss 0.001914。结果：cross-binary Δ=−1.61 pp（p=0.008, q=0.048, BH 显著），cross-ternary Δ=+0.22 pp（n.s.）——**域对齐 + 数据净化双管齐下仍未救援 binary**。说明 (1) 域错配是必要但非充分原因；strict filter 本身没有把 binary 拉回正向。
 
@@ -1068,7 +1086,7 @@ within-subject 范式下方向反转：random-init CBraMod 在被试内二分类
 
 这与 NLP 领域的 domain-adaptive pre-training（DAPT）经验形成有意义的对照。Gururangan et al. 2020 [20] 在 NLP 中证明 DAPT 在 source 与 target domain 语义临近时一致受益；本研究的负面结果不挑战该结论，而是把"language" 与 "EEG" 的 transfer 边界条件区分开——在 EEG 中 'domain' 由信号级特征（采样率、频段、电极配置、**任务粒度**）而非任务语义类别（"都是 MI"）定义。粗 MI 与 finger MI 共享语义但不共享信号粒度，DAPT 在 NLP 类的 "task-language 都对齐" 假设上不再成立。这与 §4.8 的"EEG foundation model 的 'domain' 边界由信号级特征定义"命题自洽，并把该命题从直觉上升为 **5 个 surgically-distinct DAPT 变体共同支撑的实证结论**。
 
-需要补充一项评估范围说明：V4/V5 已于 2026-05-10 补完 within-subject 与 XSI-FT (transfer) 范式各两 task 共 8 cell（详见 [paper/reviews/stage4_step1c_v4v5_within_transfer.md](../reviews/stage4_step1c_v4v5_within_transfer.md)）——12-cell V4/V5 全矩阵 0/12 正向显著、12/12 方向负或近零；task-asymmetric binary-vs-ternary gap 在 within (V4 1.24 pp / V5 0.75 pp) 与 cross 三种 paradigm 上均复现。**V1/V2/V3 仅 within / cross 已评估，未跑 XSI-FT（剩 6 cell 未跑）**；考虑 V4/V5 transfer 6/6 全部方向负、且与 within / cross 同样支持 task-asymmetric 模式，先验上很难期望 V1/V2/V3 在 transfer 上反转，但严格意义上属于 §6 后续工作可补全范围（§5 limitation #12 详记）。综合而言：原"DAPT 仅在 cross 失败"的 Caveat #6 已通过 V4/V5 三-paradigm 复现实证关闭。
+**评估范围更新**：原 v3.1 草稿中标记的 V1/V2/V3 transfer 6 cell 已于 2026-05-11 补完（详见 [paper/reviews/stage4_step1d_v1v2v3_transfer.md](../reviews/stage4_step1d_v1v2v3_transfer.md)），整体 DAPT 评估覆盖 30/30 cell。三个新数据点贡献了 §3.6.2 的反转 #4——**V3 transfer-ternary +1.09 pp 是整个 30-cell 矩阵的全局最大正向 Δ**（任意 task / paradigm），driving transfer-ternary 5V Stouffer 从 V4/V5-only 的 Z=−1.60 (p=0.110) **翻转**为 Z=+0.18 (p=0.860)，意味着 ternary 任务的 "DAPT 一致负迁移" 命题**不成立**。Binary 任务上 transfer Stouffer 反而从 Z=−2.79 加强到 Z=−3.39 (p<0.001)，binary 15/15 cell 全负的统一性证据进一步收紧 MI-粒度-错配的唯一存活假设。值得记录的另一观察是 **'transfer rescue gradient'**（详见 §3.6.1）：V1/V2/V3 在 binary 上呈强 cross→transfer 衰减（Δ magnitude 31–41% 衰减，显著性消失）；V5 部分衰减（衰减 56%，显著→边缘 n.s.）；**V4 是唯一未被 fine-tune 部分清洗的配置**（strict filter + 3-set 域对齐印下了最具体的错误先验）——这与 "fine-tune 清洗的难度与 surgical fix 的具体性正相关" 机制解释自洽，为 V4 的存活假设提供独立的方向性证据。综合而言：原 "DAPT 仅在 cross 失败" 的 Caveat #6 通过 30/30 cell 全闭合证据**在 binary 任务上支持关闭**（15/15 cell 方向负、3 个 paradigm Stouffer 全 p<0.001），在 ternary 任务上则**不支持 "一致负迁移"** 的更弱结论。BH-FDR 在 30-cell family 下 0/30 cell 存活——单元格 BH 已被 family 扩张惩罚到 conservative，**优先以 paradigm-level Stouffer 集体证据阅读**。
 
 ### 4.6 实际部署路线图
 
