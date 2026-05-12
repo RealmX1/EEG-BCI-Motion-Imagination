@@ -35,7 +35,14 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from src.results.dataclasses import PlotDataSource, TrainingResult
 from src.results.serialization import cross_subject_result_to_training_results
 from src.visualization.comparison import generate_combined_plot
-from src.visualization.paper_style import PAPER_COLORS, FONT_SIZES, apply_paper_style
+from src.visualization.paper_style import (
+    PAPER_COLORS,
+    FONT_SIZES,
+    FONT_SIZES_TIGHT,
+    apply_paper_style,
+    paper_figsize,
+    add_panel_label,
+)
 from src.visualization.plots import force_directed_label_layout
 from src.paper.run_registry import get_run_path, resolve_project_path
 
@@ -791,145 +798,6 @@ def generate_32ch_comparison_figure():
 
 
 # =============================================================================
-# Figure 3d: Reduced-channel × method × task 40-cell matrix overview
-# =============================================================================
-
-def generate_reduced_channel_grid_figure():
-    """Reduced-channel × method × task 40-cell grid panel (cross-subject CBraMod).
-
-    Layout: 2 row × 4 col = 8 panels
-      Row 0: binary  | Row 1: ternary
-      Col:   4ch    |   8ch   |  32ch  |  64ch
-      Per panel: 5 method bars (FDR/Attention/Band Power/CSP/negative_control)
-                 with mean ± std error bars, n=21 subjects.
-
-    Reference lines: 128ch CBraMod cross-subject baseline (binary 90.68%, ternary 74.88%).
-
-    Data source: 40 aliases under `paper/run_registry.yaml`, registered 2026-05-12
-    as part of the 4×5×2 matrix closure. See [docs/handoffs/2026-05-11_reduced_channel_matrix_closure.md].
-    """
-    import matplotlib.pyplot as plt
-    import matplotlib.patches as mpatches
-    from src.visualization.paper_style import (
-        PAPER_COLORS, FONT_SIZES, apply_paper_style, paper_figsize, add_panel_label,
-    )
-
-    METHODS = ['fdr', 'attention', 'band_power', 'csp', 'negative_control']
-    METHOD_LABELS = {
-        'fdr': 'FDR', 'attention': 'Attention', 'band_power': 'Band Power',
-        'csp': 'CSP', 'negative_control': 'Neg. Control',
-    }
-    CHANNEL_COUNTS = [4, 8, 32, 64]
-    TASKS = ['binary', 'ternary']
-
-    # --- Load all 40 cells ---
-    data = {n: {t: {} for t in TASKS} for n in CHANNEL_COUNTS}
-    for n in CHANNEL_COUNTS:
-        for t in TASKS:
-            for m in METHODS:
-                alias = f'reduced_{n}_{m}_{t}'
-                cache = load_json_cache(get_run_path(alias))
-                accs = extract_model_accs(cache, 'cbramod')
-                if len(accs) != 21:
-                    raise ValueError(
-                        f'{alias}: expected 21 subjects, got {len(accs)}. '
-                        f'Check run_registry.yaml + JSON cache integrity.'
-                    )
-                data[n][t]['mean_' + m] = float(np.mean(accs))
-                data[n][t]['std_' + m] = float(np.std(accs))
-
-    # --- 128ch baselines ---
-    cache_b = load_json_cache(get_run_path('cross_cbramod_binary'))
-    cache_t = load_json_cache(get_run_path('cross_cbramod_ternary'))
-    ref_binary = float(np.mean(extract_model_accs(cache_b, 'cbramod')))
-    ref_ternary = float(np.mean(extract_model_accs(cache_t, 'cbramod')))
-
-    # --- Plot ---
-    fig, axes = plt.subplots(
-        2, 4,
-        figsize=paper_figsize(rows=2, cols=4, width_in=11.0, row_height_in=3.6),
-        sharey='row',
-    )
-
-    x = np.arange(len(METHODS))
-    bar_colors = [PAPER_COLORS[m] for m in METHODS]
-    y_limits = {'binary': (45, 100), 'ternary': (30, 85)}
-    panel_letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
-
-    for row_idx, task in enumerate(TASKS):
-        for col_idx, n_ch in enumerate(CHANNEL_COUNTS):
-            ax = axes[row_idx, col_idx]
-            cell = data[n_ch][task]
-            means = [cell['mean_' + m] for m in METHODS]
-            stds = [cell['std_' + m] for m in METHODS]
-
-            bars = ax.bar(
-                x, means, yerr=stds, color=bar_colors,
-                edgecolor='black', linewidth=0.6, capsize=2.5,
-                error_kw={'elinewidth': 0.8}, zorder=3,
-            )
-
-            # 128ch baseline reference line
-            ref = ref_binary if task == 'binary' else ref_ternary
-            ax.axhline(y=ref, color='black', linestyle='--', linewidth=0.9,
-                       alpha=0.55, zorder=2)
-
-            # Value annotations above bars
-            for bar, mean in zip(bars, means):
-                ax.text(
-                    bar.get_x() + bar.get_width() / 2,
-                    bar.get_height() + 1.2,
-                    f'{mean:.1f}',
-                    ha='center', va='bottom',
-                    fontsize=FONT_SIZES['annotation'] - 1,
-                )
-
-            ax.set_xticks(x)
-            ax.set_xticklabels([])  # method labels in fig-level legend
-            ax.set_ylim(*y_limits[task])
-            ax.grid(axis='y', alpha=0.25, zorder=1)
-
-            # Column title (channel count) on top row only
-            if row_idx == 0:
-                ax.set_title(f'{n_ch} channels', fontsize=FONT_SIZES['title'], pad=8)
-
-            # Row label (task) on leftmost column only
-            if col_idx == 0:
-                ax.set_ylabel(
-                    f'{task.capitalize()} accuracy (%)',
-                    fontsize=FONT_SIZES['axis_label'],
-                )
-
-            # Panel letter
-            idx = row_idx * 4 + col_idx
-            add_panel_label(ax, panel_letters[idx], x=-0.06, y=1.02,
-                            fontsize=FONT_SIZES['panel_label'])
-
-    # Fig-level legend (5 method swatches + baseline)
-    legend_handles = [
-        mpatches.Patch(color=PAPER_COLORS[m], label=METHOD_LABELS[m]) for m in METHODS
-    ]
-    legend_handles.append(plt.Line2D(
-        [0], [0], color='black', linestyle='--', linewidth=1.1,
-        label='128ch baseline (binary 90.68%, ternary 74.88%)',
-    ))
-    fig.legend(
-        handles=legend_handles, loc='lower center', ncol=6,
-        bbox_to_anchor=(0.5, 0.03), frameon=False,
-        fontsize=FONT_SIZES['legend'],
-    )
-
-    fig.tight_layout(rect=(0, 0.10, 1, 0.97))
-    apply_paper_style(fig=fig)
-    add_provenance_footer(fig, 'reduced_channel_40cell_grid')
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = OUTPUT_DIR / 'reduced_channel_40cell_grid.png'
-    fig.savefig(out_path, dpi=200, bbox_inches='tight')
-    plt.close(fig)
-    logger.info(f'Saved: {out_path}')
-
-
-# =============================================================================
 # Figure 9: Extra Sessions Paradigm Summary
 # =============================================================================
 
@@ -1595,33 +1463,22 @@ def generate_all_baseline_plots():
 # =============================================================================
 
 def generate_8ch_ranking_flip_figure():
-    """T3.1 — 8ch 方法排序翻转 slope chart.
+    """T3.1 — 通道选择方法排序翻转 slope chart (40-cell matrix update).
 
-    把 4 种通道选择方法在 32ch / 8ch / 4ch 三档上的 cross-subject CBraMod 准确率
-    画成 slope chart，强调"32ch 第一名（FDR）在 8ch 跌至第三、Band Power 反超"
-    的方法选择敏感度现象（v3 Section 3.5.2 末段对应论点）。
+    双面板版本：左 binary、右 ternary，每子图 4 档 (64 / 32 / 8 / 4ch)。
+    强调"高通道档 4 method 几乎并排（method-agnostic），低通道档发散并翻转"
+    的方法选择敏感度现象（v3.1 Section 3.5.2 末段对应论点）。
 
     数据来源：
-      32ch: reduced_32_{fdr, band_power, csp, attention}_binary
-      8ch:  reduced_8_{fdr, band_power, csp, attention}_binary
-      4ch:  reduced_4_{fdr, band_power, csp, attention}_binary
-            (BP/CSP 来自 2026-05-05 补充实验：20260505_2308 / 20260505_2246)
-      负控制（4ch）作虚线天花板对照
+      reduced_{64,32,8,4}_{fdr,band_power,csp,attention}_{binary,ternary}
+      4ch 负控制（reduced_4_negative_control_{task}）作虚线天花板对照
     """
     import matplotlib.pyplot as plt
 
     methods = ['FDR', 'Band Power', 'CSP', 'Attention']
-    method_keys = {
-        'FDR': ('reduced_32_fdr_binary', 'reduced_8_fdr_binary',
-                'reduced_4_fdr_binary'),
-        'Band Power': ('reduced_32_band_power_binary',
-                       'reduced_8_band_power_binary',
-                       'reduced_4_band_power_binary'),
-        'CSP': ('reduced_32_csp_binary', 'reduced_8_csp_binary',
-                'reduced_4_csp_binary'),
-        'Attention': ('reduced_32_attention_binary',
-                      'reduced_8_attention_binary',
-                      'reduced_4_attention_binary'),
+    method_registry_keys = {
+        'FDR': 'fdr', 'Band Power': 'band_power',
+        'CSP': 'csp', 'Attention': 'attention',
     }
     method_colors = {
         'FDR':        PAPER_COLORS['fdr'],
@@ -1629,90 +1486,91 @@ def generate_8ch_ranking_flip_figure():
         'CSP':        PAPER_COLORS['csp'],
         'Attention':  PAPER_COLORS['attention'],
     }
-    channel_levels = ['32ch', '8ch', '4ch']
+    channel_tiers = [64, 32, 8, 4]
+    channel_levels = [f'{n}ch' for n in channel_tiers]
 
-    means_table = {m: [] for m in methods}
-    for method in methods:
-        for level_idx, key in enumerate(method_keys[method]):
-            if key is None:
-                means_table[method].append(np.nan)
-                continue
-            cache_path = get_run_path(key)
-            if not resolve_project_path(cache_path).exists():
-                logger.warning(f'Missing for {method} @ {channel_levels[level_idx]}: {cache_path}')
-                means_table[method].append(np.nan)
-                continue
-            cache = load_json_cache(cache_path)
+    def _compute_means(task):
+        means_table = {m: [] for m in methods}
+        for method in methods:
+            key_suffix = method_registry_keys[method]
+            for n_ch in channel_tiers:
+                alias = f'reduced_{n_ch}_{key_suffix}_{task}'
+                cache_path = get_run_path(alias)
+                if not resolve_project_path(cache_path).exists():
+                    logger.warning(f'Missing for {method} @ {n_ch}ch ({task}): {cache_path}')
+                    means_table[method].append(np.nan)
+                    continue
+                cache = load_json_cache(cache_path)
+                accs = extract_model_accs(cache, 'cbramod')
+                means_table[method].append(float(np.mean(accs)) if accs else np.nan)
+        neg_ctrl_path = get_run_path(f'reduced_4_negative_control_{task}')
+        neg_ctrl_mean = None
+        if resolve_project_path(neg_ctrl_path).exists():
+            cache = load_json_cache(neg_ctrl_path)
             accs = extract_model_accs(cache, 'cbramod')
-            means_table[method].append(np.mean(accs) if accs else np.nan)
+            if accs:
+                neg_ctrl_mean = float(np.mean(accs))
+        return means_table, neg_ctrl_mean
 
-    # 4ch 负控制 baseline（天花板对照）
-    neg_ctrl_path = get_run_path('reduced_4_negative_control_binary')
-    neg_ctrl_mean = None
-    if resolve_project_path(neg_ctrl_path).exists():
-        cache = load_json_cache(neg_ctrl_path)
-        accs = extract_model_accs(cache, 'cbramod')
-        if accs:
-            neg_ctrl_mean = np.mean(accs)
+    def _draw_panel(ax, task, means_table, neg_ctrl_mean, show_legend):
+        x_positions = np.arange(len(channel_levels))
+        for method in methods:
+            ys = np.array(means_table[method], dtype=float)
+            valid_mask = ~np.isnan(ys)
+            ax.plot(x_positions[valid_mask], ys[valid_mask],
+                    marker='o', markersize=10, linewidth=2.2,
+                    color=method_colors[method], label=method, zorder=3)
+        if neg_ctrl_mean is not None:
+            ax.axhline(y=neg_ctrl_mean,
+                       color=PAPER_COLORS['median_gray'],
+                       linestyle=':', linewidth=1.5, alpha=0.7,
+                       label=f'4ch Negative Control ({neg_ctrl_mean:.1f}%)')
+        ax.set_xticks(x_positions)
+        ax.set_xticklabels(channel_levels, fontsize=FONT_SIZES['tick'])
+        task_label = 'Binary' if task == 'binary' else 'Ternary'
+        ax.set_ylabel(f'Cross-Subject {task_label} Accuracy (%)',
+                      fontsize=FONT_SIZES['axis_label'])
+        ax.set_xlabel('Channel count (reduced)', fontsize=FONT_SIZES['axis_label'])
+        if task == 'binary':
+            ax.set_ylim(50, 105)
+            flip_text = ('At 64/32ch: FDR leads (within 3.24 pp)\n'
+                         'At 8/4ch: Band Power dominates (reversal)')
+        else:
+            ax.set_ylim(35, 90)
+            flip_text = ('At 64ch: FDR > BP (1.77 pp)\n'
+                         'At 32/8/4ch: Band Power leads (consistent)')
+        y_top = ax.get_ylim()[1]
+        for level_idx in range(len(channel_levels)):
+            ranking = sorted(
+                [(m, means_table[m][level_idx]) for m in methods
+                 if not np.isnan(means_table[m][level_idx])],
+                key=lambda x: x[1], reverse=True,
+            )
+            stack_text = '\n'.join(
+                f'#{r} {m:<11} {v:.1f}%' for r, (m, v) in enumerate(ranking, start=1)
+            )
+            ax.text(level_idx, y_top * 0.995, stack_text,
+                    ha='center', va='top',
+                    fontsize=FONT_SIZES['annotation'] - 1,
+                    family='monospace',
+                    bbox=dict(boxstyle='round,pad=0.3',
+                              facecolor='white', edgecolor='lightgray', alpha=0.9))
+        ax.grid(axis='y', alpha=0.3, zorder=1)
+        ax.set_title(f'{task_label} cross-subject (CBraMod, N=21)',
+                     fontsize=FONT_SIZES['title'])
+        ax.text(0.02, 0.04, flip_text, transform=ax.transAxes,
+                fontsize=FONT_SIZES['annotation'],
+                bbox=dict(boxstyle='round,pad=0.5',
+                          facecolor='lightyellow', alpha=0.8),
+                verticalalignment='bottom')
+        if show_legend:
+            ax.legend(loc='lower right', fontsize=FONT_SIZES['legend'])
 
-    fig, ax = plt.subplots(figsize=(9, 6.5))
-    x_positions = np.arange(len(channel_levels))
-
-    for method in methods:
-        ys = np.array(means_table[method], dtype=float)
-        # 实线连接非缺失段；缺失档位作空心标记
-        valid_mask = ~np.isnan(ys)
-        ax.plot(x_positions[valid_mask], ys[valid_mask],
-                marker='o', markersize=10, linewidth=2.2,
-                color=method_colors[method], label=method, zorder=3)
-        # 缺失档位空心
-        for xi, yi, valid in zip(x_positions, ys, valid_mask):
-            if not valid:
-                ax.plot(xi, 0, marker='x', markersize=8,
-                        color=method_colors[method], alpha=0.4)
-
-    # 4ch 负控制虚线
-    if neg_ctrl_mean is not None:
-        ax.axhline(y=neg_ctrl_mean, color='gray', linestyle=':', linewidth=1.5,
-                   alpha=0.7,
-                   label=f'4ch Negative Control ({neg_ctrl_mean:.1f}%)')
-
-    ax.set_xticks(x_positions)
-    ax.set_xticklabels([f'{lvl}\n(channels reduced)' for lvl in channel_levels],
-                       fontsize=FONT_SIZES['tick'])
-    ax.set_ylabel('Cross-Subject Binary Accuracy (%)',
-                  fontsize=FONT_SIZES['axis_label'])
-    ax.set_ylim(50, 100)
-
-    # Sorted ranking stack at top of each channel-level position
-    y_top = ax.get_ylim()[1]
-    for level_idx, level in enumerate(channel_levels):
-        ranking = sorted(
-            [(m, means_table[m][level_idx]) for m in methods
-             if not np.isnan(means_table[m][level_idx])],
-            key=lambda x: x[1], reverse=True,
-        )
-        stack_text = '\n'.join(
-            f'#{r} {m:<11} {v:.1f}%' for r, (m, v) in enumerate(ranking, start=1)
-        )
-        ax.text(level_idx, y_top * 0.995, stack_text,
-                ha='center', va='top',
-                fontsize=FONT_SIZES['annotation'] - 1,
-                family='monospace',
-                bbox=dict(boxstyle='round,pad=0.3',
-                          facecolor='white', edgecolor='lightgray', alpha=0.9))
-
-    ax.grid(axis='y', alpha=0.3, zorder=1)
-    ax.legend(loc='lower right', fontsize=FONT_SIZES['legend'])
-
-    # Annotation box: ranking flip emphasis
-    flip_text = ('At 32ch: FDR > Band Power\n'
-                 'At 8ch: Band Power > FDR (reversal)')
-    ax.text(0.02, 0.04, flip_text, transform=ax.transAxes,
-            fontsize=FONT_SIZES['annotation'],
-            bbox=dict(boxstyle='round,pad=0.5',
-                      facecolor='lightyellow', alpha=0.8),
-            verticalalignment='bottom')
+    fig, (ax_bin, ax_ter) = plt.subplots(1, 2, figsize=(15, 6.8))
+    for ax, task, show_leg in [(ax_bin, 'binary', False),
+                               (ax_ter, 'ternary', True)]:
+        means_table, neg_ctrl_mean = _compute_means(task)
+        _draw_panel(ax, task, means_table, neg_ctrl_mean, show_leg)
 
     fig.tight_layout()
     apply_paper_style(fig=fig)
@@ -1927,145 +1785,332 @@ def _data_quality_label(subject_id: str) -> str:
 
 
 # -----------------------------------------------------------------------------
-# NEW-B / T3.* — Figure: §3.6 V1-V5 DAPT Forest Plot
+# §3.6 V1-V5 DAPT figures
+# Two complementary visualizations over the 30-cell DAPT data + 7-aggregate
+# Stouffer registry: small-multiples (paper Figure 10a) + heatmap (backup).
 # -----------------------------------------------------------------------------
 
-def generate_dapt_v1_v5_forest_figure():
-    """NEW-B — V1-V5 DAPT 30-cell forest plot (post Step 1d V1/V2/V3 transfer补完).
+_V3_OUTLIER_GOLD = '#D4A017'  # gold accent for V3 transfer-ternary +1.09 pp outlier
+_V_ORDER = ('V1', 'V2', 'V3', 'V4', 'V5')
+_PARADIGM_TASK_ORDER = (
+    ('cross', 'binary'),    ('cross', 'ternary'),
+    ('within', 'binary'),   ('within', 'ternary'),
+    ('transfer', 'binary'), ('transfer', 'ternary'),
+)
+_PARADIGM_TASK_LABELS = (
+    'Cross\nBinary',    'Cross\nTernary',
+    'Within\nBinary',   'Within\nTernary',
+    'Transfer\nBinary', 'Transfer\nTernary',
+)
+_STOUFFER_COLUMN_KEYS = (
+    'cross_binary',    'cross_ternary',
+    'within_binary',   'within_ternary',
+    'transfer_binary', 'transfer_ternary',
+)
 
-    Visualizes mean Δ (pp) with 95% CI for each of the 30 V × paradigm × task
-    cells (V1-V5 × within+cross+transfer × bin+ter = 30; DAPT 评估全闭合).
-    BH-FDR survivors highlighted; 7 Stouffer aggregates (6 paradigm-level 5V
-    + 1 legacy v3.1 16-cell full-DAPT) appear as diamonds at the bottom.
 
-    Data sources:
-      - V1-V3 within+cross: `paper/reviews/stage4_step1b_stat_recompute_v4v5.md`
-      - V4/V5 within+transfer: `paper/reviews/stage4_step1c_v4v5_within_transfer.md`
-      - V1/V2/V3 transfer (6 cells, 2026-05-11 补完):
-        `paper/reviews/stage4_step1d_v1v2v3_transfer.md`
-        (`scripts/internal/recompute_v1v2v3_transfer.py`)
-      - BH-FDR q-values RECOMPUTED over the new 30-cell family (q for the
-        original 24 cells differs from Step 1c values; 0/30 survive q<0.05).
+def _dapt_cell(V: str, paradigm: str, task: str):
+    """Pluck one (V, paradigm, task) tuple from DAPT_V_RESULTS_STEP1B."""
+    for row in DAPT_V_RESULTS_STEP1B:
+        if row[0] == V and row[1] == paradigm and row[2] == task:
+            return row
+    raise KeyError(f'DAPT cell not found: {V}/{paradigm}/{task}')
+
+
+def _dapt_p_to_stars(p) -> str:
+    """Map a p-value (float or string like '<0.001') to *** / ** / * / '' (n.s.)."""
+    if isinstance(p, str):
+        if p.startswith('<'):
+            p_num = float(p[1:])
+            # Treat '<0.001' as p ~ 0.0005 for sig classification
+            p_num = max(p_num / 2.0, 1e-6)
+        else:
+            p_num = float(p)
+    else:
+        p_num = float(p)
+    if p_num < 0.001:
+        return '***'
+    if p_num < 0.01:
+        return '**'
+    if p_num < 0.05:
+        return '*'
+    return ''
+
+
+def _v_level_stouffer_z(V: str) -> float:
+    """Compute V-level Stouffer Z by combining 6 paradigm-task cells per V.
+
+    Uses signed Z_i = sign(Δ_i) · Φ⁻¹(1 − p_i/2), combined via
+    Z = (Σ Z_i) / √n. Returns Z (float).
+    """
+    from scipy.stats import norm
+    zs = []
+    for p, t in _PARADIGM_TASK_ORDER:
+        row = _dapt_cell(V, p, t)
+        _, _, _, mean_d, _, _, _, _, p_raw = row
+        sign = 1.0 if mean_d >= 0 else -1.0
+        # Guard against extreme p (p_raw should be in (0, 1])
+        p_clamped = min(max(float(p_raw), 1e-12), 1.0 - 1e-12)
+        zs.append(sign * norm.isf(p_clamped / 2.0))
+    return float(np.sum(zs) / np.sqrt(len(zs)))
+
+
+def generate_dapt_v1_v5_heatmap_figure():
+    """Candidate 1 — Diverging heatmap (5 V × 6 paradigm-task) with Stouffer strips.
+
+    Layout:
+      - Top: horizontal colorbar
+      - Center-left: 5×6 heatmap, diverging red→white→green centered at Δ=0
+      - Center-right: V-level Stouffer strip (5 cells, one per V, computed inline)
+      - Bottom: paradigm-level Stouffer strip (6 cells, from STOUFFER_AGG)
+      - V3 transfer-ternary cell: gold border + ★ accent
+
+    Data: DAPT_V_RESULTS_STEP1B (30 cells) + STOUFFER_AGG (paradigm Z, p).
     """
     import matplotlib.pyplot as plt
-    from matplotlib.patches import Polygon
+    from matplotlib.colors import TwoSlopeNorm, LinearSegmentedColormap
+    from matplotlib.patches import Rectangle
 
-    rows = list(DAPT_V_RESULTS_STEP1B)
-    # Top-to-bottom order: group by V, then per-V:
-    # within-bin / within-ter / cross-bin / cross-ter / transfer-bin / transfer-ter
-    # (all 5 V now have all 3 paradigms after Step 1d V1/V2/V3 transfer 补完)
-    order_map = {('within',   'binary'):  0, ('within',   'ternary'): 1,
-                 ('cross',    'binary'):  2, ('cross',    'ternary'): 3,
-                 ('transfer', 'binary'):  4, ('transfer', 'ternary'): 5}
-    rows = sorted(rows, key=lambda r: (r[0], order_map[(r[1], r[2])]))
+    # ---- 1. Build 5×6 Δ matrix + sig/q matrices ------------------------------
+    n_rows, n_cols = len(_V_ORDER), len(_PARADIGM_TASK_ORDER)
+    delta = np.zeros((n_rows, n_cols))
+    q_mat = np.zeros((n_rows, n_cols))
+    for i, V in enumerate(_V_ORDER):
+        for j, (p, t) in enumerate(_PARADIGM_TASK_ORDER):
+            row = _dapt_cell(V, p, t)
+            delta[i, j] = row[3]
+            q_mat[i, j] = row[6]
 
-    n = len(rows)
-    # figsize scales with row count: original (11, 9.5) was for 16 cells + 3
-    # diamonds = 19 row-equivalents; new 30 + 7 = 37 ⇒ ~1.95× height.
-    fig, ax = plt.subplots(figsize=(11, 18.5))
+    # ---- 2. Figure + GridSpec -----------------------------------------------
+    fig = plt.figure(figsize=paper_figsize(rows=2, cols=2))
+    gs = fig.add_gridspec(
+        3, 2,
+        height_ratios=[0.32, 5.0, 0.7],
+        width_ratios=[10.0, 1.5],
+        hspace=0.12, wspace=0.04,
+    )
+    ax_cbar = fig.add_subplot(gs[0, :])
+    ax_main = fig.add_subplot(gs[1, 0])
+    ax_vstrip = fig.add_subplot(gs[1, 1])
+    ax_pstrip = fig.add_subplot(gs[2, 0])
+    gs_corner = fig.add_subplot(gs[2, 1])
+    gs_corner.axis('off')
 
-    y_positions = np.arange(n)[::-1]  # top-to-bottom
+    # ---- 3. Diverging colormap ----------------------------------------------
+    cmap = LinearSegmentedColormap.from_list(
+        'dapt_div',
+        [(0.0, PAPER_COLORS['delta_neg']),
+         (0.5, '#ffffff'),
+         (1.0, PAPER_COLORS['delta_pos'])],
+    )
+    # Asymmetric range: Δ runs roughly [-3, +1.1]; we extend symmetrically around 0
+    norm = TwoSlopeNorm(vmin=-3.5, vcenter=0.0, vmax=3.5)
 
-    labels = []
-    for (V, paradigm, task, _, _, _, _, _, _), y in zip(rows, y_positions):
-        # task abbreviation
-        t_abbr = 'Bin' if task == 'binary' else 'Ter'
-        p_abbr = {'within': 'Within', 'cross': 'Cross', 'transfer': 'Transfer'}[paradigm]
-        labels.append(f'{V}  {p_abbr}-{t_abbr}')
+    # ---- 4. Main heatmap -----------------------------------------------------
+    mesh = ax_main.pcolormesh(delta, cmap=cmap, norm=norm, edgecolors='white',
+                              linewidths=1.2, shading='flat')
+    ax_main.set_xticks(np.arange(n_cols) + 0.5)
+    ax_main.set_xticklabels(_PARADIGM_TASK_LABELS)
+    ax_main.set_yticks(np.arange(n_rows) + 0.5)
+    ax_main.set_yticklabels(_V_ORDER)
+    ax_main.invert_yaxis()  # V1 at top
+    ax_main.tick_params(axis='both', which='both', length=0)
+    for s in ('top', 'right', 'bottom', 'left'):
+        ax_main.spines[s].set_visible(False)
 
-    for (V, paradigm, task, mean_d, lo, hi, q, sig, p_raw), y in zip(rows, y_positions):
-        color = '#d62728' if sig else '#888888'  # BH sig = red, else gray
-        # Direction-of-effect coloring: positive Δ greenish if not sig
-        if not sig and mean_d > 0:
-            color = '#4caf50'
-        ax.errorbar(
-            mean_d, y,
-            xerr=[[mean_d - lo], [hi - mean_d]],
-            fmt='o', markersize=10 if sig else 7,
-            color=color, ecolor=color,
-            elinewidth=2 if sig else 1.2,
-            capsize=4,
-            markeredgecolor='black' if sig else 'none',
-            markeredgewidth=1.0 if sig else 0,
-            zorder=4,
-        )
-        # Annotate
-        sig_marker = ' *' if sig else ''
-        ax.text(
-            hi + 0.25, y,
-            f'  Δ={mean_d:+.2f} pp  q={q:.3f}{sig_marker}',
-            va='center', fontsize=9,
-            color='black', fontweight='bold' if sig else 'normal',
-        )
+    # Annotate each cell with Δ and q; switch text color by background luminance
+    for i in range(n_rows):
+        for j in range(n_cols):
+            bg = cmap(norm(delta[i, j]))
+            lum = 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2]
+            text_color = 'white' if lum < 0.55 else 'black'
+            is_v3_outlier = (_V_ORDER[i] == 'V3'
+                             and _PARADIGM_TASK_ORDER[j] == ('transfer', 'ternary'))
+            label = f'Δ={delta[i, j]:+.2f}\nq={q_mat[i, j]:.2f}'
+            if is_v3_outlier:
+                label += ' ★'
+            ax_main.text(
+                j + 0.5, i + 0.5, label,
+                ha='center', va='center',
+                fontsize=FONT_SIZES_TIGHT['annotation'] - 1,
+                color=text_color,
+                fontweight='bold' if is_v3_outlier else 'normal',
+            )
 
-    # Vertical zero line
-    ax.axvline(0, color='black', linestyle='--', alpha=0.6, linewidth=1.0, zorder=2)
+    # V3 transfer-ternary gold border (row index 2, col index 5)
+    v3_i = _V_ORDER.index('V3')
+    v3_j = _PARADIGM_TASK_ORDER.index(('transfer', 'ternary'))
+    ax_main.add_patch(Rectangle(
+        (v3_j, v3_i), 1, 1,
+        fill=False, edgecolor=_V3_OUTLIER_GOLD, linewidth=2.5, zorder=10,
+    ))
 
-    # Stouffer aggregates as diamonds below the cells (7 total: 6 paradigm-level
-    # 5V each from Step 1d + 1 legacy v3.1 16-cell full-DAPT). Spaced 1.0 unit apart.
-    diamond_y = [-2.0, -3.0, -4.0, -5.0, -6.0, -7.0, -8.0]
-    diamond_data = [
-        # 6 paradigm-level aggregates (5V each, Step 1d)
-        ('Stouffer cross-bin (V1-V5, n=5)',           -1.788, STOUFFER_AGG['cross_binary']),
-        ('Stouffer cross-ter (V1-V5, n=5)',           +0.180, STOUFFER_AGG['cross_ternary']),
-        ('Stouffer within-bin (V1-V5, n=5)',          -1.894, STOUFFER_AGG['within_binary']),
-        ('Stouffer within-ter (V1-V5, n=5)',          -0.918, STOUFFER_AGG['within_ternary']),
-        # Step 1d upgrade: transfer aggregates V4/V5-only n=2 → V1-V5 n=5
-        ('Stouffer transfer-bin (V1-V5, n=5) ★1d',    -1.149, STOUFFER_AGG['transfer_binary']),
-        ('Stouffer transfer-ter (V1-V5, n=5) ★1d',    +0.027, STOUFFER_AGG['transfer_ternary']),
-        # Legacy: v3.1 full-DAPT 16-cell aggregate (preserved for historical continuity)
-        ('Stouffer full DAPT family v3.1 (n=16)',     None,   STOUFFER_AGG['full_dapt']),
-    ]
-    for (label, mean_or_none, agg), y in zip(diamond_data, diamond_y):
-        # Diamond at the (signed) Stouffer Z-projected position (we reuse mean
-        # for cross-bin / cross-ter; full has no scalar mean → place at 0)
-        x_center = mean_or_none if mean_or_none is not None else 0.0
-        diamond = Polygon([
-            (x_center - 0.6, y),
-            (x_center, y + 0.35),
-            (x_center + 0.6, y),
-            (x_center, y - 0.35),
-        ], closed=True, facecolor='#1f77b4', edgecolor='black', linewidth=1.0,
-            alpha=0.9, zorder=4)
-        ax.add_patch(diamond)
-        ax.text(
-            x_center + 1.0, y,
-            f'  {label}: Z={agg["Z"]:+.2f}, p={agg["p"]}'
-            + (f'  (mean Δ={mean_or_none:+.2f} pp)' if mean_or_none is not None else ''),
-            va='center', fontsize=9,
-        )
+    # ---- 5. Horizontal colorbar (top) ---------------------------------------
+    cbar = fig.colorbar(mesh, cax=ax_cbar, orientation='horizontal')
+    cbar.set_label('Mean Δ (DAPT − Baseline, pp)',
+                   fontsize=FONT_SIZES_TIGHT['axis_label'])
+    cbar.ax.tick_params(labelsize=FONT_SIZES_TIGHT['tick'])
 
-    # y-axis tick labels — 30 cell labels + 7 aggregate placeholders
-    ax.set_yticks(list(y_positions) + diamond_y)
-    ax.set_yticklabels(list(labels) + ['(aggregate)'] * len(diamond_y),
-                       fontsize=9)
+    # ---- 6. V-level Stouffer strip (right) ----------------------------------
+    v_zs = [_v_level_stouffer_z(V) for V in _V_ORDER]
+    for i, (V, z) in enumerate(zip(_V_ORDER, v_zs)):
+        bg = PAPER_COLORS['delta_neg'] if z < 0 else PAPER_COLORS['delta_pos']
+        ax_vstrip.add_patch(Rectangle(
+            (0, i), 1, 1, facecolor=bg, alpha=0.30, edgecolor='white', linewidth=1.2,
+        ))
+        ax_vstrip.text(0.5, i + 0.5, f'Z={z:+.2f}',
+                       ha='center', va='center',
+                       fontsize=FONT_SIZES_TIGHT['annotation'] - 1,
+                       fontweight='bold')
+    ax_vstrip.set_xlim(0, 1)
+    ax_vstrip.set_ylim(0, n_rows)
+    ax_vstrip.invert_yaxis()
+    ax_vstrip.set_xticks([])
+    ax_vstrip.set_yticks([])
+    ax_vstrip.set_title('V-level\nStouffer Z',
+                        fontsize=FONT_SIZES_TIGHT['annotation'])
+    for s in ('top', 'right', 'bottom', 'left'):
+        ax_vstrip.spines[s].set_visible(False)
 
-    ax.set_xlabel('Mean Δ (DAPT − Baseline, pp)  [95% CI]', fontsize=12)
-    ax.set_title('DAPT V1-V5 30-cell forest plot (post Step 1d full closure)\n'
-                 '(red filled = BH-FDR q<0.05 within 30-cell DAPT family - 0/30 survive; '
-                 'green = directionally positive; '
-                 'diamonds = Stouffer aggregate; '
-                 'rows V1/V2/V3-Transfer-{Bin,Ter} added 2026-05-11)',
-                 fontsize=11)
-    ax.set_xlim(-6.5, 7.0)
-    ax.set_ylim(-8.7, n - 0.3)
-    ax.grid(axis='x', alpha=0.3)
-    # Legend
-    from matplotlib.lines import Line2D
-    legend_elems = [
-        Line2D([0], [0], marker='o', color='w', label='BH-FDR q<0.05 (negative)',
-               markerfacecolor='#d62728', markeredgecolor='black', markersize=10),
-        Line2D([0], [0], marker='o', color='w', label='Directionally positive (n.s.)',
-               markerfacecolor='#4caf50', markersize=8),
-        Line2D([0], [0], marker='o', color='w', label='Other (n.s.)',
-               markerfacecolor='#888888', markersize=8),
-    ]
-    ax.legend(handles=legend_elems, loc='lower right', fontsize=9)
+    # ---- 7. Paradigm-level Stouffer strip (bottom) --------------------------
+    for j, key in enumerate(_STOUFFER_COLUMN_KEYS):
+        agg = STOUFFER_AGG[key]
+        z = agg['Z']
+        stars = _dapt_p_to_stars(agg['p'])
+        bg = PAPER_COLORS['delta_neg'] if z < 0 else PAPER_COLORS['delta_pos']
+        ax_pstrip.add_patch(Rectangle(
+            (j, 0), 1, 1, facecolor=bg, alpha=0.30, edgecolor='white', linewidth=1.2,
+        ))
+        ax_pstrip.text(j + 0.5, 0.5, f'Z={z:+.2f}{stars}',
+                       ha='center', va='center',
+                       fontsize=FONT_SIZES_TIGHT['annotation'] - 1,
+                       fontweight='bold')
+    ax_pstrip.set_xlim(0, n_cols)
+    ax_pstrip.set_ylim(0, 1)
+    ax_pstrip.set_xticks([])
+    ax_pstrip.set_yticks([0.5])
+    ax_pstrip.set_yticklabels(['Paradigm\nStouffer Z'],
+                              fontsize=FONT_SIZES_TIGHT['annotation'])
+    for s in ('top', 'right', 'bottom', 'left'):
+        ax_pstrip.spines[s].set_visible(False)
 
-    fig.tight_layout()
-    add_provenance_footer(fig, 'dapt_v1_v5_forest')
+    apply_paper_style(fig=fig, tight=True, despine=False)
+    fig.suptitle(
+        'DAPT V1-V5 30-cell matrix (Δ, BH-FDR q; 0/30 survive q<0.05)\n'
+        '★ V3 transfer-ternary = most-positive cell (Δ=+1.09 pp, p=0.111)',
+        fontsize=FONT_SIZES_TIGHT['title'], y=0.99,
+    )
+    add_provenance_footer(fig, 'dapt_v1_v5_heatmap')
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = OUTPUT_DIR / 'dapt_v1_v5_forest.png'
+    out_path = OUTPUT_DIR / 'dapt_v1_v5_heatmap.png'
+    fig.savefig(out_path, dpi=200, bbox_inches='tight')
+    plt.close(fig)
+    logger.info(f'Saved: {out_path}')
+
+
+def generate_dapt_v1_v5_small_multiples_figure():
+    """Candidate 2 — 2×3 small-multiples (one panel per paradigm-task).
+
+    Layout (per user 2026-05-12 spec):
+      columns = paradigm (within, cross, transfer)
+      rows    = task (binary top, ternary bottom)
+    Each panel: 5 bars (V1..V5) with 95% CI error bars, zero line, panel-corner
+    Stouffer Z annotation. V3 transfer-ternary bar gold-edged + ★ marker.
+    """
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(2, 3, figsize=(10.5, 6.0), sharey=True)
+    # Row-major panel order: row 0 = binary, row 1 = ternary;
+    # cols 0..2 = within, cross, transfer.
+    panel_order = [
+        ('within', 'binary'),   ('cross', 'binary'),   ('transfer', 'binary'),
+        ('within', 'ternary'),  ('cross', 'ternary'),  ('transfer', 'ternary'),
+    ]
+    panel_letters = ['A', 'B', 'C', 'D', 'E', 'F']
+    paradigm_task_titles = {
+        ('cross', 'binary'):    'Cross · Binary',
+        ('cross', 'ternary'):   'Cross · Ternary',
+        ('within', 'binary'):   'Within · Binary',
+        ('within', 'ternary'):  'Within · Ternary',
+        ('transfer', 'binary'): 'Transfer · Binary',
+        ('transfer', 'ternary'):'Transfer · Ternary',
+    }
+    paradigm_task_stouffer_key = {
+        ('cross', 'binary'):    'cross_binary',
+        ('cross', 'ternary'):   'cross_ternary',
+        ('within', 'binary'):   'within_binary',
+        ('within', 'ternary'):  'within_ternary',
+        ('transfer', 'binary'): 'transfer_binary',
+        ('transfer', 'ternary'):'transfer_ternary',
+    }
+
+    for ax, (p, t), letter in zip(axes.flat, panel_order, panel_letters):
+        cells = [_dapt_cell(V, p, t) for V in _V_ORDER]
+        x = np.arange(len(_V_ORDER))
+        means = np.array([c[3] for c in cells])
+        ci_lo = np.array([c[4] for c in cells])
+        ci_hi = np.array([c[5] for c in cells])
+        err_low = means - ci_lo
+        err_high = ci_hi - means
+
+        bar_colors = []
+        for m, lo, hi in zip(means, ci_lo, ci_hi):
+            if hi < 0:
+                bar_colors.append(PAPER_COLORS['delta_neg'])
+            elif lo > 0:
+                bar_colors.append(PAPER_COLORS['delta_pos'])
+            else:
+                bar_colors.append(PAPER_COLORS['median_gray'])
+
+        ax.axhline(0, color='black', linewidth=0.6, alpha=0.55, zorder=1)
+        bars = ax.bar(x, means, width=0.6, color=bar_colors, edgecolor='black',
+                      linewidth=0.5, zorder=3)
+        ax.errorbar(x, means, yerr=[err_low, err_high], fmt='none',
+                    ecolor='black', elinewidth=0.9, capsize=3, zorder=4)
+
+        # V3 outlier emphasis if this panel is transfer-ternary
+        if (p, t) == ('transfer', 'ternary'):
+            v3_idx = _V_ORDER.index('V3')
+            bars[v3_idx].set_edgecolor(_V3_OUTLIER_GOLD)
+            bars[v3_idx].set_linewidth(2.0)
+            ax.plot(v3_idx, ci_hi[v3_idx] + 0.25, marker='*', markersize=14,
+                    color=_V3_OUTLIER_GOLD, markeredgecolor='black',
+                    markeredgewidth=0.6, zorder=6, linestyle='none')
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(list(_V_ORDER), fontsize=FONT_SIZES_TIGHT['tick'])
+        ax.set_title(paradigm_task_titles[(p, t)],
+                     fontsize=FONT_SIZES_TIGHT['axis_label'])
+        ax.set_ylim(-5.5, 3.0)
+
+        agg = STOUFFER_AGG[paradigm_task_stouffer_key[(p, t)]]
+        stars = _dapt_p_to_stars(agg['p'])
+        ax.text(
+            0.97, 0.04,
+            f'Stouffer Z={agg["Z"]:+.2f}{stars}\np={agg["p"]}',
+            transform=ax.transAxes,
+            ha='right', va='bottom',
+            fontsize=FONT_SIZES_TIGHT['annotation'] - 1,
+            bbox=dict(boxstyle='round,pad=0.3',
+                      facecolor='white', edgecolor='lightgray', alpha=0.85),
+        )
+        add_panel_label(ax, letter)
+
+    # Shared y-axis label on leftmost panels
+    for ax in axes[:, 0]:
+        ax.set_ylabel('Δ (DAPT − Baseline, pp)',
+                      fontsize=FONT_SIZES_TIGHT['axis_label'])
+
+    fig.suptitle(
+        'DAPT V1-V5 by paradigm × task (95% CI; 0/30 BH-FDR sig; '
+        '★ = V3 transfer-ternary outlier Δ=+1.09 pp)',
+        fontsize=FONT_SIZES_TIGHT['title'], y=1.005,
+    )
+    apply_paper_style(fig=fig, tight=True)
+    fig.tight_layout(rect=(0, 0, 1, 0.97))
+    add_provenance_footer(fig, 'dapt_v1_v5_smallmultiples')
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = OUTPUT_DIR / 'dapt_v1_v5_smallmultiples.png'
     fig.savefig(out_path, dpi=200, bbox_inches='tight')
     plt.close(fig)
     logger.info(f'Saved: {out_path}')
@@ -2556,27 +2601,46 @@ def _legacy_unused_generate_extra_sessions_paradigm_v2_figure():
 
 
 # -----------------------------------------------------------------------------
-# T3.6 — Channel Scaling 3-panel split
+# T3.6 — Channel Scaling Envelope: 1×2 binary | ternary side-by-side
 # -----------------------------------------------------------------------------
 
 def generate_channel_scaling_v2_figure():
-    """T3.6 — Channel Scaling split into 3 sub-panels.
+    """T3.6 — Channel Scaling Envelope: 1×2 binary | ternary side-by-side.
 
     Replaces existing `paper/figures/channel_scaling_curve.png`.
 
-    Panel A (left, large): main 128 → 4ch envelope (existing chart, condensed)
-    Panel B (top right): 8ch focus (4 methods bar chart)
-    Panel C (bottom right): 4ch control (FDR/Attention/CSP/Band Power top-4
-                           + neg control + FDR∩Att outlier)
+    Each panel:
+      - Per-method tracking lines (FDR/Att/BP/CSP) across {64, 32, 8, 4} tiers
+      - Best envelope line: 128 baseline + best-of-methods at each tier (61 NOT in envelope)
+      - Negative-control overlay markers at {32, 8, 4}
+      - 61ch standard 10-10 outlier dot (separate marker, NOT in envelope)
+      - 4ch FDR ∩ Attention overlap outlier dot (separate marker, NOT in envelope)
+
+    For ternary, two outliers fall back to MOCK values pending make-up runs:
+      reduced_4_fdr_attention_overlap_ternary, standard_1010_61_cross_ternary.
+    Mock dots render with hollow markers and an italic "(pending)" annotation.
     """
     import matplotlib.pyplot as plt
 
-    fig = plt.figure(figsize=(16, 8.4))
-    gs = fig.add_gridspec(2, 2, width_ratios=[1.6, 1.0], height_ratios=[1, 1],
-                          hspace=0.32, wspace=0.25)
-    axA = fig.add_subplot(gs[:, 0])
-    axB = fig.add_subplot(gs[0, 1])
-    axC = fig.add_subplot(gs[1, 1])
+    METHOD_COLORS = {
+        'FDR':        PAPER_COLORS['fdr'],
+        'Band Power': PAPER_COLORS['band_power'],
+        'Attention':  PAPER_COLORS['attention'],
+        'CSP':        PAPER_COLORS['csp'],
+    }
+    METHOD_MARKERS = {'FDR': 's', 'Band Power': '^', 'Attention': 'v', 'CSP': 'D'}
+    METHOD_REGISTRY_KEYS = {
+        'FDR': 'fdr', 'Band Power': 'band_power',
+        'Attention': 'attention', 'CSP': 'csp',
+    }
+    CHANNEL_TIERS = [64, 32, 8, 4]
+
+    # MOCK values used when ternary make-up experiments are still pending.
+    # Replace with real (mean, std) after experiments land.
+    MOCK_TERNARY = {
+        'reduced_4_fdr_attention_overlap_ternary': (50.0, 5.0),
+        'standard_1010_61_cross_ternary':          (70.0, 5.0),
+    }
 
     def _load_acc(path):
         if not resolve_project_path(path).exists():
@@ -2588,178 +2652,162 @@ def generate_channel_scaling_v2_figure():
             return None, None
         return float(np.mean(accs)), float(np.std(accs))
 
-    # --- Panel A: envelope across 128 / 64 / 61 / 32 / 8 / 4 ---
-    method_paths = {
-        'FDR': [
-            (32, get_run_path('reduced_32_fdr_binary')),
-            (8,  get_run_path('reduced_8_fdr_binary')),
-            (4,  get_run_path('reduced_4_fdr_binary')),
-        ],
-        'Band Power': [
-            (32, get_run_path('reduced_32_band_power_binary')),
-            (8,  get_run_path('reduced_8_band_power_binary')),
-            (4,  get_run_path('reduced_4_band_power_binary')),
-        ],
-        'Attention': [
-            (32, get_run_path('reduced_32_attention_binary')),
-            (8,  get_run_path('reduced_8_attention_binary')),
-            (4,  get_run_path('reduced_4_attention_binary')),
-        ],
-        'CSP': [
-            (32, get_run_path('reduced_32_csp_binary')),
-            (8,  get_run_path('reduced_8_csp_binary')),
-            (4,  get_run_path('reduced_4_csp_binary')),
-        ],
-    }
-    method_style = {
-        'FDR':        {'color': PAPER_COLORS['secondary_blue'], 'marker': 's'},
-        'Band Power': {'color': '#FF9800', 'marker': '^'},
-        'Attention':  {'color': '#4CAF50', 'marker': 'v'},
-        'CSP':        {'color': '#9C27B0', 'marker': 'D'},
-    }
-    method_data = {}
-    for method, entries in method_paths.items():
-        method_data[method] = {}
-        for n_ch, path in entries:
+    def _safe_get_path(alias):
+        from src.paper.run_registry import get_run_entry
+        try:
+            get_run_entry(alias)
+        except KeyError:
+            return None
+        return get_run_path(alias)
+
+    def _load_or_mock(alias):
+        """Real cache first; fall back to MOCK_TERNARY. Returns (mean, std, is_mock)."""
+        path = _safe_get_path(alias)
+        if path is not None:
             mean, std = _load_acc(path)
             if mean is not None:
-                method_data[method][n_ch] = (mean, std)
+                return mean, std, False
+        if alias in MOCK_TERNARY:
+            mean, std = MOCK_TERNARY[alias]
+            return mean, std, True
+        return None, None, False
 
-    baseline_paths = [
-        (128, get_run_path('cross_cbramod_binary')),
-        (64,  get_run_path('reduced_64_fdr_binary')),
-        (61,  get_run_path('standard_1010_61_cross_binary')),
-    ]
-    baseline_data = {}
-    for n_ch, path in baseline_paths:
-        mean, std = _load_acc(path)
-        if mean is not None:
-            baseline_data[n_ch] = (mean, std)
+    def _load_for_task(task):
+        method_data = {m: {} for m in METHOD_COLORS}
+        for method, key_suffix in METHOD_REGISTRY_KEYS.items():
+            for n_ch in CHANNEL_TIERS:
+                path = _safe_get_path(f'reduced_{n_ch}_{key_suffix}_{task}')
+                if path is None:
+                    continue
+                mean, std = _load_acc(path)
+                if mean is not None:
+                    method_data[method][n_ch] = (mean, std)
+        # Only 128ch in continuous envelope baseline (61 is now an outlier).
+        baseline_data = {}
+        path128 = _safe_get_path(f'cross_cbramod_{task}')
+        if path128 is not None:
+            mean, std = _load_acc(path128)
+            if mean is not None:
+                baseline_data[128] = (mean, std)
+        neg_ctrl_overlay = {}
+        for n_ch in [32, 8, 4]:
+            path = _safe_get_path(f'reduced_{n_ch}_negative_control_{task}')
+            if path is None:
+                continue
+            mean, std = _load_acc(path)
+            if mean is not None:
+                neg_ctrl_overlay[n_ch] = (mean, std)
+        outliers = {}
+        for key, n_ch_label, alias in [
+            ('61_standard_1010', 61, f'standard_1010_61_cross_{task}'),
+            ('4_fdr_att_overlap', 4, f'reduced_4_fdr_attention_overlap_{task}'),
+        ]:
+            mean, std, is_mock = _load_or_mock(alias)
+            if mean is not None:
+                outliers[key] = {'n_ch': n_ch_label, 'mean': mean,
+                                 'std': std, 'mock': is_mock}
+        return method_data, baseline_data, neg_ctrl_overlay, outliers
 
-    # Best envelope
-    all_chs = sorted(set(list(baseline_data.keys()) +
-                         [c for md in method_data.values() for c in md]),
-                     reverse=True)
-    best_chs, best_means, best_stds = [], [], []
-    for n_ch in all_chs:
-        if n_ch in baseline_data:
-            best_chs.append(n_ch)
-            best_means.append(baseline_data[n_ch][0])
-            best_stds.append(baseline_data[n_ch][1])
-        else:
-            best_v = -1
-            best_s = 0
-            for m, d in method_data.items():
-                if n_ch in d and d[n_ch][0] > best_v:
-                    best_v = d[n_ch][0]
-                    best_s = d[n_ch][1]
-            if best_v > 0:
+    def _draw_panel(ax, task, method_data, baseline_data, neg_ctrl_overlay, outliers):
+        chance = 50.0 if task == 'binary' else 100.0 / 3.0
+        ylim = (40, 100) if task == 'binary' else (25, 90)
+        all_chs = sorted(
+            set(list(baseline_data.keys()) +
+                [c for md in method_data.values() for c in md]),
+            reverse=True,
+        )
+        best_chs, best_means, best_stds = [], [], []
+        for n_ch in all_chs:
+            if n_ch in baseline_data:
                 best_chs.append(n_ch)
-                best_means.append(best_v)
-                best_stds.append(best_s)
+                best_means.append(baseline_data[n_ch][0])
+                best_stds.append(baseline_data[n_ch][1])
+            else:
+                best_v, best_s = -1.0, 0.0
+                for d in method_data.values():
+                    if n_ch in d and d[n_ch][0] > best_v:
+                        best_v, best_s = d[n_ch]
+                if best_v > 0:
+                    best_chs.append(n_ch)
+                    best_means.append(best_v)
+                    best_stds.append(best_s)
 
-    for method, data in method_data.items():
-        if not data:
-            continue
-        s = method_style[method]
-        chs = sorted(data.keys(), reverse=True)
-        ms = [data[c][0] for c in chs]
-        ss = [data[c][1] for c in chs]
-        axA.errorbar(chs, ms, yerr=ss, linestyle=':', linewidth=1.5,
-                     marker=s['marker'], markersize=7, color=s['color'],
-                     capsize=3, alpha=0.7, label=method, zorder=2)
-    axA.errorbar(best_chs, best_means, yerr=best_stds, marker='o',
-                 markersize=11, linewidth=2.6, color='red', capsize=5,
-                 zorder=4, label='Best envelope')
-    for c, m in zip(best_chs, best_means):
-        axA.annotate(f'{c}ch\n{m:.1f}%', (c, m),
-                     textcoords='offset points', xytext=(10, 10),
-                     fontsize=FONT_SIZES['annotation'], color='red', fontweight='bold')
+        for method, data in method_data.items():
+            if not data:
+                continue
+            chs = sorted(data.keys(), reverse=True)
+            ms = [data[c][0] for c in chs]
+            ss = [data[c][1] for c in chs]
+            ax.errorbar(chs, ms, yerr=ss, linestyle=':', linewidth=1.5,
+                        marker=METHOD_MARKERS[method], markersize=7,
+                        color=METHOD_COLORS[method], capsize=3, alpha=0.7,
+                        label=method, zorder=2)
 
-    axA.axhline(50, color=PAPER_COLORS['chance_red'], linestyle='--',
-                alpha=0.85, linewidth=1.0, label='Chance (50%)')
-    axA.axvspan(28, 36, alpha=0.08, color='green', label='32ch deploy zone')
-    axA.set_xscale('log', base=2)
-    axA.set_xticks(best_chs)
-    axA.set_xticklabels([str(c) for c in best_chs])
-    axA.set_xlabel('Number of channels', fontsize=FONT_SIZES['axis_label'])
-    axA.set_ylabel('CBraMod cross-subject binary accuracy (%)', fontsize=FONT_SIZES['axis_label'])
-    axA.set_title('A. 128 → 4ch envelope & per-method tracking', fontsize=FONT_SIZES['title'])
-    axA.set_ylim(48, 100)
-    axA.grid(True, alpha=0.3)
-    axA.legend(loc='lower right', fontsize=FONT_SIZES['legend'], ncol=2)
+        ax.errorbar(best_chs, best_means, yerr=best_stds, marker='o',
+                    markersize=11, linewidth=2.6, color='red', capsize=5,
+                    zorder=4, label='Best envelope')
+        for c, m in zip(best_chs, best_means):
+            ax.annotate(f'{c}ch\n{m:.1f}%', (c, m),
+                        textcoords='offset points', xytext=(10, 10),
+                        fontsize=FONT_SIZES['annotation'],
+                        color='red', fontweight='bold')
 
-    # --- Panel B: 8ch focus ---
-    methods_8 = ['FDR', 'Band Power', 'Attention', 'CSP']
-    means_8 = []
-    stds_8 = []
-    for m in methods_8:
-        if 8 in method_data.get(m, {}):
-            means_8.append(method_data[m][8][0])
-            stds_8.append(method_data[m][8][1])
-        else:
-            means_8.append(0)
-            stds_8.append(0)
-    bx = np.arange(len(methods_8))
-    bars = axB.bar(bx, means_8, yerr=stds_8, capsize=4,
-                   color=[method_style[m]['color'] for m in methods_8],
-                   edgecolor='black')
-    for b, m, v in zip(bars, methods_8, means_8):
-        axB.text(b.get_x() + b.get_width()/2, v + 1.5,
-                 f'{v:.1f}%', ha='center', va='bottom', fontsize=FONT_SIZES['annotation'],
-                 fontweight='bold')
-    axB.set_xticks(bx)
-    axB.set_xticklabels(methods_8, fontsize=FONT_SIZES['tick'])
-    axB.set_ylabel('CBraMod cross-bin acc (%)', fontsize=FONT_SIZES['axis_label'])
-    axB.set_title('B. 8ch focus: 4-method ranking flip\n(BP & CSP overtake FDR)', fontsize=FONT_SIZES['title'])
-    axB.set_ylim(60, 90)
-    axB.grid(axis='y', alpha=0.3)
+        # Outlier dots (NOT connected by envelope line)
+        outlier_styles = {
+            '61_standard_1010':  dict(marker='D', size=14, color='#9C27B0',
+                                       label_base='61ch (standard 10-10)'),
+            '4_fdr_att_overlap': dict(marker='*', size=20, color='#FFC107',
+                                       label_base='4ch (FDR ∩ Att)'),
+        }
+        for key, info in outliers.items():
+            style = outlier_styles[key]
+            label = style['label_base'] + (' [MOCK]' if info['mock'] else '')
+            facecolor = 'white' if info['mock'] else style['color']
+            ax.errorbar(info['n_ch'], info['mean'], yerr=info['std'],
+                        marker=style['marker'], markersize=style['size'],
+                        markerfacecolor=facecolor, markeredgecolor=style['color'],
+                        markeredgewidth=2.0, ecolor=style['color'],
+                        capsize=4, zorder=5, label=label, linestyle='none')
+            ax.annotate(f'{info["mean"]:.1f}%' + (' (pending)' if info['mock'] else ''),
+                        (info['n_ch'], info['mean']),
+                        textcoords='offset points', xytext=(10, -16),
+                        fontsize=FONT_SIZES['annotation'],
+                        color=style['color'], fontweight='bold',
+                        fontstyle='italic' if info['mock'] else 'normal')
 
-    # --- Panel C: 4ch control ---
-    # FDR top-4, Attention top-4, neg ctrl, FDR∩Att outlier, BP top-4 (new), CSP top-4 (new)
-    ctrl_paths = {
-        'FDR top-4':       get_run_path('reduced_4_fdr_binary'),
-        'Attention top-4': get_run_path('reduced_4_attention_binary'),
-        'Band Power top-4':get_run_path('reduced_4_band_power_binary'),
-        'CSP top-4':       get_run_path('reduced_4_csp_binary'),
-        'Neg. control':    get_run_path('reduced_4_negative_control_binary'),
-        'FDR ∩ Att\n(outlier)': get_run_path('reduced_4_fdr_attention_overlap_binary'),
-    }
-    ctrl_means, ctrl_stds = [], []
-    ctrl_labels = []
-    bar_colors = []
-    color_map = {
-        'FDR top-4': PAPER_COLORS['secondary_blue'],
-        'Attention top-4': '#4CAF50',
-        'Band Power top-4': '#FF9800',
-        'CSP top-4': '#9C27B0',
-        'Neg. control': '#888888',
-        'FDR ∩ Att\n(outlier)': '#FFC107',
-    }
-    for name, path in ctrl_paths.items():
-        mean, std = _load_acc(path)
-        if mean is None:
-            continue
-        ctrl_means.append(mean)
-        ctrl_stds.append(std)
-        ctrl_labels.append(name)
-        bar_colors.append(color_map.get(name, '#888888'))
-    cx = np.arange(len(ctrl_labels))
-    cbars = axC.bar(cx, ctrl_means, yerr=ctrl_stds, capsize=3,
-                    color=bar_colors, edgecolor='black')
-    for b, v in zip(cbars, ctrl_means):
-        axC.text(b.get_x() + b.get_width()/2, v + 1.0,
-                 f'{v:.1f}%', ha='center', va='bottom', fontsize=FONT_SIZES['annotation'],
-                 fontweight='bold')
-    axC.set_xticks(cx)
-    axC.set_xticklabels(ctrl_labels, fontsize=FONT_SIZES['tick'], rotation=20, ha='right')
-    axC.set_ylabel('CBraMod cross-bin acc (%)', fontsize=FONT_SIZES['axis_label'])
-    axC.set_title('C. 4ch control: BP top-4 alone exceeds neg. control (+11.10 pp)',
-                  fontsize=FONT_SIZES['title'])
-    axC.axhline(50, color=PAPER_COLORS['chance_red'], linestyle='--',
-                alpha=0.85, linewidth=1.0)
-    axC.set_ylim(45, 90)
-    axC.grid(axis='y', alpha=0.3)
+        neg_ctrl_keys = sorted(neg_ctrl_overlay.keys())
+        for idx, n_ch in enumerate(neg_ctrl_keys):
+            mean, _std = neg_ctrl_overlay[n_ch]
+            ax.plot(n_ch, mean, marker='x', markersize=10,
+                    markeredgewidth=2, color=PAPER_COLORS['median_gray'],
+                    zorder=3, alpha=0.85,
+                    label='Neg. control' if idx == 0 else None)
+
+        chance_label = (f'Chance ({chance:.0f}%)' if task == 'binary'
+                        else f'Chance ({chance:.1f}%)')
+        ax.axhline(chance, color=PAPER_COLORS['chance_red'], linestyle='--',
+                   alpha=0.85, linewidth=1.0, label=chance_label)
+        ax.axvspan(28, 36, alpha=0.08, color='green', label='32ch deploy zone')
+        ax.set_xscale('log', base=2)
+        xtick_set = set(all_chs)
+        for info in outliers.values():
+            xtick_set.add(info['n_ch'])
+        xticks = sorted(xtick_set)
+        ax.set_xticks(xticks)
+        ax.set_xticklabels([str(c) for c in xticks])
+        ax.set_xlabel('Number of channels', fontsize=FONT_SIZES['axis_label'])
+        ax.set_ylabel(f'CBraMod cross-subject {task} accuracy (%)',
+                      fontsize=FONT_SIZES['axis_label'])
+        ax.set_title(f'{task.capitalize()}: 128→4ch envelope + 61/4-overlap outliers',
+                     fontsize=FONT_SIZES['title'])
+        ax.set_ylim(*ylim)
+        ax.grid(True, alpha=0.3)
+        ax.legend(loc='lower right', fontsize=FONT_SIZES['legend'], ncol=2)
+
+    fig, (ax_bin, ax_ter) = plt.subplots(1, 2, figsize=(17, 6.5))
+    for ax, task in [(ax_bin, 'binary'), (ax_ter, 'ternary')]:
+        method_data, baseline_data, neg_ctrl_overlay, outliers = _load_for_task(task)
+        _draw_panel(ax, task, method_data, baseline_data, neg_ctrl_overlay, outliers)
 
     fig.tight_layout()
     apply_paper_style(fig=fig)
@@ -2778,98 +2826,126 @@ def generate_channel_scaling_v2_figure():
 def generate_sensitivity_scaling_figure():
     """T3.2 — Sensitivity scaling: spread vs absolute acc across channel counts.
 
-    Dual y-axis chart:
-      x: channel count (log: 4, 8, 32)
-      left y: method spread (max − min, pp)
+    双面板版本（40-cell matrix update）：左 binary、右 ternary，每子图双 y 轴。
+      x: channel count (log: 64, 32, 8, 4)
+      left y: method spread (max − min, pp), 4 数据驱动 method 间
       right y: best-method absolute acc (%)
+    数据来源：reduced_{64,32,8,4}_{fdr,band_power,attention,csp}_{binary,ternary}
+    (注册表动态加载，替代旧版硬编码 dict)
     """
     import matplotlib.pyplot as plt
 
-    # From paper §3.5.3 table: 32ch / 8ch / 4ch spreads and best-method accs
-    # Using values from paper §3.5 (Table 9 footer + §3.5.3 body)
-    data = {
-        32: {'spread': 2.77, 'best_method': 'FDR',         'best_acc': 87.71},
-        8:  {'spread': 15.63,'best_method': 'Band Power',  'best_acc': 84.05},
-        4:  {'spread': 24.05,'best_method': 'Band Power',  'best_acc': 78.75},
+    METHOD_REGISTRY_KEYS = ['fdr', 'band_power', 'attention', 'csp']
+    METHOD_DISPLAY_NAMES = {
+        'fdr': 'FDR', 'band_power': 'Band Power',
+        'attention': 'Attention', 'csp': 'CSP',
     }
+    CHANNEL_TIERS = [64, 32, 8, 4]
 
-    chs = sorted(data.keys())
-    spreads = [data[c]['spread'] for c in chs]
-    accs = [data[c]['best_acc'] for c in chs]
-    best_methods = [data[c]['best_method'] for c in chs]
+    def _compute_row(n_channels, task):
+        method_accs = {}
+        for m in METHOD_REGISTRY_KEYS:
+            alias = f'reduced_{n_channels}_{m}_{task}'
+            path = get_run_path(alias)
+            if not resolve_project_path(path).exists():
+                logger.warning(f'Missing for {m} @ {n_channels}ch ({task}): {path}')
+                continue
+            cache = load_json_cache(path)
+            accs = extract_model_accs(cache, 'cbramod')
+            if accs:
+                method_accs[m] = float(np.mean(accs))
+        if not method_accs:
+            return None
+        spread = max(method_accs.values()) - min(method_accs.values())
+        best_key = max(method_accs, key=method_accs.get)
+        return spread, METHOD_DISPLAY_NAMES[best_key], method_accs[best_key]
 
-    fig, axL = plt.subplots(figsize=(9, 6.2))
-    axR = axL.twinx()
+    def _draw_panel(axL, task, show_left_legend):
+        rows = {n: _compute_row(n, task) for n in CHANNEL_TIERS}
+        chs = sorted([n for n, r in rows.items() if r is not None])
+        spreads = [rows[c][0] for c in chs]
+        best_methods = [rows[c][1] for c in chs]
+        accs = [rows[c][2] for c in chs]
 
-    # Left axis: spread (filled area + line)
-    line_spread = axL.plot(chs, spreads, marker='s', markersize=11,
-                           linewidth=2.6, color=PAPER_COLORS['fdr'],
-                           label='Method spread (pp)')
-    axL.fill_between(chs, 0, spreads, color=PAPER_COLORS['fdr'], alpha=0.12)
+        axR = axL.twinx()
 
-    axL.set_xscale('log', base=2)
-    axL.set_xlabel('Channel count (log scale)', fontsize=FONT_SIZES['axis_label'])
-    axL.set_ylabel('Method spread (max − min, pp)',
-                   fontsize=FONT_SIZES['axis_label'], color=PAPER_COLORS['fdr'])
-    axL.tick_params(axis='y', labelcolor=PAPER_COLORS['fdr'])
-    axL.set_xticks(chs)
-    axL.set_xticklabels([str(c) for c in chs])
-    axL.set_ylim(0, max(spreads) * 1.25)
-    axL.grid(True, alpha=0.3, axis='both')
+        line_spread = axL.plot(chs, spreads, marker='s', markersize=11,
+                               linewidth=2.6, color=PAPER_COLORS['fdr'],
+                               label='Method spread (pp)')
+        axL.fill_between(chs, 0, spreads, color=PAPER_COLORS['fdr'], alpha=0.12)
 
-    # Right axis: best-method absolute acc
-    line_acc = axR.plot(chs, accs, marker='o', markersize=11,
-                        linewidth=2.4, color=PAPER_COLORS['secondary_blue'],
-                        label='Best-method abs. acc (%)')
-    axR.set_ylabel('Best-method absolute accuracy (%)',
-                   fontsize=FONT_SIZES['axis_label'],
-                   color=PAPER_COLORS['secondary_blue'])
-    axR.tick_params(axis='y', labelcolor=PAPER_COLORS['secondary_blue'])
-    axR.set_ylim(70, 92)
+        axL.set_xscale('log', base=2)
+        axL.set_xlabel('Channel count (log scale)',
+                       fontsize=FONT_SIZES['axis_label'])
+        axL.set_ylabel('Method spread (max − min, pp)',
+                       fontsize=FONT_SIZES['axis_label'],
+                       color=PAPER_COLORS['fdr'])
+        axL.tick_params(axis='y', labelcolor=PAPER_COLORS['fdr'])
+        axL.set_xticks(chs)
+        axL.set_xticklabels([str(c) for c in chs])
+        axL.set_ylim(0, max(spreads) * 1.30)
+        axL.grid(True, alpha=0.3, axis='both')
 
-    # Combined legend
-    lines = line_spread + line_acc
-    labels = [l.get_label() for l in lines]
-    axL.legend(lines, labels, loc='upper left', fontsize=FONT_SIZES['legend'])
+        line_acc = axR.plot(chs, accs, marker='o', markersize=11,
+                            linewidth=2.4, color=PAPER_COLORS['secondary_blue'],
+                            label='Best-method abs. acc (%)')
+        axR.set_ylabel('Best-method absolute accuracy (%)',
+                       fontsize=FONT_SIZES['axis_label'],
+                       color=PAPER_COLORS['secondary_blue'])
+        axR.tick_params(axis='y', labelcolor=PAPER_COLORS['secondary_blue'])
+        if task == 'binary':
+            axR.set_ylim(70, 95)
+        else:
+            axR.set_ylim(55, 80)
 
-    # Materialise axes transforms before force-directed layout
-    fig.canvas.draw()
+        task_label = 'Binary' if task == 'binary' else 'Ternary'
+        axL.set_title(f'{task_label} task', fontsize=FONT_SIZES['title'])
 
-    # Force-directed label placement on axL (spread, red)
-    pts_left = np.array(list(zip(chs, spreads)), dtype=float)
-    labels_left = [f'{s:.2f} pp' for s in spreads]
-    adjusted_left = force_directed_label_layout(
-        pts_left, axL,
-        w_point=0.0005, w_label=0.0005, w_diagonal=0.0,
-        w_spring=50.0, w_edge=0.002, iterations=100,
-    )
-    for (xa, ya), (xt, yt), txt in zip(pts_left, adjusted_left, labels_left):
-        axL.plot([xa, xt], [ya, yt], color='gray', linewidth=0.5,
-                 alpha=0.6, zorder=4)
-        axL.text(xt, yt, txt,
-                 fontsize=FONT_SIZES['annotation'],
-                 color=PAPER_COLORS['fdr'], fontweight='bold',
-                 ha='center', va='center', zorder=7,
-                 bbox=dict(boxstyle='round,pad=0.2',
-                           facecolor='white', edgecolor='none', alpha=0.85))
+        if show_left_legend:
+            lines = line_spread + line_acc
+            labels = [l.get_label() for l in lines]
+            axL.legend(lines, labels, loc='upper left',
+                       fontsize=FONT_SIZES['legend'])
 
-    # Force-directed label placement on axR (best-method acc, blue)
-    pts_right = np.array(list(zip(chs, accs)), dtype=float)
-    labels_right = [f'{m}\n{a:.2f}%' for m, a in zip(best_methods, accs)]
-    adjusted_right = force_directed_label_layout(
-        pts_right, axR,
-        w_point=0.0005, w_label=0.0008, w_diagonal=0.0,
-        w_spring=50.0, w_edge=0.002, iterations=100,
-    )
-    for (xa, ya), (xt, yt), txt in zip(pts_right, adjusted_right, labels_right):
-        axR.plot([xa, xt], [ya, yt], color='gray', linewidth=0.5,
-                 alpha=0.6, zorder=4)
-        axR.text(xt, yt, txt,
-                 fontsize=FONT_SIZES['annotation'],
-                 color=PAPER_COLORS['secondary_blue'], fontweight='bold',
-                 ha='center', va='center', zorder=7,
-                 bbox=dict(boxstyle='round,pad=0.2',
-                           facecolor='white', edgecolor='none', alpha=0.85))
+        axL.figure.canvas.draw()
+
+        pts_left = np.array(list(zip(chs, spreads)), dtype=float)
+        labels_left = [f'{s:.2f} pp' for s in spreads]
+        adjusted_left = force_directed_label_layout(
+            pts_left, axL,
+            w_point=0.0005, w_label=0.0005, w_diagonal=0.0,
+            w_spring=50.0, w_edge=0.002, iterations=80,
+        )
+        for (xa, ya), (xt, yt), txt in zip(pts_left, adjusted_left, labels_left):
+            axL.plot([xa, xt], [ya, yt], color='gray', linewidth=0.5,
+                     alpha=0.6, zorder=4)
+            axL.text(xt, yt, txt,
+                     fontsize=FONT_SIZES['annotation'],
+                     color=PAPER_COLORS['fdr'], fontweight='bold',
+                     ha='center', va='center', zorder=7,
+                     bbox=dict(boxstyle='round,pad=0.2',
+                               facecolor='white', edgecolor='none', alpha=0.85))
+
+        pts_right = np.array(list(zip(chs, accs)), dtype=float)
+        labels_right = [f'{m}\n{a:.2f}%' for m, a in zip(best_methods, accs)]
+        adjusted_right = force_directed_label_layout(
+            pts_right, axR,
+            w_point=0.0005, w_label=0.0008, w_diagonal=0.0,
+            w_spring=50.0, w_edge=0.002, iterations=80,
+        )
+        for (xa, ya), (xt, yt), txt in zip(pts_right, adjusted_right, labels_right):
+            axR.plot([xa, xt], [ya, yt], color='gray', linewidth=0.5,
+                     alpha=0.6, zorder=4)
+            axR.text(xt, yt, txt,
+                     fontsize=FONT_SIZES['annotation'],
+                     color=PAPER_COLORS['secondary_blue'], fontweight='bold',
+                     ha='center', va='center', zorder=7,
+                     bbox=dict(boxstyle='round,pad=0.2',
+                               facecolor='white', edgecolor='none', alpha=0.85))
+
+    fig, (axL_bin, axL_ter) = plt.subplots(1, 2, figsize=(15, 6.4))
+    _draw_panel(axL_bin, 'binary',  show_left_legend=True)
+    _draw_panel(axL_ter, 'ternary', show_left_legend=False)
 
     fig.tight_layout()
     apply_paper_style(fig=fig)
@@ -3349,6 +3425,220 @@ def generate_fig5_merged_figure():
 
 
 # =============================================================================
+# Figure 3d (revived 2026-05-12 + enhanced):
+#   2 rows × parametric channel-tier columns reduced-channel matrix grid.
+#   Replaces deleted bc5a3b3 generator with:
+#     - Parametric tiers (currently [4, 8, 32, 61, 64]; 16ch insertable later)
+#     - 4ch column extended with FDR ∩ Attention overlap (6th bar)
+#     - 61ch column = standard 10-10 outlier (1 bar)
+#     - Per-panel vertical bracket + delta ruler vs 128ch baseline
+# =============================================================================
+
+def generate_reduced_channel_grid_figure():
+    """Reduced-channel × method × task matrix grid (cross-subject CBraMod).
+
+    Layout: 2 rows × len(CHANNEL_TIERS_GRID) cols.
+      Row 0: binary  | Row 1: ternary
+      Cols (default): 4ch | 8ch | 32ch | 61ch | 64ch
+
+    Per panel content:
+      - 4ch:  6 bars — FDR / Att / BP / CSP / NegCtrl / FDR ∩ Att overlap
+      - 8/32/64ch: 5 bars — FDR / Att / BP / CSP / NegCtrl
+      - 61ch: 1 bar — Standard 10-10 outlier
+
+    Each panel includes:
+      - Horizontal dashed line at 128ch CBraMod cross-subject baseline
+      - Vertical bracket from top-method bar up to the baseline,
+        labeled with the gap (e.g., "−12.3 pp")
+
+    For ternary, two cells fall back to MOCK values pending make-up runs:
+      reduced_4_fdr_attention_overlap_ternary  →  (50.0, 5.0)
+      standard_1010_61_cross_ternary           →  (70.0, 5.0)
+    Mock bars render with hatched fill and italic asterisked value annotation.
+    """
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as mpatches
+    from src.visualization.paper_style import (
+        FONT_SIZES, apply_paper_style, paper_figsize, add_panel_label,
+    )
+
+    CHANNEL_TIERS_GRID = [4, 8, 32, 61, 64]
+    METHODS = ['fdr', 'attention', 'band_power', 'csp', 'negative_control']
+    METHOD_LABELS = {
+        'fdr': 'FDR', 'attention': 'Att', 'band_power': 'BP',
+        'csp': 'CSP', 'negative_control': 'NegCtrl',
+    }
+    OVERLAP_COLOR = '#FFC107'
+    STANDARD_1010_COLOR = '#9C27B0'
+
+    MOCK_TERNARY = {
+        'reduced_4_fdr_attention_overlap_ternary': (50.0, 5.0),
+        'standard_1010_61_cross_ternary':          (70.0, 5.0),
+    }
+
+    def _safe_get_path(alias):
+        from src.paper.run_registry import get_run_entry
+        try:
+            get_run_entry(alias)
+        except KeyError:
+            return None
+        return get_run_path(alias)
+
+    def _load_or_mock(alias):
+        path = _safe_get_path(alias)
+        if path is not None:
+            cache = load_json_cache(path)
+            accs = extract_model_accs(cache, 'cbramod')
+            if accs:
+                return float(np.mean(accs)), float(np.std(accs)), False
+        if alias in MOCK_TERNARY:
+            mean, std = MOCK_TERNARY[alias]
+            return mean, std, True
+        return None, None, False
+
+    def _load_panel_bars(n_ch, task):
+        """Return list of (label, mean, std, color, is_mock) bars for one panel."""
+        bars = []
+        if n_ch == 61:
+            mean, std, is_mock = _load_or_mock(f'standard_1010_61_cross_{task}')
+            if mean is not None:
+                bars.append(('Std10-10', mean, std, STANDARD_1010_COLOR, is_mock))
+            return bars
+        for m in METHODS:
+            alias = f'reduced_{n_ch}_{m}_{task}'
+            path = _safe_get_path(alias)
+            if path is None:
+                continue
+            cache = load_json_cache(path)
+            accs = extract_model_accs(cache, 'cbramod')
+            if not accs:
+                continue
+            color = PAPER_COLORS.get(m, '#000000')
+            bars.append((METHOD_LABELS[m], float(np.mean(accs)),
+                         float(np.std(accs)), color, False))
+        if n_ch == 4:
+            mean, std, is_mock = _load_or_mock(
+                f'reduced_4_fdr_attention_overlap_{task}')
+            if mean is not None:
+                bars.append(('FDR∩Att', mean, std, OVERLAP_COLOR, is_mock))
+        return bars
+
+    cache_b = load_json_cache(get_run_path('cross_cbramod_binary'))
+    cache_t = load_json_cache(get_run_path('cross_cbramod_ternary'))
+    ref_binary = float(np.mean(extract_model_accs(cache_b, 'cbramod')))
+    ref_ternary = float(np.mean(extract_model_accs(cache_t, 'cbramod')))
+
+    n_cols = len(CHANNEL_TIERS_GRID)
+    fig, axes = plt.subplots(
+        2, n_cols,
+        figsize=paper_figsize(rows=2, cols=n_cols, width_in=14.0, row_height_in=4.0),
+        sharey='row',
+    )
+
+    y_limits = {'binary': (40, 100), 'ternary': (25, 85)}
+    panel_letters = list('ABCDEFGHIJKL')[:2 * n_cols]
+
+    for row_idx, task in enumerate(['binary', 'ternary']):
+        ref = ref_binary if task == 'binary' else ref_ternary
+        for col_idx, n_ch in enumerate(CHANNEL_TIERS_GRID):
+            ax = axes[row_idx, col_idx]
+            bars_data = _load_panel_bars(n_ch, task)
+            if not bars_data:
+                ax.text(0.5, 0.5, 'no data', ha='center', va='center',
+                        transform=ax.transAxes, color='gray')
+                continue
+
+            x = np.arange(len(bars_data))
+            labels = [b[0] for b in bars_data]
+            means = [b[1] for b in bars_data]
+            stds = [b[2] for b in bars_data]
+            colors = [b[3] for b in bars_data]
+            mocks = [b[4] for b in bars_data]
+            edge_colors = [c if m else 'black' for m, c in zip(mocks, colors)]
+            hatches = ['///' if m else '' for m in mocks]
+
+            bars = ax.bar(x, means, yerr=stds, color=colors,
+                          edgecolor=edge_colors, linewidth=0.8,
+                          capsize=2.5, error_kw={'elinewidth': 0.8}, zorder=3)
+            for bar, h in zip(bars, hatches):
+                bar.set_hatch(h)
+
+            ax.axhline(y=ref, color='black', linestyle='--', linewidth=0.9,
+                       alpha=0.6, zorder=2)
+
+            for bar, m, is_mock in zip(bars, means, mocks):
+                txt = f'{m:.1f}' + ('*' if is_mock else '')
+                ax.text(bar.get_x() + bar.get_width() / 2,
+                        bar.get_height() + 1.2,
+                        txt, ha='center', va='bottom',
+                        fontsize=FONT_SIZES['annotation'] - 1,
+                        fontstyle='italic' if is_mock else 'normal')
+
+            # Vertical bracket + delta ruler from top bar to 128 baseline
+            top_idx = int(np.argmax(means))
+            top_x = x[top_idx]
+            top_y = means[top_idx]
+            delta = top_y - ref
+            sign = '+' if delta >= 0 else '−'
+            bracket_x = top_x + 0.42
+            ax.annotate(
+                '', xy=(bracket_x, ref), xytext=(bracket_x, top_y),
+                arrowprops=dict(arrowstyle='|-|, widthA=0.4, widthB=0.4',
+                                color='dimgray', linewidth=1.2,
+                                shrinkA=0, shrinkB=0), zorder=4,
+            )
+            ax.text(bracket_x + 0.10, (top_y + ref) / 2,
+                    f'{sign}{abs(delta):.1f} pp',
+                    fontsize=FONT_SIZES['annotation'] - 1,
+                    color='dimgray', fontweight='bold',
+                    ha='left', va='center',
+                    bbox=dict(boxstyle='round,pad=0.2',
+                              facecolor='white', edgecolor='none', alpha=0.85))
+
+            ax.set_xticks(x)
+            ax.set_xticklabels(labels, fontsize=FONT_SIZES['tick'] - 1,
+                               rotation=30, ha='right')
+            ax.set_ylim(*y_limits[task])
+            ax.grid(axis='y', alpha=0.25, zorder=1)
+
+            if row_idx == 0:
+                ax.set_title(f'{n_ch} channels',
+                             fontsize=FONT_SIZES['title'], pad=8)
+            if col_idx == 0:
+                ax.set_ylabel(f'{task.capitalize()} accuracy (%)',
+                              fontsize=FONT_SIZES['axis_label'])
+            idx = row_idx * n_cols + col_idx
+            add_panel_label(ax, panel_letters[idx], x=-0.06, y=1.02,
+                            fontsize=FONT_SIZES['panel_label'])
+
+    legend_handles = [
+        mpatches.Patch(color=PAPER_COLORS[m], label=METHOD_LABELS[m]) for m in METHODS
+    ]
+    legend_handles.append(mpatches.Patch(color=OVERLAP_COLOR, label='FDR∩Att overlap'))
+    legend_handles.append(mpatches.Patch(color=STANDARD_1010_COLOR, label='Std 10-10'))
+    legend_handles.append(plt.Line2D(
+        [0], [0], color='black', linestyle='--', linewidth=1.1,
+        label=f'128ch baseline (bin {ref_binary:.1f}%, ter {ref_ternary:.1f}%)',
+    ))
+    legend_handles.append(mpatches.Patch(facecolor='white', edgecolor='gray',
+                                          hatch='///', label='MOCK (pending)'))
+    fig.legend(
+        handles=legend_handles, loc='lower center', ncol=5,
+        bbox_to_anchor=(0.5, 0.02), frameon=False,
+        fontsize=FONT_SIZES['legend'],
+    )
+
+    fig.tight_layout(rect=(0, 0.10, 1, 0.97))
+    apply_paper_style(fig=fig)
+    add_provenance_footer(fig, 'reduced_channel_40cell_grid')
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = OUTPUT_DIR / 'reduced_channel_40cell_grid.png'
+    fig.savefig(out_path, dpi=200, bbox_inches='tight')
+    plt.close(fig)
+    logger.info(f'Saved: {out_path}')
+
+
+# =============================================================================
 # Main
 # =============================================================================
 
@@ -3365,15 +3655,17 @@ FIGURE_GENERATORS = {
     'baseline_plots': generate_all_baseline_plots,
     'channel_ranking_flip': generate_8ch_ranking_flip_figure,
     'cross_subject_pooling_forest': generate_cross_subject_pooling_forest_figure,
-    # Stage 4 Step 3 additions:
-    'dapt_v1_v5_forest': generate_dapt_v1_v5_forest_figure,
+    # Stage 4 Step 4 (2026-05-12): §3.6 Figure 10a redesigned away from the
+    # 30-row vertical forest plot. Small-multiples is the paper figure;
+    # heatmap is kept as a backup / supplementary alternative.
+    'dapt_v1_v5_heatmap': generate_dapt_v1_v5_heatmap_figure,
+    'dapt_v1_v5_smallmultiples': generate_dapt_v1_v5_small_multiples_figure,
     'exploratory_ablation_overview': generate_exploratory_ablation_overview_figure,
     'sensitivity_scaling': generate_sensitivity_scaling_figure,
     'subject_heatmap': generate_subject_heatmap_figure,
     'extra_sessions_binary_v2': generate_extra_sessions_binary_v2_figure,
     'extra_sessions_ternary_v2': generate_extra_sessions_ternary_v2_figure,
     'fig5_merged': generate_fig5_merged_figure,
-    # 2026-05-12: 40-cell matrix overview (commit-time figure)
     'reduced_channel_40cell_grid': generate_reduced_channel_grid_figure,
 }
 
