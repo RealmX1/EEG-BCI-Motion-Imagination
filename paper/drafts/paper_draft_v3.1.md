@@ -630,6 +630,15 @@ FDR 以 87.71% 领先，保留了 128 通道性能的 **96.7%**（87.71% vs 90.6
 | 32 → 4 (负控制) | −88% | −20.06 pp (67.65%) | −18.85 pp (53.37%) | 双 task 上仍 ≈ FDR/CSP top-4 |
 | 32 → 4 (FDR∩Att, outlier) | −88% | −4.97 pp (82.71%) | — | 交集通道，favorable outlier（binary 仅） |
 
+图 3d 以分组柱状的 2×4 grid panel 形式直观呈现 4×5×2 = 40 cell 完整矩阵，让 method × channel × task 三向交互一次可视。
+
+**图 3d. Reduced-channel × method × task 40-cell 矩阵全景（cross-subject CBraMod, N = 21）。** Row：binary（panel A-D）/ ternary（panel E-H）；col：4 / 8 / 32 / 64 ch。每 panel 内 5 method 分组柱：FDR（红）/ Attention（蓝）/ Band Power（绿）/ CSP（橙）/ negative_control（灰）；柱高为 mean cross-subject accuracy，error bar 为 subject 间 std。横虚线为 128ch CBraMod cross-subject baseline（binary 90.68% / ternary 74.88%）。**核心可视化论断**：(i) panel D / H（64ch）柱高接近 128ch baseline 虚线、5 method 之间几乎齐平 — "32ch+ method-agnostic" 视觉证据；(ii) panel A / E（4ch）BP 绿柱孤立突出于其他 4 个 method — "低通道下 BP 单独保持判别力"；(iii) panel C / G（32ch）灰柱（neg_ctrl）与 4 数据驱动 method 柱高在 ±0.32 pp 内不可区分 — 体积传导冗余的强证据（见 §3.5.3 / §4.3）。Panel 注释数字 = mean accuracy 1 位小数。
+
+![图 3d. 40-cell reduced-channel matrix](../figures/reduced_channel_40cell_grid.png)
+
+> **数据来源**：40 个 alias `reduced_{N}_{method}_{task}`（N ∈ {4,8,32,64}, method ∈ 5, task ∈ {binary, ternary}）注册在 [paper/run_registry.yaml](../../paper/run_registry.yaml)；完整 run_tag → mean_acc 映射见 [docs/handoffs/2026-05-11_reduced_channel_matrix_closure.md §40-cell 矩阵](../../docs/handoffs/2026-05-11_reduced_channel_matrix_closure.md#40-cell-矩阵-cross-subject--cbramod--n21)。
+> 生成命令：`uv run python scripts/paper/generate_paper_figures.py --figure reduced_channel_40cell_grid`
+
 图 4 以曲线形式直观呈现了这一非线性降解过程。
 
 **图 4. 通道缩放曲线：CBraMod 跨被试二分类准确率随通道数的变化。** 红色实线为各通道数下最优配置的包络线；虚线追踪各通道选择方法在不同通道数下的表现。绿色区域标示 32 通道部署区间。× 标记为 4 通道负控制。误差线为被试间标准差。
@@ -672,7 +681,7 @@ FDR∩Attention 的 4 个交集通道（82.71%）的高准确率应被视为一�
 > **数据来源 — Binary**: 128ch: `results/20260324_0023_cross_subject_cache_imagery_binary.json`; 64ch FDR `20260505_2223`: `results/64_channel/fdr/20260505_2223_cross_subject_cache_imagery_binary.json`; 64ch attention `20260511_1038` / band_power `20260511_1050` / csp `20260511_1111` / negative_control `20260511_1131`: `results/64_channel/{attention,band_power,csp,negative_control}/20260511_*_cross_subject_cache_imagery_binary.json`; 61ch: `results/61_channel/standard_1010/20260330_1213_cross_subject_cache_imagery_binary.json`; 32ch: `results/32_channel/{fdr,band_power,commercial,attention,csp}/20260330_*_cross_subject_cache_imagery_binary.json`; 8ch: `results/8_channel/{band_power/20260331_1950,csp/20260331_2044,fdr/20260330_1311,attention/20260330_1334}_cross_subject_cache_imagery_binary.json`; 8ch negative_control `20260511_1425`: `results/8_channel/negative_control/20260511_1425_cross_subject_cache_imagery_binary.json`; 4ch BP `20260505_2308`: `results/4_channel/band_power/20260505_2308_cross_subject_cache_imagery_binary.json`; 4ch CSP `20260505_2246`: `results/4_channel/csp/20260505_2246_cross_subject_cache_imagery_binary.json`
 >
 > **数据来源 — Ternary（2026-05-11 21-cell 矩阵闭合新增）**: 128ch baseline `20260324_0109`; 64ch fdr `20260511_1148` / attention `20260511_1217` / band_power `20260511_1237` / csp `20260511_1256` / negative_control `20260511_1314`; 32ch fdr `20260221_0332` / attention `20260228_2247` / band_power `20260511_1348` / csp `20260511_1404` / negative_control `20260511_1757`; 8ch fdr `20260511_1439` / attention `20260302_2140` / band_power `20260511_1508` / csp `20260511_1539` / negative_control `20260511_1600`; 4ch fdr `20260511_1618` / attention `20260511_1642` / band_power `20260511_1655` / csp `20260511_1731` / negative_control `20260310_0054`; 完整 run_tag → mean_acc 映射见 [docs/handoffs/2026-05-11_reduced_channel_matrix_closure.md §40-cell 矩阵](../../docs/handoffs/2026-05-11_reduced_channel_matrix_closure.md#40-cell-矩阵-cross-subject--cbramod--n21)。
-> 生成命令: 图 4 由 `uv run python scripts/paper/generate_paper_figures.py --figure channel_scaling` 生成；图 4b 由 `uv run python scripts/paper/generate_paper_figures.py --figure channel_ranking_flip` 生成；ternary 维度的对应可视化（如 4×5 grid panel）尚未生成，见 §6 #4。
+> 生成命令: 图 4 由 `uv run python scripts/paper/generate_paper_figures.py --figure channel_scaling` 生成；图 4b 由 `uv run python scripts/paper/generate_paper_figures.py --figure channel_ranking_flip` 生成；ternary 维度的对应可视化见 §3.5.2 图 3d (`--figure reduced_channel_40cell_grid`)，4×5×2 = 40 cell 矩阵全景。
 
 #### 3.5.3 控制实验
 
@@ -1150,7 +1159,7 @@ within-subject 范式下方向反转：random-init CBraMod 在被试内二分类
 
 3. **DAPT 配置 ablation**：本研究的 DAPT 负迁移结论已通过 V3 实验完成"Stieger 主导效应 vs 整体域错配"的初步拆分（§3.6 / Limitation #9），剩余的"方法配置不匹配"成因（mask ratio、loss 公式、epoch 数、warmup schedule）尚需扫描 ablation 才能与"域内分布偏移"分离；同时单数据集 leave-one-out 消融（逐一排除 10 个外部数据集）可进一步定量化各数据集对负迁移的边际贡献。
 
-4. **>64ch / <32ch 中间档位与可视化补全**：本研究 2026-05-11 矩阵闭合后 {4, 8, 32, 64}ch × 5 method × {binary, ternary} = 40 cell 已全部跑通，"64ch 是否仍呈现 32ch 类似的方法不敏感性"已答（5 method 在 64ch binary spread 3.24 pp、ternary 2.09 pp，与 32ch 量级一致；详见 §3.5.2 / §4.2）；剩余开放问题为 (a) **96ch / 16ch 等中间档位** —— >64ch 边际增益是否完全饱和、16ch 是否处于"方法依赖临界 boundary"两侧仍未评估；(b) **4×5 grid panel 可视化**：本论文当前的 figure 4 / 4b 仅 binary，ternary 维度对应可视化以及 4 channel-count × 5 method × 2 task 的 grid panel 尚未生成（数据已全，预计 ~30 min matplotlib 工作）；(c) **method × channel × task ANOVA** —— paired ANOVA on 5 method × 21 subject for each (channel, task) cell 可定量验证"32ch+ 上 method 无显著效应"以及"4ch / 8ch 上 method 显著"两端论断，本论文未跑显著性检验。
+4. **>64ch / <32ch 中间档位与显著性检验**：本研究 2026-05-11 矩阵闭合后 {4, 8, 32, 64}ch × 5 method × {binary, ternary} = 40 cell 已全部跑通，"64ch 是否仍呈现 32ch 类似的方法不敏感性"已答（5 method 在 64ch binary spread 3.24 pp、ternary 2.09 pp，与 32ch 量级一致；详见 §3.5.2 / §4.2 / 图 3d）；剩余开放问题为 (a) **96ch / 16ch 等中间档位** —— >64ch 边际增益是否完全饱和、16ch 是否处于"方法依赖临界 boundary"两侧仍未评估；(b) **method × channel × task ANOVA** —— paired ANOVA on 5 method × 21 subject for each (channel, task) cell 可定量验证"32ch+ 上 method 无显著效应"以及"4ch / 8ch 上 method 显著"两端论断，本论文未跑显著性检验（图 3d 视觉证据已传达定性结论但缺 p 值硬声明）。
 
 5. **4ch Band Power 的可复现性与跨范式稳健性**：4ch BP (78.75%) 是本批最大反例，但仅在 cross-subject binary 上观察到；其在三分类、XSI-FT、被试内、运动执行范式下是否同样保持优势需要独立验证。
 

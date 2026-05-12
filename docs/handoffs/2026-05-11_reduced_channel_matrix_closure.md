@@ -13,6 +13,52 @@
 5. **2 个 codebase footguns 被识别 + 解决**：(a) `wandb` 是空 namespace package、`wandb.init` 不存在，所有训练脚本默认走 wandb 必崩 —— 用 `--no-wandb` flag 绕过；(b) [src/preprocessing/channel_selection.py:156](../../src/preprocessing/channel_selection.py#L156) 强制 `len(indices) == n_channels`，历史 31-index 的 32ch `negative_control` 现在不兼容
 6. **wall-clock 8h 20m** 完成 21 cell + 1 retry + 全部验证；比初始估计 22h GPU 大幅快 —— v3 cosine schedule + early stop 让 cell 平均 23 min（估计 50 min）
 
+## 更新 2026-05-12: 论文集成已落地（commit `7747ef2`）
+
+本轮 40-cell 数据已整合进 [paper/drafts/paper_draft_v3.1.md](../../paper/drafts/paper_draft_v3.1.md)（commit `7747ef2`, +1665 行；原文件首次落地为完整新草稿）。改动覆盖 11 段：
+
+| 段落 | 改动 |
+|---|---|
+| 摘要 | 加 4×5×2=40 cell framing；spread 数字扩到 binary / ternary 双 task；32ch+ 用 "indistinguishable" 措辞 |
+| §1.4 #2 / #3 | 显式 matrix structure；ternary spread 数字；±0.32 pp 不可区分声明 |
+| §3.5.2 表 9 | 加 ternary 列 + 64ch 全 5 method 行 + 8ch neg_ctrl 行 + 4ch ternary 行；数据来源行加 21 个 `20260511_*` run_tag |
+| §3.5.2 文本 | 加 64ch 横向方法对比段；rank flip 区分双 task；envelope curve 双 task；BP "8 cell 从不最差"观察；删除"未覆盖 64ch"句 |
+| §3.5.3 | 新增 Table 10b (4ch ternary 控制)；敏感度 scaling 扩到双 task + 64ch 行；新 Caveat 段（neg_ctrl pad 披露） |
+| §4.2 | 删除"未评估 64ch 配置下其他方法"句；加 64ch method-agnostic 段 + 统计不可区分论断 |
+| §4.3 | 新段：32ch+ neg_ctrl 与最优 indistinguishable + pad 限制 disclosure |
+| §5 limitations | #11 措辞更新（baseline matrix 已就绪）；新增 #14 (neg_ctrl pad) + #15 (no per-channel HPO) |
+| §6 #4 | 标记 "64ch method-sensitivity" 已答；剩 96/16ch + viz + ANOVA |
+| §7 finding 2 | 加 ternary 数字 + 32ch+ 不可区分论断 |
+| §7 finding 5 | spread 数字双 task；BP "never worst" 扩展 |
+
+**Framing 约束（fresh-context 子代理验证 6/6 group PASS）**：
+- "indistinguishable" / "在 run-to-run noise 内一致" 替代所有 sub-1pp "反超" / "beats" framing
+- 64ch FDR ternary 75.12% vs 128ch baseline 74.88% 用"128ch run-to-run range [73.06–75.50%] 内"，**从未**作为"超越 128ch"声明
+- 8ch ternary 减法用 attention 59.50（不是 neg_ctrl 59.05）
+- 32ch / 64ch neg_ctrl pad 在 §3.5.3 / §4.3 / §5 #14 三处披露，与 JSON 描述 near-verbatim
+- BP "8 cell 从不最差" 作为新的结构性观察加进 §3.5.2 / §3.5.3 / §7 finding 5
+
+**仍未做（仍列在 §Next Steps Unlocked）**：
+- ~~4×5 grid panel matplotlib 可视化~~ **已完成 2026-05-12（见下方"图 3d 跟进"段）**
+- 5 method × 21 subject paired ANOVA 显著性检验（"32ch+ 不可区分"目前只是 Δ ≤ 0.32 pp vs 13 pp std 的非正式论证 + figure 3d 视觉证据，未给 p 值）
+- handoff 顶部 TL;DR #3 仍写"neg_ctrl 反超 fdr"——论文中已统一软化为"indistinguishable"。**handoff 与论文措辞口径不一致是有意保留的**：handoff 记录原始观察（Δ=+0.32 pp 严格意义为 strict inequality），论文记录正式声明（带 std 上下文）。下一个 agent 若交叉引用注意区分两套口径。
+
+## 跟进 2026-05-12: 图 3d 已生成 + 集成论文 §3.5.2
+
+[paper/figures/reduced_channel_40cell_grid.png](../../paper/figures/reduced_channel_40cell_grid.png) 已生成（2×4 grid panel，binary / ternary 双 row × 4/8/32/64 ch 四 col × 5 method 五 bar），插入论文 [§3.5.2 表 9 后](../../paper/drafts/paper_draft_v3.1.md)。同时落地的附属改动：
+
+1. **[paper/run_registry.yaml](../../paper/run_registry.yaml) +26 alias entries**：`reduced_{4,8,32,64}_{fdr,attention,band_power,csp,negative_control}_{binary,ternary}` 共 40 cell + 32ch neg_ctrl binary historical（`20260302_0141`）+ 5 missing binary cells。注册后 alias resolver 脚本 40/40 PASS，每 cell n=21 subjects，与 handoff §40-cell 矩阵均值 ≤ 0.005 pp 匹配。
+2. **[src/visualization/paper_style.py](../../src/visualization/paper_style.py)**：`PAPER_COLORS` 新增 `'negative_control': '#7f7f7f'`（中性灰）—— 替代过去散落的 `'#888888'` / `'gray'` fallback。
+3. **[scripts/paper/generate_paper_figures.py](../../scripts/paper/generate_paper_figures.py)**：新增 `generate_reduced_channel_grid_figure()`（~145 行）+ dispatcher entry `'reduced_channel_40cell_grid'`。复用 [`generate_32ch_comparison_figure`](../../scripts/paper/generate_paper_figures.py) 的 grouped-bar + value annotation + style application idiom。
+4. **[paper/drafts/paper_draft_v3.1.md](../../paper/drafts/paper_draft_v3.1.md)**：§3.5.2 表 9 后插入图 3d caption + image 引用；line 675 数据来源行更新；§6 #4 中 (b) "4×5 grid 未生成" 项删除（保留 96ch/16ch 与 ANOVA 两项）。
+
+**重新生成命令**（idempotent，可随时复跑）：
+```powershell
+uv run python scripts/paper/generate_paper_figures.py --figure reduced_channel_40cell_grid
+```
+
+输出路径：`paper/figures/reduced_channel_40cell_grid.png`（dpi=200）
+
 ## ⚠️ Operational Gotchas (READ FIRST 如果你要重跑或扩展)
 
 以下 3 个坑会让"看似简单"的命令直接崩溃。下个 agent 接手必须先验。
@@ -203,9 +249,9 @@ driver 内置 overwatch gate + P1/P2c/P3 pre-work（重跑产物与已有 channe
 
 ### 可立即做（数据齐了）
 
-1. **画 4×5 grid（4 个 channel-count × 5 method × 2 task overlay）**：取代当前 §3.5 的单线 sweet-spot 图。横轴 method、纵轴 mean_acc ± std，每个 channel-count 一个 panel。预计 20 分钟 matplotlib 工作量。
-2. **64ch method-agnostic 论断 + 显著性测试**：5 method × {binary, ternary} 在 64ch 的 ANOVA（n=21 paired）。预期 p > 0.05 → 加进 §3.5 "at 64ch, method choice does not significantly affect accuracy"
-3. **更新 §3.5.3 "method-dependent under sparsity"**：现有论断在 4ch 与 8ch 上仍成立（band_power 在 4ch 比 fdr 高 16.70 pp；在 8ch 比 fdr 高 7.62 pp），但需补充 "this method-dependence vanishes at 32ch+ and is reversed at 64ch (where neg_ctrl ternary > fdr ternary)"
+1. **画 4×5 grid（4 个 channel-count × 5 method × 2 task overlay）** [**已完成 2026-05-12，详见"跟进 2026-05-12"段**]：图 3d 落地为 [paper/figures/reduced_channel_40cell_grid.png](../../paper/figures/reduced_channel_40cell_grid.png)，集成进论文 §3.5.2 表 9 后。
+2. **64ch method-agnostic 论断 + 显著性测试** [仍 TODO]：5 method × {binary, ternary} 在 64ch 的 ANOVA（n=21 paired）。预期 p > 0.05 → 把论文 §3.5 / §4.2 / §7 finding 2 的"indistinguishable"非正式论证升级为带 p 值的硬声明。论文 §6 #4 (c) 已显式 reference 这个 followup。
+3. **更新 §3.5.3 "method-dependent under sparsity"** [已完成 commit `7747ef2`]：论文 §3.5.3 / §3.5.2 末段 / §7 finding 5 已扩展到双 task，包含"32ch+ 起方法选择 indistinguishable + 4ch / 8ch 上 method 依赖极端"双向论断；64ch ternary neg_ctrl vs fdr 在论文中表述为 "Δ=+0.32 pp, 远小于 std ≈ 13 pp, paired 比较下无显著差异"（不再用"反超"表述，详见上方 framing 约束）。
 4. **§3.5.4 "reduced-channel transfer 收益"**：本轮没跑 transfer 范式，§3.5.4 还在用 cross-subject 数据做转移类比；不变更
 
 ### 需要新数据
@@ -291,9 +337,9 @@ logs/
 
 ## 不在本 handoff 范围
 
-- **§3.5 论文段落的具体重写**：本 handoff 提供数据 + 论证方向，不写论文
-- **4×5×2 grid 可视化生成**：列在 §Next Steps，但生成代码 / matplotlib 调优未做
-- **method × channel-count 的 ANOVA / paired t-test**：数据齐了但统计检验未跑
+- ~~**§3.5 论文段落的具体重写**~~ — **已完成 2026-05-12 commit `7747ef2`**，详见顶部"更新 2026-05-12"段
+- ~~**4×5×2 grid 可视化生成**~~ — **已完成 2026-05-12**（图 3d），详见顶部"跟进 2026-05-12: 图 3d"段
+- **method × channel-count 的 ANOVA / paired t-test**：数据齐了但统计检验未跑（论文 §3.5 / §4.2 / §7 finding 2 用 "indistinguishable" / Δ vs std 的非正式论证 + 图 3d 视觉证据，未给 p 值；列在 §Next Steps #2）
 - **within-subject + transfer reduced-channel 矩阵**：仍 ~80% 空，本轮明确排除
 - **EEGNet reduced-channel 对照**：用户明确排除
 - **wandb 模块根因修复**：本 handoff 仅记录"已绕过"，未真正修底层依赖（uv sync / 重装包）

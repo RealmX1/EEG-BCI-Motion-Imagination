@@ -129,3 +129,99 @@ runs:
   reduced_64_fdr_binary:
     run_tag: "20260505_2223"
     path: "results/64_channel/fdr/20260505_2223_cross_subject_cache_imagery_binary.json"
+
+  # ===========================================================================
+  # 2026-05-11 21-cell matrix closure additions (commit e625d88)
+  # Source: docs/handoffs/2026-05-11_reduced_channel_matrix_closure.md §40-cell 矩阵
+  # ===========================================================================
+
+  # --- Binary: 5 new aliases (filling 64ch ×4 + 8ch neg_ctrl) ---
+  reduced_64_attention_binary:
+    run_tag: "20260511_1038"
+    path: "results/64_channel/attention/20260511_1038_cross_subject_cache_imagery_binary.json"
+  reduced_64_band_power_binary:
+    run_tag: "20260511_1050"
+    path: "results/64_channel/band_power/20260511_1050_cross_subject_cache_imagery_binary.json"
+  reduced_64_csp_binary:
+    run_tag: "20260511_1111"
+    path: "results/64_channel/csp/20260511_1111_cross_subject_cache_imagery_binary.json"
+  reduced_64_negative_control_binary:
+    run_tag: "20260511_1131"
+    path: "results/64_channel/negative_control/20260511_1131_cross_subject_cache_imagery_binary.json"
+  reduced_8_negative_control_binary:
+    run_tag: "20260511_1425"
+    path: "results/8_channel/negative_control/20260511_1425_cross_subject_cache_imagery_binary.json"
+  reduced_32_negative_control_binary:
+    run_tag: "20260302_0141"
+    path: "results/32_channel/negative_control/20260302_0141_cross_subject_cache_imagery_binary.json"
+
+  # --- Ternary: 20 new aliases (5 method × 4 channel-count) ---
+  # 4ch ternary
+  reduced_4_fdr_ternary:
+    run_tag: "20260511_1618"
+    path: "results/4_channel/fdr/20260511_1618_cross_subject_cache_imagery_ternary.json"
+  reduced_4_attention_ternary:
+    run_tag: "20260511_1642"
+    path: "results/4_channel/attention/20260511_1642_cross_subject_cache_imagery_ternary.json"
+  reduced_4_band_power_ternary:
+    run_tag: "20260511_1655"
+    path: "results/4_channel/band_power/20260511_1655_cross_subject_cache_imagery_ternary.json"
+  reduced_4_csp_ternary:
+    run_tag: "20260511_1731"
+    path: "results/4_channel/csp/20260511_1731_cross_subject_cache_imagery_ternary.json"
+  reduced_4_negative_control_ternary:
+    run_tag: "20260310_0054"
+    path: "results/4_channel/negative_control/20260310_0054_cross_subject_cache_imagery_ternary.json"
+
+  # 8ch ternary
+  reduced_8_fdr_ternary:
+    run_tag: "20260511_1439"
+    path: "results/8_channel/fdr/20260511_1439_cross_subject_cache_imagery_ternary.json"
+  reduced_8_attention_ternary:
+    run_tag: "20260302_2140"
+    path: "results/8_channel/attention/20260302_2140_cross_subject_cache_imagery_ternary.json"
+  reduced_8_band_power_ternary:
+    run_tag: "20260511_1508"
+    path: "results/8_channel/band_power/20260511_1508_cross_subject_cache_imagery_ternary.json"
+  reduced_8_csp_ternary:
+    run_tag: "20260511_1539"
+    path: "results/8_channel/csp/20260511_1539_cross_subject_cache_imagery_ternary.json"
+  reduced_8_negative_control_ternary:
+    run_tag: "20260511_1600"
+    path: "results/8_channel/negative_control/20260511_1600_cross_subject_cache_imagery_ternary.json"
+
+  # 32ch ternary
+  # NOTE: fdr `20260221_0332` and attention `20260228_2247` predate cross_subject_cache_* schema,
+  #       use legacy cross-subject_cbramod_*.json (extract_model_accs handles both).
+  reduced_32_fdr_ternary:
+    run_tag: "20260221_0332"
+    path: "results/32_channel/fdr/20260221_0332_cross-subject_cbramod_imagery_ternary.json"
+  reduced_32_attention_ternary:
+    run_tag: "20260228_2247"
+    path: "results/32_channel/attention/20260228_2247_cross-subject_cbramod_imagery_ternary.json"
+  reduced_32_band_power_ternary:
+    run_tag: "20260511_1348"
+    path: "results/32_channel/band_power/20260511_1348_cross_subject_cache_imagery_ternary.json"
+  reduced_32_csp_ternary:
+    run_tag: "20260511_1404"
+    path: "results/32_channel/csp/20260511_1404_cross_subject_cache_imagery_ternary.json"
+  reduced_32_negative_control_ternary:
+    run_tag: "20260511_1757"
+    path: "results/32_channel/negative_control/20260511_1757_cross_subject_cache_imagery_ternary.json"
+
+  # 64ch ternary
+  reduced_64_fdr_ternary:
+    run_tag: "20260511_1148"
+    path: "results/64_channel/fdr/20260511_1148_cross_subject_cache_imagery_ternary.json"
+  reduced_64_attention_ternary:
+    run_tag: "20260511_1217"
+    path: "results/64_channel/attention/20260511_1217_cross_subject_cache_imagery_ternary.json"
+  reduced_64_band_power_ternary:
+    run_tag: "20260511_1237"
+    path: "results/64_channel/band_power/20260511_1237_cross_subject_cache_imagery_ternary.json"
+  reduced_64_csp_ternary:
+    run_tag: "20260511_1256"
+    path: "results/64_channel/csp/20260511_1256_cross_subject_cache_imagery_ternary.json"
+  reduced_64_negative_control_ternary:
+    run_tag: "20260511_1314"
+    path: "results/64_channel/negative_control/20260511_1314_cross_subject_cache_imagery_ternary.json"
