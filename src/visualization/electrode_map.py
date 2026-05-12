@@ -578,27 +578,30 @@ def plot_electrode_grid(
 
     n = len(configs)
     nrows = (n + ncols - 1) // ncols
-    fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 5.5 * nrows))
+    remainder = n % ncols
+    full_rows = n // ncols
 
-    if nrows == 1 and ncols == 1:
-        axes = np.array([[axes]])
-    elif nrows == 1:
-        axes = axes[np.newaxis, :]
-    elif ncols == 1:
-        axes = axes[:, np.newaxis]
+    # 用 2*ncols 等宽子列的 gridspec：每个 panel 跨 2 列；
+    # 最后一行不满时把 remainder 个 panel 水平偏移 (ncols - remainder) 列实现居中。
+    fig = plt.figure(figsize=(5 * ncols, 5.5 * nrows))
+    gs = fig.add_gridspec(nrows, 2 * ncols)
 
-    for idx, (config_name, indices) in enumerate(configs.items()):
-        row, col = divmod(idx, ncols)
+    axes_list = []
+    for r in range(full_rows):
+        for c in range(ncols):
+            axes_list.append(fig.add_subplot(gs[r, 2 * c : 2 * c + 2]))
+    if remainder > 0:
+        offset = ncols - remainder
+        for c in range(remainder):
+            start = offset + 2 * c
+            axes_list.append(fig.add_subplot(gs[full_rows, start : start + 2]))
+
+    for ax, (config_name, indices) in zip(axes_list, configs.items()):
         plot_electrode_placement_2d(
-            axes[row][col], positions_2d, indices,
+            ax, positions_2d, indices,
             config_name=config_name,
             show_labels=show_labels,
         )
-
-    # 隐藏多余子图
-    for idx in range(n, nrows * ncols):
-        row, col = divmod(idx, ncols)
-        axes[row][col].set_visible(False)
 
     if suptitle:
         fig.suptitle(suptitle, fontsize=14, fontweight='bold', y=1.02)
