@@ -1,0 +1,49 @@
+{
+  "metadata": {
+    "training_type": "cross_subject",
+    "paradigm": "imagery",
+    "task": "binary",
+    "run_tag": "20260509_0735",
+    "timestamp": "2026-05-09T08:25:39.906348",
+    "n_subjects": 21,
+    "is_complete": true,
+    "preprocessing_version": "v2.0"
+  },
+  "wandb_groups": {},
+  "last_updated": "2026-05-09T08:25:39.906348",
+  "results": {
+    "eegnet": {
+      "per_subject_test_acc": {
+        "S01": 0.5,
+        "S02": 0.5,
+        "S03": 0.5,
+        "S04": 0.5,
+        "S05": 0.5,
+        "S06": 0.5,
+        "S07": 0.5,
+        "S08": 0.5,
+        "S09": 0.5,
+        "S10": 0.5,
+        "S11": 0.5,
+        "S12": 0.5,
+        "S13": 0.5,
+        "S14": 0.5,
+        "S15": 0.5,
+        "S16": 0.5,
+        "S17": 0.5,
+        "S18": 0.5,
+        "S19": 0.5,
+        "S20": 0.5,
+        "S21": 0.5
+      },
+      "mean_test_acc": 0.5,
+      "std_test_acc": 0.0,
+      "val_acc": 0.5006986348158191,
+      "val_majority_acc": 0.5007949125596184,
+      "best_epoch": 1,
+      "training_time": 3004.3614137000404,
+      "model_path": "checkpoints\\cross_subject\\20260509_0735_eegnet_imagery_binary\\best.pt",
+      "n_channels": 128
+    }
+  }
+}
