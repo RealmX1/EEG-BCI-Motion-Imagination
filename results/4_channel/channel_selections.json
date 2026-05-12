@@ -3,20 +3,51 @@
     "n_channels": 4,
     "source": "Top-4 from 32ch ranked selections + intersection configs",
     "created": "2026-03-01",
-    "updated": "2026-03-30"
+    "updated": "2026-03-30",
+    "merged_at": "2026-05-05T22:45:38.477016",
+    "merged_methods_added": [
+      "band_power",
+      "csp"
+    ],
+    "merged_methods_overwritten": [],
+    "note": " | merged via _merge_channel_selections.py"
   },
   "configs": {
     "attention": {
-      "indices": [1, 4, 14, 15],
+      "indices": [
+        1,
+        4,
+        14,
+        15
+      ],
       "description": "Top-4 channels from 32ch Attention (CBraMod gradient) ranking. Standard single-method selection for channel scaling analysis.",
-      "source_configs": ["attention"],
-      "biosemi_labels": ["A2", "A5", "A15", "A16"]
+      "source_configs": [
+        "attention"
+      ],
+      "biosemi_labels": [
+        "A2",
+        "A5",
+        "A15",
+        "A16"
+      ]
     },
     "fdr": {
-      "indices": [17, 22, 30, 33],
+      "indices": [
+        17,
+        22,
+        30,
+        33
+      ],
       "description": "Top-4 channels from 32ch FDR (Fisher Discriminant Ratio) ranking. Standard single-method selection for channel scaling analysis.",
-      "source_configs": ["fdr"],
-      "biosemi_labels": ["A18", "A23", "A31", "B2"]
+      "source_configs": [
+        "fdr"
+      ],
+      "biosemi_labels": [
+        "A18",
+        "A23",
+        "A31",
+        "B2"
+      ]
     },
     "fdr_attention_overlap": {
       "indices": [
@@ -53,6 +84,36 @@
         "B20"
       ],
       "created_at": "2026-03-09T23:15:46.604894"
+    },
+    "csp": {
+      "indices": [
+        29,
+        44,
+        48,
+        63
+      ],
+      "scores": {
+        "29": 0.0006798757493030185,
+        "44": 0.000850591227928193,
+        "48": 0.000848110186590406,
+        "63": 0.0007749765732320067
+      },
+      "description": "Common Spatial Patterns — top 4 channels by CSP filter weights (OVR)"
+    },
+    "band_power": {
+      "indices": [
+        59,
+        86,
+        106,
+        122
+      ],
+      "scores": {
+        "59": 3.5848145484924316,
+        "86": 2.99237060546875,
+        "106": 3.2241663932800293,
+        "122": 3.017352342605591
+      },
+      "description": "Band Power — Mu(8-13Hz) + Beta(13-30Hz) ANOVA F-statistic"
     }
   }
 }
