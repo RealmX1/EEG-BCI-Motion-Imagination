@@ -1,0 +1,56 @@
+{
+  "metadata": {
+    "created_at": "2026-05-12T21:08:12.315606",
+    "paradigm": "imagery",
+    "task": "binary",
+    "n_channels_selected": 16,
+    "n_subjects": 21,
+    "n_trials_total": 18103,
+    "methods": [
+      "attention"
+    ],
+    "checkpoint_tag": "baseline",
+    "note": "Train-only data (no test leakage), includes OfflineImagery, attention uses CBraMod gradient only (no EEGNet)"
+  },
+  "configs": {
+    "attention": {
+      "indices": [
+        17,
+        19,
+        27,
+        28,
+        29,
+        30,
+        37,
+        49,
+        51,
+        52,
+        65,
+        98,
+        110,
+        111,
+        113,
+        122
+      ],
+      "scores": {
+        "17": 1.958638904397958e-06,
+        "19": 2.8034091883455403e-06,
+        "27": 3.2848242881300393e-06,
+        "28": 3.098937440881855e-06,
+        "29": 2.4215057692345e-06,
+        "30": 2.881526597775519e-06,
+        "37": 1.9601284293457866e-06,
+        "49": 2.149314695998328e-06,
+        "51": 2.4792625481495634e-06,
+        "52": 2.1555140392592875e-06,
+        "65": 2.364006832067389e-06,
+        "98": 1.935379032147466e-06,
+        "110": 2.3368504571408266e-06,
+        "111": 1.9632843759609386e-06,
+        "113": 2.7364619654690614e-06,
+        "122": 2.723629222600721e-06
+      },
+      "description": "CBraMod gradient — input gradient magnitude from cross-subject checkpoint"
+    }
+  }
+}

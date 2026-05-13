@@ -1,0 +1,49 @@
+{
+  "metadata": {
+    "training_type": "cross_subject",
+    "paradigm": "imagery",
+    "task": "binary",
+    "run_tag": "20260513_2027",
+    "timestamp": "2026-05-13T20:48:20.269017",
+    "n_subjects": 21,
+    "is_complete": true,
+    "preprocessing_version": "v2.0"
+  },
+  "wandb_groups": {},
+  "last_updated": "2026-05-13T20:48:20.269017",
+  "results": {
+    "cbramod": {
+      "per_subject_test_acc": {
+        "S01": 0.81875,
+        "S02": 0.9125,
+        "S03": 0.975,
+        "S04": 0.90625,
+        "S05": 0.7375,
+        "S06": 0.71875,
+        "S07": 0.79375,
+        "S08": 0.90625,
+        "S09": 0.95,
+        "S10": 0.55,
+        "S11": 0.94375,
+        "S12": 0.8125,
+        "S13": 0.90625,
+        "S14": 0.85,
+        "S15": 0.875,
+        "S16": 0.8125,
+        "S17": 0.90625,
+        "S18": 0.84375,
+        "S19": 0.9875,
+        "S20": 0.6375,
+        "S21": 0.6625
+      },
+      "mean_test_acc": 0.8336309523809524,
+      "std_test_acc": 0.11382284739703694,
+      "val_acc": 0.603794562800373,
+      "val_majority_acc": 0.6687979539641944,
+      "best_epoch": 35,
+      "training_time": 1225.9813574,
+      "model_path": "checkpoints\\cross_subject\\20260513_2027_cbramod_imagery_binary\\best.pt",
+      "n_channels": 16
+    }
+  }
+}

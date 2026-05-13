@@ -225,3 +225,46 @@ runs:
   reduced_64_negative_control_ternary:
     run_tag: "20260511_1314"
     path: "results/64_channel/negative_control/20260511_1314_cross_subject_cache_imagery_ternary.json"
+
+  # ===========================================================================
+  # 2026-05-13 16-channel transition-point sweep + 61ch ternary makeup
+  # All cross-subject CBraMod, cosine_annealing_warmup_decay, cache-only.
+  # Fills the 32→8ch gap; 61ch ternary completes the 61ch standard_1010 entry.
+  # ===========================================================================
+  standard_1010_61_cross_ternary:
+    run_tag: "20260513_1938"
+    path: "results/61_channel/standard_1010/20260513_1938_cross_subject_cache_imagery_ternary.json"
+
+  # --- 16ch binary ---
+  reduced_16_fdr_binary:
+    run_tag: "20260513_1959"
+    path: "results/16_channel/fdr/20260513_1959_cross_subject_cache_imagery_binary.json"
+  reduced_16_csp_binary:
+    run_tag: "20260513_2027"
+    path: "results/16_channel/csp/20260513_2027_cross_subject_cache_imagery_binary.json"
+  reduced_16_attention_binary:
+    run_tag: "20260513_2048"
+    path: "results/16_channel/attention/20260513_2048_cross_subject_cache_imagery_binary.json"
+  reduced_16_band_power_binary:
+    run_tag: "20260513_2108"
+    path: "results/16_channel/band_power/20260513_2108_cross_subject_cache_imagery_binary.json"
+  reduced_16_negative_control_binary:
+    run_tag: "20260513_2132"
+    path: "results/16_channel/negative_control/20260513_2132_cross_subject_cache_imagery_binary.json"
+
+  # --- 16ch ternary ---
+  reduced_16_fdr_ternary:
+    run_tag: "20260513_2146"
+    path: "results/16_channel/fdr/20260513_2146_cross_subject_cache_imagery_ternary.json"
+  reduced_16_csp_ternary:
+    run_tag: "20260513_2227"
+    path: "results/16_channel/csp/20260513_2227_cross_subject_cache_imagery_ternary.json"
+  reduced_16_attention_ternary:
+    run_tag: "20260513_2241"
+    path: "results/16_channel/attention/20260513_2241_cross_subject_cache_imagery_ternary.json"
+  reduced_16_band_power_ternary:
+    run_tag: "20260513_2319"
+    path: "results/16_channel/band_power/20260513_2319_cross_subject_cache_imagery_ternary.json"
+  reduced_16_negative_control_ternary:
+    run_tag: "20260513_2343"
+    path: "results/16_channel/negative_control/20260513_2343_cross_subject_cache_imagery_ternary.json"

@@ -1,0 +1,12 @@
+(start)
+OK_61ch_standard_1010_ternary=success
+OK_16ch_fdr_binary=success
+OK_16ch_csp_binary=success
+OK_16ch_attention_binary=success
+OK_16ch_band_power_binary=success
+OK_16ch_negative_control_binary=success
+OK_16ch_fdr_ternary=success
+OK_16ch_csp_ternary=success
+OK_16ch_attention_ternary=success
+OK_16ch_band_power_ternary=success
+OK_16ch_negative_control_ternary=success
