@@ -203,6 +203,25 @@ def add_common_args(parser) -> None:
     )
     parser.add_argument("--no-plot", action="store_true", help="Suppress plot generation")
 
+    from src.config.constants import PURPOSE_VALUES
+
+    parser.add_argument(
+        "--purpose",
+        type=str,
+        default=None,
+        choices=sorted(PURPOSE_VALUES),
+        help=(
+            "Run intent tag (controlled vocab). "
+            "See PURPOSE_VALUES in src/config/constants.py"
+        ),
+    )
+    parser.add_argument(
+        "--notes",
+        type=str,
+        default=None,
+        help="Free-form notes about this run (stored in runs.notes)",
+    )
+
 
 def add_cache_resume_args(parser) -> None:
     """Add shared cache and resume arguments."""
@@ -365,6 +384,8 @@ def init_db_run(run_tag, experiment_type, paradigm, task, args):
             channel_config=channel_config if channels != FULL_N_CHANNELS else None,
             command=" ".join(shlex.quote(arg) for arg in sys.argv),
             is_baseline=is_baseline,
+            purpose=getattr(args, "purpose", None),
+            notes=getattr(args, "notes", None),
         )
         log_train.info(f"DB run created: {db_run_id}")
     except sqlite3.IntegrityError:

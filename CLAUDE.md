@@ -78,6 +78,29 @@ db.find_baseline_run(model, task, exp)       # 查 baseline 运行
 
 注意：extra sessions 实验结果目前只写入 JSON cache，不写入 ExperimentDB。查询 extra sessions 数据请直接读取 `results/` 下的 JSON 文件。
 
+### purpose 字段（schema v9）
+
+`runs` 表新增 `purpose` 列承载**实验意图**，使用受控词表（定义见 `src/config/constants.py::PURPOSE_VALUES`）：
+
+- `baseline` / `final` / `replication` / `ablation`
+- `hpo` / `sweep`
+- `sanity_check` / `pilot` / `debug` / `misc`
+
+配合自由文本 `notes` 列使用（之前留空，v9 开始可通过 CLI 写入）。所有训练脚本通过 `--purpose` / `--notes` 采集：
+
+```bash
+uv run python scripts/experiments/run_within_subject.py \
+    --purpose ablation --notes "drop attention head, compare with baseline 20260321_0343"
+```
+
+查询示例：
+```python
+db.find_runs(purpose='ablation', task='binary')      # 所有 binary 消融
+db.find_runs(purpose='sanity_check', limit=10)        # 最近 sanity check
+```
+
+历史 baseline 运行（`is_baseline=1`）在 v9 迁移时已自动回填 `purpose='baseline'`。
+
 ### 被试数过滤默认值
 
 查询实验结果时，默认只关注覆盖完整被试范围的运行：

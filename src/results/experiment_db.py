@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_DB_PATH = 'results/experiments.db'
 
 # Schema version for future migrations
-_SCHEMA_VERSION = 8
+_SCHEMA_VERSION = 9
 
 _SCHEMA_SQL = """
 -- Schema version tracking
@@ -77,7 +77,8 @@ CREATE TABLE IF NOT EXISTS runs (
     legacy_source   TEXT,   -- original JSON filename, e.g. '20260205_0116_comparison_cache_imagery_binary.json'
     command         TEXT,   -- full terminal command used to launch this run (sys.argv)
     preprocessing_version TEXT,  -- e.g., 'v1.0', 'v2.0'; tracks data filtering/cleaning version
-    is_baseline     INTEGER NOT NULL DEFAULT 0  -- intent flag; authoritative baseline is on model_summaries
+    is_baseline     INTEGER NOT NULL DEFAULT 0,  -- intent flag; authoritative baseline is on model_summaries
+    purpose         TEXT   -- run intent (controlled vocab: see constants.PURPOSE_VALUES); NULL = not specified
 );
 
 -- Transfer learning specific configuration
@@ -260,6 +261,8 @@ class ExperimentDB:
                 self._migrate_to_v7(conn)
             if current_version < 8:
                 self._migrate_to_v8(conn)
+            if current_version < 9:
+                self._migrate_to_v9(conn)
 
             conn.execute(
                 "INSERT OR REPLACE INTO schema_info (key, value) VALUES (?, ?)",
@@ -430,6 +433,28 @@ class ExperimentDB:
         )
         logger.info("Schema migration v8: baseline authority moved to model_summaries")
 
+    def _migrate_to_v9(self, conn: sqlite3.Connection):
+        """v8 -> v9: Add runs.purpose column for structured run-intent tagging."""
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(runs)").fetchall()}
+        if 'purpose' not in cols:
+            conn.execute("ALTER TABLE runs ADD COLUMN purpose TEXT")
+            logger.info("Schema migration v9: added runs.purpose")
+
+        # Backfill: runs already flagged is_baseline=1 get purpose='baseline'
+        n_baseline = conn.execute(
+            "UPDATE runs SET purpose = 'baseline' "
+            "WHERE is_baseline = 1 AND purpose IS NULL"
+        ).rowcount
+        if n_baseline:
+            logger.info(
+                f"Schema migration v9: backfilled purpose='baseline' for {n_baseline} runs"
+            )
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_runs_purpose "
+            "ON runs(purpose, experiment_type, task)"
+        )
+
     def close(self):
         """Close the database connection."""
         if self._conn is not None:
@@ -466,6 +491,7 @@ class ExperimentDB:
         command: Optional[str] = None,
         preprocessing_version: Optional[str] = None,
         is_baseline: bool = False,
+        purpose: Optional[str] = None,
     ) -> str:
         """Create a new experiment run.
 
@@ -493,10 +519,19 @@ class ExperimentDB:
                 (new runs) or left as None (legacy runs).
             is_baseline: Baseline intent flag (default False). Propagated to
                 model_summaries when save_summary() is called.
+            purpose: Run intent tag from PURPOSE_VALUES (controlled vocab).
+                Raises ValueError if not in PURPOSE_VALUES. Default None.
 
         Returns:
             run_id: Unique identifier for this run
         """
+        if purpose is not None:
+            from ..config.constants import PURPOSE_VALUES
+            if purpose not in PURPOSE_VALUES:
+                raise ValueError(
+                    f"Invalid purpose {purpose!r}. "
+                    f"Must be one of: {sorted(PURPOSE_VALUES)}"
+                )
         run_id = f"{run_tag}_{experiment_type}"
         if n_channels != 128:
             run_id += f"_{n_channels}ch"
@@ -522,13 +557,13 @@ class ExperimentDB:
                     n_channels, channel_config, n_subjects, is_complete,
                     git_commit, wandb_group, created_at, updated_at, notes,
                     is_legacy, legacy_source, command, preprocessing_version,
-                    is_baseline)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    is_baseline, purpose)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (run_id, run_tag, experiment_type, paradigm, task,
                  n_channels, channel_config, n_subjects, git_commit,
                  wandb_group, created_at, updated_at, notes,
                  int(is_legacy), legacy_source, command, preprocessing_version,
-                 int(is_baseline)),
+                 int(is_baseline), purpose),
             )
 
         logger.info(f"Created run: {run_id}")
@@ -991,6 +1026,7 @@ class ExperimentDB:
         channel_config: Optional[str] = None,
         is_complete: Optional[bool] = None,
         preprocessing_version: Optional[str] = None,
+        purpose: Optional[str] = None,
         order_by: str = 'created_at DESC',
         limit: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
@@ -1006,6 +1042,7 @@ class ExperimentDB:
             channel_config: 'motor_cortex' | 'commercial' | 'fdr' | etc.
             is_complete: Filter by completion status
             preprocessing_version: 'v1.0' | 'v2.0' | etc.
+            purpose: Run intent tag — see constants.PURPOSE_VALUES
             order_by: SQL ORDER BY clause (default: newest first)
             limit: Maximum number of results
 
@@ -1036,6 +1073,9 @@ class ExperimentDB:
         if preprocessing_version is not None:
             clauses.append("preprocessing_version = ?")
             params.append(preprocessing_version)
+        if purpose is not None:
+            clauses.append("purpose = ?")
+            params.append(purpose)
 
         where = " AND ".join(clauses) if clauses else "1=1"
 

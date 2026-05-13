@@ -80,7 +80,7 @@ FINGER_LABELS: Dict[int, str] = {
 FULL_N_CHANNELS = 128
 
 # Supported reduced channel counts for experiments
-SUPPORTED_CHANNEL_COUNTS = [4, 8, 32, 61, FULL_N_CHANNELS]
+SUPPORTED_CHANNEL_COUNTS = [4, 8, 16, 32, 61, 64, FULL_N_CHANNELS]
 
 # ============================================================================
 # Preprocessing Version Tracking
@@ -108,3 +108,21 @@ _PREPROCESSING_V2_0_TIMESTAMP = "2026-03-02T17:18:47"
 
 # Legacy alias for existing code that references this
 _PREPROCESSING_V2_TIMESTAMP = _PREPROCESSING_V2_0_TIMESTAMP
+
+
+# ============================================================================
+# Experiment Run Intent (runs.purpose controlled vocabulary)
+# ============================================================================
+
+PURPOSE_VALUES = frozenset({
+    'baseline',      # canonical baseline for category (paired with --baseline)
+    'final',         # final paper-quality run (camera-ready)
+    'replication',   # re-run of prior experiment for verification
+    'ablation',      # ablation study (compare against baseline)
+    'hpo',           # hyperparameter optimization trial
+    'sweep',         # part of a parameter sweep / batch
+    'sanity_check',  # quick smoke test, not for publication
+    'pilot',         # exploratory pilot before full run
+    'debug',         # debugging a specific issue
+    'misc',          # catch-all
+})
