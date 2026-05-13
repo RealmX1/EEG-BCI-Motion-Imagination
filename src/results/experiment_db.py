@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_DB_PATH = 'results/experiments.db'
 
 # Schema version for future migrations
-_SCHEMA_VERSION = 9
+_SCHEMA_VERSION = 10
 
 _SCHEMA_SQL = """
 -- Schema version tracking
@@ -78,7 +78,9 @@ CREATE TABLE IF NOT EXISTS runs (
     command         TEXT,   -- full terminal command used to launch this run (sys.argv)
     preprocessing_version TEXT,  -- e.g., 'v1.0', 'v2.0'; tracks data filtering/cleaning version
     is_baseline     INTEGER NOT NULL DEFAULT 0,  -- intent flag; authoritative baseline is on model_summaries
-    purpose         TEXT   -- run intent (controlled vocab: see constants.PURPOSE_VALUES); NULL = not specified
+    purpose         TEXT,  -- run intent / hypothesis being tested (controlled vocab: see constants.PURPOSE_VALUES); NULL = not specified
+    purpose_provenance TEXT,  -- 'explicit' (CLI-set) | 'backward_search' (post-hoc inference) | NULL (legacy)
+    superseded_by   TEXT REFERENCES runs(run_id) ON DELETE SET NULL  -- run_id of the run that replaces this one; NULL = not deprecated
 );
 
 -- Transfer learning specific configuration
@@ -263,6 +265,8 @@ class ExperimentDB:
                 self._migrate_to_v8(conn)
             if current_version < 9:
                 self._migrate_to_v9(conn)
+            if current_version < 10:
+                self._migrate_to_v10(conn)
 
             conn.execute(
                 "INSERT OR REPLACE INTO schema_info (key, value) VALUES (?, ?)",
@@ -455,6 +459,53 @@ class ExperimentDB:
             "ON runs(purpose, experiment_type, task)"
         )
 
+    def _migrate_to_v10(self, conn: sqlite3.Connection):
+        """v9 -> v10: Add purpose_provenance + superseded_by columns.
+
+        - purpose_provenance: distinguishes CLI-set ('explicit') from post-hoc
+          inferred ('backward_search') purpose values, so consumers can decide
+          how much to trust each run's purpose tag.
+        - superseded_by: self-referential FK pointing to the run_id that
+          replaced/deprecated this one. NULL = active / not deprecated.
+        """
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(runs)").fetchall()}
+        if 'purpose_provenance' not in cols:
+            conn.execute("ALTER TABLE runs ADD COLUMN purpose_provenance TEXT")
+            logger.info("Schema migration v10: added runs.purpose_provenance")
+        if 'superseded_by' not in cols:
+            # NOTE: ALTER TABLE ADD COLUMN cannot add inline REFERENCES in SQLite,
+            # so the FK is enforced only by the new-table CREATE in _SCHEMA_SQL.
+            # Existing rows treat the column as a plain TEXT pointer; integrity
+            # is maintained by mark_superseded() validating before write.
+            conn.execute("ALTER TABLE runs ADD COLUMN superseded_by TEXT")
+            logger.info("Schema migration v10: added runs.superseded_by")
+
+        # Backfill: baseline purposes from v9 are authoritative (definitional)
+        # — flag as 'explicit'. Any other pre-existing purpose values (none
+        # expected at v9 -> v10 transition) default to 'backward_search'.
+        n_explicit = conn.execute(
+            "UPDATE runs SET purpose_provenance = 'explicit' "
+            "WHERE purpose = 'baseline' AND purpose_provenance IS NULL"
+        ).rowcount
+        n_back = conn.execute(
+            "UPDATE runs SET purpose_provenance = 'backward_search' "
+            "WHERE purpose IS NOT NULL AND purpose_provenance IS NULL"
+        ).rowcount
+        if n_explicit or n_back:
+            logger.info(
+                f"Schema migration v10: tagged {n_explicit} baselines as 'explicit' "
+                f"and {n_back} others as 'backward_search' provenance"
+            )
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_runs_superseded "
+            "ON runs(superseded_by) WHERE superseded_by IS NOT NULL"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_runs_provenance "
+            "ON runs(purpose_provenance, purpose)"
+        )
+
     def close(self):
         """Close the database connection."""
         if self._conn is not None:
@@ -492,6 +543,7 @@ class ExperimentDB:
         preprocessing_version: Optional[str] = None,
         is_baseline: bool = False,
         purpose: Optional[str] = None,
+        purpose_provenance: Optional[str] = None,
     ) -> str:
         """Create a new experiment run.
 
@@ -521,6 +573,13 @@ class ExperimentDB:
                 model_summaries when save_summary() is called.
             purpose: Run intent tag from PURPOSE_VALUES (controlled vocab).
                 Raises ValueError if not in PURPOSE_VALUES. Default None.
+                NOTE: purpose encodes the HYPOTHESIS being tested / why the run
+                was executed, NOT post-hoc analysis or outcome (e.g., 'ablation'
+                because it tests an ablation hypothesis, not because results
+                were 'good'). Put the hypothesis text itself in `notes`.
+            purpose_provenance: 'explicit' (user set via CLI / API) or
+                'backward_search' (post-hoc inferred from docs / conversations).
+                Defaults to 'explicit' when purpose is provided.
 
         Returns:
             run_id: Unique identifier for this run
@@ -532,6 +591,15 @@ class ExperimentDB:
                     f"Invalid purpose {purpose!r}. "
                     f"Must be one of: {sorted(PURPOSE_VALUES)}"
                 )
+            if purpose_provenance is None:
+                purpose_provenance = 'explicit'
+        if purpose_provenance is not None and purpose_provenance not in (
+            'explicit', 'backward_search',
+        ):
+            raise ValueError(
+                f"Invalid purpose_provenance {purpose_provenance!r}. "
+                "Must be 'explicit' or 'backward_search'."
+            )
         run_id = f"{run_tag}_{experiment_type}"
         if n_channels != 128:
             run_id += f"_{n_channels}ch"
@@ -557,13 +625,13 @@ class ExperimentDB:
                     n_channels, channel_config, n_subjects, is_complete,
                     git_commit, wandb_group, created_at, updated_at, notes,
                     is_legacy, legacy_source, command, preprocessing_version,
-                    is_baseline, purpose)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    is_baseline, purpose, purpose_provenance)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (run_id, run_tag, experiment_type, paradigm, task,
                  n_channels, channel_config, n_subjects, git_commit,
                  wandb_group, created_at, updated_at, notes,
                  int(is_legacy), legacy_source, command, preprocessing_version,
-                 int(is_baseline), purpose),
+                 int(is_baseline), purpose, purpose_provenance),
             )
 
         logger.info(f"Created run: {run_id}")
@@ -913,6 +981,136 @@ class ExperimentDB:
         action = "marked as baseline" if is_baseline else "baseline flag cleared"
         logger.info(f"Model summary {action}: {run_id}{mt_label}")
 
+    def set_purpose(
+        self,
+        run_id: str,
+        purpose: Optional[str],
+        provenance: str = 'explicit',
+        notes: Optional[str] = None,
+        notes_mode: str = 'replace',
+    ) -> None:
+        """Set or clear the purpose/notes for an existing run.
+
+        Purpose encodes the HYPOTHESIS being tested / WHY the run was executed
+        (e.g., 'ablation', 'debug', 'pilot'). It does NOT encode post-hoc
+        analysis or outcome — put findings/results in the dev_log or summaries,
+        not here.
+
+        Args:
+            run_id: Run identifier
+            purpose: One of constants.PURPOSE_VALUES, or None to clear
+            provenance: 'explicit' (default, user-confirmed) or
+                'backward_search' (post-hoc inference from docs/conversations)
+            notes: Optional free-text — typically the hypothesis text itself
+                or a one-line description of intent (no analysis content)
+            notes_mode: 'replace' overwrites runs.notes; 'append' appends with
+                a separator (preserving existing notes)
+        """
+        if purpose is not None:
+            from ..config.constants import PURPOSE_VALUES
+            if purpose not in PURPOSE_VALUES:
+                raise ValueError(
+                    f"Invalid purpose {purpose!r}. "
+                    f"Must be one of: {sorted(PURPOSE_VALUES)}"
+                )
+        if provenance not in ('explicit', 'backward_search'):
+            raise ValueError(
+                f"Invalid provenance {provenance!r}. "
+                "Must be 'explicit' or 'backward_search'."
+            )
+        if notes_mode not in ('replace', 'append'):
+            raise ValueError("notes_mode must be 'replace' or 'append'")
+
+        now = datetime.now().isoformat()
+        with self._connection() as conn:
+            existing = conn.execute(
+                "SELECT notes FROM runs WHERE run_id = ?", (run_id,),
+            ).fetchone()
+            if existing is None:
+                raise ValueError(f"Run not found: {run_id}")
+
+            new_notes = notes
+            if notes is not None and notes_mode == 'append' and existing['notes']:
+                new_notes = f"{existing['notes']}\n---\n{notes}"
+            elif notes is None:
+                new_notes = existing['notes']  # preserve
+
+            conn.execute(
+                "UPDATE runs SET purpose = ?, purpose_provenance = ?, "
+                "notes = ?, updated_at = ? WHERE run_id = ?",
+                (
+                    purpose,
+                    provenance if purpose is not None else None,
+                    new_notes, now, run_id,
+                ),
+            )
+        logger.info(
+            f"set_purpose: run_id={run_id} purpose={purpose} "
+            f"provenance={provenance}"
+        )
+
+    def mark_superseded(
+        self,
+        deprecated_run_id: str,
+        superseding_run_id: str,
+    ) -> None:
+        """Mark a run as deprecated by pointing it at its replacement.
+
+        Use when a newer run completely supersedes an older one (e.g., bug fix
+        re-run, schema change re-run, methodology change). Deprecated runs are
+        excluded by default from find_runs(); pass include_deprecated=True to
+        include them.
+
+        Args:
+            deprecated_run_id: The older run being replaced
+            superseding_run_id: The newer run that replaces it
+
+        Raises:
+            ValueError: If either run_id doesn't exist, or if they're equal,
+                or if marking would create a cycle.
+        """
+        if deprecated_run_id == superseding_run_id:
+            raise ValueError("A run cannot supersede itself")
+
+        now = datetime.now().isoformat()
+        with self._connection() as conn:
+            rows = conn.execute(
+                "SELECT run_id, superseded_by FROM runs "
+                "WHERE run_id IN (?, ?)",
+                (deprecated_run_id, superseding_run_id),
+            ).fetchall()
+            ids_found = {r['run_id'] for r in rows}
+            if deprecated_run_id not in ids_found:
+                raise ValueError(f"Run not found: {deprecated_run_id}")
+            if superseding_run_id not in ids_found:
+                raise ValueError(f"Run not found: {superseding_run_id}")
+
+            # Cycle check: walk the supersedes chain from superseding_run_id
+            # and ensure we don't land back on deprecated_run_id
+            visited = set()
+            cursor = superseding_run_id
+            while cursor is not None and cursor not in visited:
+                visited.add(cursor)
+                if cursor == deprecated_run_id:
+                    raise ValueError(
+                        f"Cycle detected: {superseding_run_id} already chains "
+                        f"back to {deprecated_run_id}"
+                    )
+                next_row = conn.execute(
+                    "SELECT superseded_by FROM runs WHERE run_id = ?",
+                    (cursor,),
+                ).fetchone()
+                cursor = next_row['superseded_by'] if next_row else None
+
+            conn.execute(
+                "UPDATE runs SET superseded_by = ?, updated_at = ? "
+                "WHERE run_id = ?",
+                (superseding_run_id, now, deprecated_run_id),
+            )
+        logger.info(
+            f"mark_superseded: {deprecated_run_id} -> {superseding_run_id}"
+        )
+
     def add_baseline_ref(
         self,
         run_id: str,
@@ -1027,6 +1225,8 @@ class ExperimentDB:
         is_complete: Optional[bool] = None,
         preprocessing_version: Optional[str] = None,
         purpose: Optional[str] = None,
+        purpose_provenance: Optional[str] = None,
+        include_deprecated: bool = False,
         order_by: str = 'created_at DESC',
         limit: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
@@ -1043,6 +1243,9 @@ class ExperimentDB:
             is_complete: Filter by completion status
             preprocessing_version: 'v1.0' | 'v2.0' | etc.
             purpose: Run intent tag — see constants.PURPOSE_VALUES
+            purpose_provenance: 'explicit' | 'backward_search' — filter by how
+                the purpose was set
+            include_deprecated: Include runs marked as superseded (default False)
             order_by: SQL ORDER BY clause (default: newest first)
             limit: Maximum number of results
 
@@ -1076,6 +1279,11 @@ class ExperimentDB:
         if purpose is not None:
             clauses.append("purpose = ?")
             params.append(purpose)
+        if purpose_provenance is not None:
+            clauses.append("purpose_provenance = ?")
+            params.append(purpose_provenance)
+        if not include_deprecated:
+            clauses.append("superseded_by IS NULL")
 
         where = " AND ".join(clauses) if clauses else "1=1"
 

@@ -78,28 +78,68 @@ db.find_baseline_run(model, task, exp)       # 查 baseline 运行
 
 注意：extra sessions 实验结果目前只写入 JSON cache，不写入 ExperimentDB。查询 extra sessions 数据请直接读取 `results/` 下的 JSON 文件。
 
-### purpose 字段（schema v9）
+### purpose / notes / superseded_by 字段（schema v9 + v10）
 
-`runs` 表新增 `purpose` 列承载**实验意图**，使用受控词表（定义见 `src/config/constants.py::PURPOSE_VALUES`）：
+`runs` 表新增三列承载**实验意图与版本演进**：
+
+#### `purpose`（v9）——"为什么跑这次"
+
+受控词表（定义见 `src/config/constants.py::PURPOSE_VALUES`）：
 
 - `baseline` / `final` / `replication` / `ablation`
 - `hpo` / `sweep`
 - `sanity_check` / `pilot` / `debug` / `misc`
 
-配合自由文本 `notes` 列使用（之前留空，v9 开始可通过 CLI 写入）。所有训练脚本通过 `--purpose` / `--notes` 采集：
+**关键约束：purpose 编码假设（hypothesis），不编码分析（analysis）。**
+- ✅ 写入：实验**为什么启动**（验证哪个假设、消融哪个组件、复现哪次旧实验）
+- ❌ 不写入：实验**结果如何**（准确率、是否成功、是否被推翻）—— 这些应进 `summaries` 表或 `docs/dev_log/`、`paper/` 报告中
+- `notes` 字段可承载假设文本本身（如 `"H1: 4ch 交集足够区分二元 imagery"`），也避免任何事后结论
+
+#### `purpose_provenance`（v10）——"这个 purpose 是怎么来的"
+
+- `'explicit'`：CLI / API 显式写入（用户在跑实验时即设置）
+- `'backward_search'`：事后从 docs、commit history、Claude 对话回溯推断（best-effort，**不可作为权威依据**）
+- `NULL`：legacy 未标记
+
+查询时按需过滤：
+```python
+db.find_runs(purpose='ablation', purpose_provenance='explicit')   # 仅信赖明确标注
+db.find_runs(purpose='debug')                                      # 两类都看
+```
+
+历史 baseline (`is_baseline=1`) v9 迁移自动回填 `purpose='baseline'`，v10 标记为 `'explicit'`（定义性、权威）。
+
+#### `superseded_by`（v10）——"被哪次新 run 取代"
+
+自引用外键，指向取代当前 run 的新 `run_id`。`NULL` 表示活跃 / 未弃用。
+
+- `find_runs()` 默认 `include_deprecated=False`，自动过滤被取代的 run
+- `db.mark_superseded(deprecated_run_id, superseding_run_id)` 用于标记替代关系（会检测环路）
+- 用例：早期含 bug 的 run 被 fix 后重跑取代；schema 改变后旧 run 与新 run 不可比；方法学更新
+
+```python
+# 旧 run 被新 run 完全取代
+db.mark_superseded("20260301_1430_within_subject_imagery_binary",
+                   "20260315_0900_within_subject_imagery_binary")
+
+# 调取所有被弃用的 run（论文 supplementary 用）
+deprecated = db.find_runs(include_deprecated=True)  # then filter superseded_by IS NOT NULL
+```
+
+#### CLI 用法
 
 ```bash
 uv run python scripts/experiments/run_within_subject.py \
-    --purpose ablation --notes "drop attention head, compare with baseline 20260321_0343"
+    --purpose ablation --notes "H: 移除 attention head 后 binary 准确率不下降"
 ```
 
-查询示例：
+#### API helper
+
 ```python
-db.find_runs(purpose='ablation', task='binary')      # 所有 binary 消融
-db.find_runs(purpose='sanity_check', limit=10)        # 最近 sanity check
+# 事后给历史 run 补 purpose（带 provenance）
+db.set_purpose(run_id, purpose='debug', provenance='backward_search',
+               notes='H: 32ch 高准确率是否因数据泄露')
 ```
-
-历史 baseline 运行（`is_baseline=1`）在 v9 迁移时已自动回填 `purpose='baseline'`。
 
 ### 被试数过滤默认值
 

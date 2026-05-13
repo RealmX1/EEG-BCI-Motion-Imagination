@@ -1,0 +1,69 @@
+{
+  "subgroups": [
+    {
+      "name": "smoke_test_single_subject",
+      "run_tags": ["20260324_1456"],
+      "purpose": "sanity_check",
+      "hypothesis": "H: the new run_extra_sessions.py pipeline executes end-to-end on a single subject (S02) for EEGNet binary before scaling up.",
+      "rationale": "Command flags --models eegnet --subjects S02 --task binary; first chronological run on 03-24; precedes the multi-subject run 1h later.",
+      "confidence": "high"
+    },
+    {
+      "name": "pilot_binary_n5",
+      "run_tags": ["20260324_1557"],
+      "purpose": "pilot",
+      "hypothesis": "H: adding online Sess03-05 progressively improves within-subject binary decoding for EEGNet and CBraMod on the initial 5 extra-session subjects, replicating Ding et al. observation.",
+      "rationale": "docs/dev_log/experiments/extra_sessions_analysis.md §1+§3 cites this run_tag as the N=5 binary result; only 5 subjects auto-discovered at that time; no --test-strategy flag (defaults to per_session).",
+      "confidence": "high"
+    },
+    {
+      "name": "test_strategy_comparison_binary",
+      "run_tags": ["20260324_2131", "20260324_2308", "20260325_0056", "20260325_0101", "20260325_0512", "20260325_0514", "20260325_1208"],
+      "purpose": "ablation",
+      "hypothesis": "H: different test-set strategies (per_session vs fixed_combined vs fixed_sess02) yield different conclusions about extra-session gains because per_session conflates training-data effects with test-set difficulty drift; fixed test sets should reveal monotonic gains.",
+      "rationale": "docs/dev_log/experiments/extra_sessions_strategy_comparison.md §1 designs this 3-strategy comparison and cites 20260324_2131 (per_session), 20260325_0514 (fixed_combined), 20260325_1208 (fixed_sess02) as the canonical results; the multiple 03-24 23:08 to 03-25 05:14 fixed_combined runs are re-attempts of the same strategy.",
+      "confidence": "high"
+    },
+    {
+      "name": "ternary_within_subject_n16",
+      "run_tags": ["20260325_1934", "20260325_1938"],
+      "purpose": "final",
+      "hypothesis": "H: progressive addition of extra sessions Sess03-05 improves CBraMod within-subject ternary (3-class) decoding on the full N=16 extra-session cohort, generalizing the binary findings to the harder task.",
+      "rationale": "docs/dev_log/experiments/extra_sessions_analysis.md §5 cites 20260325_1934 as the N=16 ternary per_session result feeding into paper analysis; the 19:38 run 4 min later is an immediate restart.",
+      "confidence": "high"
+    },
+    {
+      "name": "replot_replication_ternary_full",
+      "run_tags": ["20260326_1643", "20260326_1645"],
+      "purpose": "replication",
+      "hypothesis": "H: re-running ternary per_session N=16 on the full extra-session cohort reproduces 20260325_1934 results after pipeline/data updates.",
+      "rationale": "Command flags --task ternary --no-plot --cache-only with no --subjects filter, 2 minutes apart, after the canonical 03-25 ternary baseline already exists.",
+      "confidence": "medium"
+    },
+    {
+      "name": "two_subject_debug_binary",
+      "run_tags": ["20260326_1646", "20260326_1647", "20260326_1649"],
+      "purpose": "debug",
+      "hypothesis": "H: a two-subject (S02, S03) binary run completes successfully -- used to debug the pipeline before launching larger sweeps.",
+      "rationale": "Command flags --subjects S02 S03 --no-plot --cache-only repeated three times within 3 minutes on 03-26 16:46-16:49; tight repetition is the classic signature of debugging.",
+      "confidence": "medium"
+    },
+    {
+      "name": "transfer_extra_sessions_paper",
+      "run_tags": ["20260329_1357", "20260329_1503"],
+      "purpose": "final",
+      "hypothesis": "H: initializing per-subject fine-tuning from the cross-subject extra-sessions pretrained checkpoint outperforms both pure within-subject and pure cross-subject extra-sessions paradigms, especially at +Sess05.",
+      "rationale": "docs/dev_log/experiments/extra_sessions_analysis.md §7 cites 20260329_1357 (binary, pretrained=20260326_1409) and 20260329_1503 (ternary, pretrained=20260327_0303) as the canonical transfer-learning extra-sessions results.",
+      "confidence": "high"
+    },
+    {
+      "name": "ternary_full_eegnet_cbramod_final",
+      "run_tags": ["20260331_0827"],
+      "purpose": "final",
+      "hypothesis": "H: a final paper-quality run of within-subject extra-sessions ternary for both EEGNet and CBraMod (per_session default, N=16) produces the headline numbers for the ternary extra-sessions section.",
+      "rationale": "Command --models eegnet cbramod --task ternary executed late in timeline (03-31) after all strategy/transfer experiments concluded.",
+      "confidence": "medium"
+    }
+  ],
+  "ungrouped": []
+}

@@ -1,0 +1,133 @@
+{
+  "subgroups": [
+    {
+      "name": "8ch_naive_motor_cortex_pilot",
+      "run_tags": ["20260215_1753", "20260215_1928", "20260215_1830", "20260215_2032", "20260215_1647", "20260215_1849"],
+      "purpose": "pilot",
+      "hypothesis": "H: a hand-picked 8-channel motor-cortex subset (MOTOR_8_CHANNEL_INDICES -- C3/C4/Cz/Pz/Oz/PO7/PO8/Fz) suffices to decode finger MI within-subject and cross-subject before any data-driven selection method is built.",
+      "rationale": "src/preprocessing/channel_selection.py:24-28 defines MOTOR_8_CHANNELS as the 'naive' hand-picked 8ch subset; earliest 8ch entries (Feb 15, 2026), span within/cross/transfer x binary+ternary in a single sweep -- opening pilot pre-dating data-driven selection methods.",
+      "confidence": "high"
+    },
+    {
+      "name": "8ch_attention_pool_classifier_head_pilot_mislabelled",
+      "run_tags": ["20260218_2110", "20260218_2339", "20260218_2233", "20260219_0135", "20260218_2318", "20260219_0323"],
+      "purpose": "pilot",
+      "hypothesis": "H: the 'attention_pool' CBraMod classifier head (channel-wise attention pooling on the 8ch naive subset) improves over the default two_layer head on 8ch finger MI in within/cross/transfer paradigms.",
+      "rationale": "attention_pool is a CBraMod classifier head type, not a channel-selection method -- see src/config/training.py:239 CBRAMOD_CLASSIFIER_TYPES, src/models/cbramod_adapter.py:328/403/425/496. Early 8ch infra recorded the classifier_type into the channel_config field. paper/analysis/model_selection_strategy_analysis.md:132 references this exact set as an early counterfactual baseline.",
+      "confidence": "high"
+    },
+    {
+      "name": "8ch_initial_pilot",
+      "run_tags": ["20260221_1218", "20260221_1343", "20260221_1319", "20260221_1547"],
+      "purpose": "pilot",
+      "hypothesis": "H: an initial 8-channel cross-subject + transfer run (default channel set, no explicit channel_config) probes the 8ch reference range before any data-driven selection method is constructed; first-pass 8ch pilot subsequently labeled '8ch FDR' in reduced_channel_experiment_summary.md.",
+      "rationale": "reduced_channel_experiment_summary.md §8ch FDR Step 4 cites these as the canonical 8ch FDR transfer results. Manual-review correction (2026-05-13) of original agent tag 'baseline' -> 'pilot': these runs are not is_baseline=1 in model_summaries (authoritative baseline table), so 'baseline' purpose conflicted with is_baseline=0. Pilot is the accurate intent -- early reduced-channel probe before data-driven selection methods.",
+      "confidence": "medium"
+    },
+    {
+      "name": "reduced_channel_8ch_attention_data_driven_pilot",
+      "run_tags": ["20260302_0312", "20260302_0321", "20260302_1858", "20260302_1903", "20260302_2116", "20260302_2140", "20260308_2201", "20260330_1334", "20260302_2057", "20260302_2112", "20260302_2113", "20260308_2126", "20260308_2134", "20260308_2135"],
+      "purpose": "ablation",
+      "hypothesis": "H: the data-driven 'attention' (CBraMod gradient x EEGNet spatial-conv) 8-channel subset retains finger-MI accuracy comparable to FDR / band_power on cross-subject and transfer binary/ternary, validating attention-derived selection as a usable method at 8ch sparsity.",
+      "rationale": "reduced_channel_experiment_summary.md introduces FDR/CSP/Attention/Band Power as the four data-driven methods. handoff 2026-05-11 §40-cell matrix retains 20260330_1334 as the canonical 8ch attention binary cell and 20260302_2140 as the canonical 8ch attention ternary cell.",
+      "confidence": "high"
+    },
+    {
+      "name": "reduced_channel_8ch_method_sweep_fdr_csp_bandpower",
+      "run_tags": ["20260330_1311", "20260331_1950", "20260331_2044", "20260506_2159", "20260507_1958"],
+      "purpose": "ablation",
+      "hypothesis": "H: data-driven 8-channel selections (FDR / CSP / band_power) each retain finger-MI accuracy within a method-specific spread of the 128ch baseline on cross-subject and transfer binary, populating the 4x5x2 reduced-channel matrix at n=8.",
+      "rationale": "handoff 2026-05-11 §40-cell matrix designates 20260330_1311 (8ch fdr binary), 20260331_1950 (8ch band_power binary), 20260331_2044 (8ch csp binary) as canonical n=21 cells. paper draft §3.5.2 Table 9 cites this matrix.",
+      "confidence": "high"
+    },
+    {
+      "name": "reduced_channel_8ch_ternary_matrix_closure",
+      "run_tags": ["20260511_0156", "20260511_0157", "20260511_1439", "20260511_1508", "20260511_1539", "20260511_1425", "20260511_1600"],
+      "purpose": "sweep",
+      "hypothesis": "H: completing the 8ch row of the 4x5x2 reduced-channel matrix on the ternary task (fdr / band_power / csp / negative_control) under the shared cbramod_v3_cross.yaml config yields method-spread comparable to the binary row.",
+      "rationale": "handoff 2026-05-11_reduced_channel_matrix_closure.md lists 20260511_1439 (fdr ternary), 20260511_1508 (band_power ternary), 20260511_1539 (csp ternary), 20260511_1425 (neg_ctrl binary), 20260511_1600 (neg_ctrl ternary) as canonical 2026-05-11 closure runs. The 01:56-01:57 cluster is the v1 driver's wandb-crash dead rows.",
+      "confidence": "high"
+    },
+    {
+      "name": "reduced_channel_4ch_no_config_initial",
+      "run_tags": ["20260301_1759"],
+      "purpose": "pilot",
+      "hypothesis": "H: a first 4-channel cross-subject binary run (default channel set, no explicit channel_config) tests whether MI signal is recoverable at the extreme low-channel limit before data-driven 4ch selections are computed.",
+      "rationale": "Timestamp (Mar 1) precedes the fdr_attention_overlap 4ch investigation (Mar 2 onwards). The 17:59 run is the earliest 4ch entry and lacks any channel_config arg.",
+      "confidence": "medium"
+    },
+    {
+      "name": "reduced_channel_4ch_method_sweep_attention_bandpower_csp_fdr",
+      "run_tags": ["20260302_0312", "20260302_2336", "20260330_2129", "20260330_2147", "20260330_2200", "20260511_0156", "20260511_1642", "20260505_2308", "20260511_0157", "20260511_1655", "20260505_2246", "20260511_1731", "20260330_2214", "20260511_1618"],
+      "purpose": "ablation",
+      "hypothesis": "H: at the extreme 4-channel limit, each data-driven selection method (attention/band_power/csp/fdr) yields a method-specific accuracy spread on binary+ternary cross-subject -- testing whether channel-selection method choice still matters when channels are scarce.",
+      "rationale": "handoff 2026-05-11 §40-cell matrix designates the canonical 4ch cells: 20260330_2214 (fdr binary), 20260330_2200 (attention binary), 20260505_2308 (band_power binary), 20260505_2246 (csp binary), 20260511_1618/1642/1655/1731 (ternary). The 0156/0157 May-11 entries are v1 wandb-crash dead rows for ternary cells.",
+      "confidence": "high"
+    },
+    {
+      "name": "reduced_channel_4ch_negative_control",
+      "run_tags": ["20260309_2329", "20260310_0054", "20260330_1442", "20260310_0023", "20260310_0206"],
+      "purpose": "debug",
+      "hypothesis": "H: 4 channels drawn from the negative_control set (channels not selected by any of the FDR/CSP/attention/band_power methods) yield near-chance accuracy, demonstrating that the data-driven 4ch selection methods are not picking up noise / spatial-prior artefacts.",
+      "rationale": "handoff 2026-05-11 §40-cell matrix designates 20260330_1442 as the canonical 4ch neg_ctrl binary cell and 20260310_0054 as the canonical 4ch neg_ctrl ternary cell. paper §3.5.3 frames negative_control as a sanity / debug control.",
+      "confidence": "high"
+    },
+    {
+      "name": "reduced_channel_32ch_six_config_comparison_binary",
+      "run_tags": ["20260220_1731", "20260220_1850", "20260220_1949", "20260220_2052", "20260220_2159", "20260220_2301", "20260330_0836", "20260330_1009", "20260330_1032", "20260330_1105", "20260330_1142"],
+      "purpose": "ablation",
+      "hypothesis": "H: at 32 channels, the six selection configurations (motor_cortex/commercial/fdr/csp/attention/band_power) yield ranked spreads on binary cross-subject MI, with FDR predicted to be the CBraMod-optimal data-driven method approaching the 128ch baseline.",
+      "rationale": "reduced_channel_experiment_summary.md §32ch Step 2 describes the '32ch 6-config comparison'. Feb-20 cluster runs through all six configs back-to-back -- characteristic of a planned config-sweep ablation. Mar-30 cluster repeats with unified --models eegnet cbramod cmd.",
+      "confidence": "high"
+    },
+    {
+      "name": "reduced_channel_32ch_fdr_extended_ternary_and_transfer",
+      "run_tags": ["20260221_0332", "20260221_0445", "20260221_1042", "20260228_2247", "20260228_2202", "20260228_2218", "20260228_2358", "20260505_0212"],
+      "purpose": "final",
+      "hypothesis": "H: the 32ch FDR config (best of the 6-config comparison) generalises to ternary cross-subject and transfer paradigms while preserving the transfer lift seen with 128ch -- establishing FDR-32 as the canonical reduced-channel result cited in the paper.",
+      "rationale": "reduced_channel_experiment_summary.md §32ch FDR Step 3 cites 20260221_0445 (binary transfer 88.10%->88.90%) and 20260221_1042 (ternary transfer 70.79%->72.68%) as canonical extended-paradigm results. paper §3.5.2 Table 9 cites these as headline 32ch numbers.",
+      "confidence": "high"
+    },
+    {
+      "name": "reduced_channel_32ch_commercial_ablation",
+      "run_tags": ["20260226_1908", "20260226_2042", "20260226_2000", "20260226_2217"],
+      "purpose": "ablation",
+      "hypothesis": "H: a 32-channel 'commercial' standard 10-20 layout (simulating off-the-shelf consumer EEG caps) underperforms the data-driven FDR config by ~1.5-2 pp on binary cross-subject, but provides a literature-comparable reference point and may show better cross-subject stability.",
+      "rationale": "reduced_channel_experiment_summary.md ranks commercial at 86.40% vs FDR 88.10%. paper §3.5.2 Table 9 includes commercial as one of the paper-cited 32ch configs. Feb-26 cluster covers binary+ternary x cross+transfer.",
+      "confidence": "high"
+    },
+    {
+      "name": "reduced_channel_32ch_negative_control",
+      "run_tags": ["20260302_0127", "20260302_0141", "20260511_0156", "20260511_1425", "20260511_1756", "20260511_1757"],
+      "purpose": "debug",
+      "hypothesis": "H: 32 channels drawn from the channels not selected by any of fdr/csp/attention/band_power yield substantially below-baseline accuracy, ruling out the 'complement also works' confound for the FDR-32 result.",
+      "rationale": "handoff 2026-05-11 §40-cell matrix lists 20260302_0141 (binary) and 20260511_1757 (ternary) as canonical 32ch neg_ctrl cells. paper §3.5.3 discloses negative_control as a control configuration.",
+      "confidence": "high"
+    },
+    {
+      "name": "reduced_channel_61ch_standard_1010_literature_reference",
+      "run_tags": ["20260227_0049", "20260330_1213"],
+      "purpose": "ablation",
+      "hypothesis": "H: the standard 10-10 system (61 ch, nearest BioSemi indices for Yazici et al. 2025 'optimal' montage) yields binary cross-subject accuracy near 88-89%, confirming the literature finding that 61ch is sufficient and that FDR-32 reaches comparable performance with half the channels.",
+      "rationale": "reduced_channel_experiment_summary.md cites '61ch standard: 88.72%'. src/preprocessing/channel_selection.py:73-105 documents standard_1010 as Yazici et al. reference. paper §3.5.2 cites 61ch as literature comparator.",
+      "confidence": "high"
+    },
+    {
+      "name": "reduced_channel_64ch_method_agnostic_matrix_closure",
+      "run_tags": ["20260505_2223", "20260511_0155", "20260511_0156", "20260511_1002", "20260511_1003", "20260511_1005", "20260511_1038", "20260511_1050", "20260511_1111", "20260511_1131", "20260511_1148", "20260511_1217", "20260511_1237", "20260511_1256", "20260511_1314"],
+      "purpose": "sweep",
+      "hypothesis": "H: at 64 channels, the five selection methods (fdr/attention/band_power/csp/negative_control) yield indistinguishable accuracy (spread <=3.5 pp) on both binary and ternary cross-subject MI -- i.e. CBraMod's ACPE + foundation-model representation makes channel-selection-method choice uninformative once channel count is high enough.",
+      "rationale": "handoff 2026-05-11_reduced_channel_matrix_closure.md is dedicated to this 64ch row closure; designates all 10 canonical 64ch cells. paper §3.5.2 + §4.2 cite the spread as 'method-agnostic at high channel count' headline. 0155/0156 timestamps and 1002/1003/1005 triplet are v1 wandb-crash dead rows.",
+      "confidence": "high"
+    },
+    {
+      "name": "reduced_channel_32ch_ternary_matrix_closure_makeup",
+      "run_tags": ["20260511_1348", "20260511_1404"],
+      "purpose": "sweep",
+      "hypothesis": "H: completing the 32ch row of the 4x5x2 reduced-channel matrix on the ternary task (band_power and csp at 32ch) under the shared cbramod_v3_cross.yaml config yields method-spread comparable to the binary row.",
+      "rationale": "Timestamps fall within 2026-05-11 matrix closure period (docs/handoffs/2026-05-11_reduced_channel_matrix_closure.md); same v3_cross.yaml config as adjacent canonical cells. Manual addition (2026-05-13) -- these two cells were not enumerated explicitly by the bucket-c research agent but follow naturally from temporal+config proximity to the closure batch.",
+      "confidence": "medium"
+    }
+  ],
+  "ungrouped": []
+}

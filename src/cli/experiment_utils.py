@@ -211,7 +211,9 @@ def add_common_args(parser) -> None:
         default=None,
         choices=sorted(PURPOSE_VALUES),
         help=(
-            "Run intent tag (controlled vocab). "
+            "Run intent / hypothesis being tested (controlled vocab). "
+            "Encodes WHY the run is launched (e.g., 'ablation', 'debug'), "
+            "NOT post-hoc analysis or outcome — put results in dev_log instead. "
             "See PURPOSE_VALUES in src/config/constants.py"
         ),
     )
@@ -219,7 +221,11 @@ def add_common_args(parser) -> None:
         "--notes",
         type=str,
         default=None,
-        help="Free-form notes about this run (stored in runs.notes)",
+        help=(
+            "Free-form notes — typically the hypothesis text itself or a "
+            "one-line description of intent. No analysis/results content "
+            "(those belong in dev_log)."
+        ),
     )
 
 
