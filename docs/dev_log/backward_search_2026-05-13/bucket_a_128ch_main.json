@@ -2,7 +2,31 @@
   "subgroups": [
     {
       "name": "early_within_subject_iteration_jan2026",
-      "run_tags": ["20260107_1831", "20260107_1904", "20260107_2159", "20260108_0050", "20260108_0055", "20260108_0212", "20260109_2337", "20260110_0019", "20260110_0129", "20260110_0139", "20260110_2317", "20260111_0156", "20260114_1903", "20260114_1939", "20260114_2117", "20260114_2245", "20260121_1929", "20260121_2001", "20260125_2249", "20260125_2311", "20260125_2335", "20260128_1023", "20260128_1101"],
+      "run_tags": [
+        "20260107_1831",
+        "20260107_1904",
+        "20260107_2159",
+        "20260108_0050",
+        "20260108_0055",
+        "20260108_0212",
+        "20260109_2337",
+        "20260110_0019",
+        "20260110_0129",
+        "20260110_0139",
+        "20260110_2317",
+        "20260111_0156",
+        "20260114_1903",
+        "20260114_1939",
+        "20260114_2117",
+        "20260114_2245",
+        "20260121_1929",
+        "20260121_2001",
+        "20260125_2249",
+        "20260125_2311",
+        "20260125_2335",
+        "20260128_1023",
+        "20260128_1101"
+      ],
       "purpose": "pilot",
       "hypothesis": "H: the initial within-subject pipeline (binary + ternary) produces signal above chance on a subset of subjects",
       "rationale": "All from January 2026 with empty command fields and rapid iteration cadence (multiple runs per night). Predates cross_subject infrastructure (docs/dev_log/2026-02-05_cross_subject_infrastructure.md) and model_selection plan. No documentation references these specific timestamps; pattern indicates exploratory pipeline bring-up runs.",
@@ -10,7 +34,29 @@
     },
     {
       "name": "within_subject_sweep_feb2026",
-      "run_tags": ["20260203_2020", "20260203_2124", "20260203_2217", "20260203_2326", "20260204_0008", "20260204_1440", "20260204_1515", "20260204_1837", "20260204_2125", "20260204_2319", "20260204_2356", "20260205_0028", "20260205_0116", "20260205_0306", "20260205_1737", "20260206_0949", "20260206_1003", "20260210_0315", "20260210_1343", "20260301_2228", "20260301_2239"],
+      "run_tags": [
+        "20260203_2020",
+        "20260203_2124",
+        "20260203_2217",
+        "20260203_2326",
+        "20260204_0008",
+        "20260204_1440",
+        "20260204_1515",
+        "20260204_1837",
+        "20260204_2125",
+        "20260204_2319",
+        "20260204_2356",
+        "20260205_0028",
+        "20260205_0116",
+        "20260205_0306",
+        "20260205_1737",
+        "20260206_0949",
+        "20260206_1003",
+        "20260210_0315",
+        "20260210_1343",
+        "20260301_2228",
+        "20260301_2239"
+      ],
       "purpose": "sweep",
       "hypothesis": "H: iterated within-subject runs while refactoring serialization / cache will produce a reproducible reference accuracy",
       "rationale": "Feb 3-10 cluster overlaps with cache + cross_subject infrastructure refactor (docs/dev_log/2026-02-05_*). 20260205_0306 and 20260206_1003 are cited as historical-best ternary/binary standalone references in unified_model_results_report.md §2. Empty command fields = pre-CLI-logging era.",
@@ -18,7 +64,12 @@
     },
     {
       "name": "early_cross_subject_bringup",
-      "run_tags": ["20260205_1944", "20260206_1029", "20260207_2056", "20260210_0119"],
+      "run_tags": [
+        "20260205_1944",
+        "20260206_1029",
+        "20260207_2056",
+        "20260210_0119"
+      ],
       "purpose": "pilot",
       "hypothesis": "H: the newly built cross-subject training/comparison pipeline produces sensible group accuracy",
       "rationale": "docs/dev_log/2026-02-05_cross_subject_infrastructure.md documents the cross-subject infrastructure landing 2026-02-05; these runs are the first cross_subject entries in the CSV (immediately after). 20260207_2056 cited as historical ternary cross reference in baseline_registry.md §CBraMod Ternary.",
@@ -26,7 +77,12 @@
     },
     {
       "name": "early_transfer_bringup_feb2026",
-      "run_tags": ["20260209_0357", "20260209_0406", "20260209_1531", "20260209_1704"],
+      "run_tags": [
+        "20260209_0357",
+        "20260209_0406",
+        "20260209_1531",
+        "20260209_1704"
+      ],
       "purpose": "pilot",
       "hypothesis": "H: cross-subject -> per-subject fine-tune (transfer paradigm) yields accuracy gains over cross-subject alone",
       "rationale": "First transfer_imagery_binary runs in the CSV; empty command field. Same week as cross_subject infrastructure landing. No docs reference these tags individually; intent inferred from being the inaugural transfer cohort.",
@@ -34,7 +90,11 @@
     },
     {
       "name": "data_leak_debug_mar1",
-      "run_tags": ["20260301_1645", "20260301_2228", "20260301_2249"],
+      "run_tags": [
+        "20260301_1645",
+        "20260301_2228",
+        "20260301_2249"
+      ],
       "purpose": "debug",
       "hypothesis": "H: the high accuracy seen on FDR-complement 32ch is not driven by a binary-task data-leakage path in the cross-subject pipeline",
       "rationale": "MEMORY.md 'FDR 补集通道实验 (2026-03-01)' explicitly logs this date as a data-leakage investigation; docs/dev_log/experiments/data_quality_analysis.md is dated 2026-03-01. Runs cluster on that exact day across cross_subject + within_subject pipelines.",
@@ -42,7 +102,10 @@
     },
     {
       "name": "within_subject_eegnet_quick_check_mar16",
-      "run_tags": ["20260316_1401", "20260316_1402"],
+      "run_tags": [
+        "20260316_1401",
+        "20260316_1402"
+      ],
       "purpose": "sanity_check",
       "hypothesis": "H: EEGNet within-subject binary script runs end-to-end after recent refactor",
       "rationale": "Two back-to-back identical commands (--models eegnet --task binary) one minute apart imply a smoke retry, not a sweep. EEGNet baseline 20260316_1411 (9 minutes later) is the first post-HPO production run per baseline_registry.md, so these two predate it.",
@@ -50,7 +113,17 @@
     },
     {
       "name": "unified_model_smoke_then_full_mar19_20",
-      "run_tags": ["20260319_1548", "20260319_1550", "20260319_1607", "20260319_1624", "20260319_1640", "20260319_1958", "20260319_2102", "20260320_0241", "20260320_2316"],
+      "run_tags": [
+        "20260319_1548",
+        "20260319_1550",
+        "20260319_1607",
+        "20260319_1624",
+        "20260319_1640",
+        "20260319_1958",
+        "20260319_2102",
+        "20260320_0241",
+        "20260320_2316"
+      ],
       "purpose": "sanity_check",
       "hypothesis": "H: the unified (binary+ternary+quaternary) head trains end-to-end with default params before HPO",
       "rationale": "docs/dev_log/experiments/unified_model_results_report.md §1.4 records 2026-03-19 default-param unified runs (20260319_1640, 20260319_2102); S01-S02 subsets indicate explicit smoke tests preceding full-subject runs. HPO-optimized unified baselines 20260320_0243/20260320_0548 are not in this CSV (baselines excluded). 20260320_0241 is the within unified default-param full run.",
@@ -58,7 +131,17 @@
     },
     {
       "name": "model_selection_strategy_sweep_mar21",
-      "run_tags": ["20260321_0013", "20260321_0227", "20260321_0532", "20260321_0656", "20260321_0750", "20260321_0934", "20260321_1101", "20260321_1111", "20260321_1122"],
+      "run_tags": [
+        "20260321_0013",
+        "20260321_0227",
+        "20260321_0532",
+        "20260321_0656",
+        "20260321_0750",
+        "20260321_0934",
+        "20260321_1101",
+        "20260321_1111",
+        "20260321_1122"
+      ],
       "purpose": "ablation",
       "hypothesis": "H: alternative checkpoint-selection strategies (val_acc-only / EMA / model-soup) outperform the default combined_score for CBraMod within/cross/transfer binary",
       "rationale": "docs/model_selection_experiment_plan.md defines exactly these four strategies. Commands reference configs/model_selection_val_acc.yaml, model_selection_ema.yaml, model_selection_soup.yaml. Triplet appears across within (3), cross (4: default + 3 strategies), and transfer (3 strategies, sharing 20260321_0608 pretrained ckpt).",
@@ -66,7 +149,10 @@
     },
     {
       "name": "dapt_v1_first_evaluation_mar22",
-      "run_tags": ["20260322_0148", "20260322_0204"],
+      "run_tags": [
+        "20260322_0148",
+        "20260322_0204"
+      ],
       "purpose": "ablation",
       "hypothesis": "H: a CBraMod backbone further-pretrained on motor-imagery datasets (V1 DAPT) outperforms the TUEG-only baseline at cross-subject binary",
       "rationale": "Commands use --output-dir checkpoints/cross_subject/eval_baseline vs eval_further_pretrained -- pairwise A/B of original vs further-pretrained init. paper/analysis/further_pretraining_analysis.md (V1/V2 DAPT analysis) is cited in 2026-05-10_dapt_v4_v5.md as the historical record of this comparison; results/pretraining/20260322_*_evaluation_comparison.json files match these tags.",
@@ -74,7 +160,12 @@
     },
     {
       "name": "script_unification_replication_mar23",
-      "run_ids": ["20260323_2116_cross_subject_imagery_binary", "20260323_2116_cross_subject_imagery_ternary", "20260323_2116_within_subject_imagery_binary", "20260323_2116_within_subject_imagery_ternary"],
+      "run_ids": [
+        "20260323_2116_cross_subject_imagery_binary",
+        "20260323_2116_cross_subject_imagery_ternary",
+        "20260323_2116_within_subject_imagery_binary",
+        "20260323_2116_within_subject_imagery_ternary"
+      ],
       "purpose": "sanity_check",
       "hypothesis": "H: the unified-rewrite of run_{within,cross}_subject_comparison.py reproduces prior results on a 2-subject smoke before full-cohort runs",
       "rationale": "All four commands use --subjects S01 S02 --force-retrain --no-plot --cache-only -- classic 2-subject smoke pattern. Same day produced full-cohort baseline replacements 20260323_2237/20260323_2320/20260324_0023/20260324_0109 (baseline_registry.md update history 2026-03-24).",
@@ -82,7 +173,10 @@
     },
     {
       "name": "transfer_pure_hpo_config_replication_mar29",
-      "run_tags": ["20260329_0431", "20260329_0448"],
+      "run_tags": [
+        "20260329_0431",
+        "20260329_0448"
+      ],
       "purpose": "replication",
       "hypothesis": "H: removing get_default_finetune_config() and running transfer with pure within-subject HPO config matches prior transfer baselines",
       "rationale": "baseline_registry.md 2026-03-29 entry. The 0507/0521 baselines superseded these; 20260329_0431 (binary) and 20260329_0448 (ternary) are immediate predecessors using the same --pretrained-cbramod 20260324_0023/0109 ckpts but pre-baseline.",
@@ -90,7 +184,12 @@
     },
     {
       "name": "extra_sessions_5subj_transfer_mar30",
-      "run_tags": ["20260330_0125", "20260330_0132", "20260330_0137", "20260330_0144"],
+      "run_tags": [
+        "20260330_0125",
+        "20260330_0132",
+        "20260330_0137",
+        "20260330_0144"
+      ],
       "purpose": "ablation",
       "hypothesis": "H: pretraining cross-subject with extra Online sessions (Sess03-05) included does not regress transfer accuracy on the 5 subjects who have those sessions",
       "rationale": "All four runs use --subjects S01 S05 S12 S20 S21 (subset with extra sessions). Pretrained ckpt names contain sess05 vs baseline suffixes, indicating an A/B between sess05-augmented vs baseline cross-subject inits.",
@@ -98,31 +197,53 @@
     },
     {
       "name": "eegnet_transfer_baseline_followups_may5_7",
-      "run_tags": ["20260505_2318", "20260505_2321", "20260506_2039", "20260506_2112", "20260507_1835", "20260507_1913"],
+      "run_tags": [
+        "20260505_2318",
+        "20260505_2321",
+        "20260506_2039",
+        "20260506_2112",
+        "20260507_1835",
+        "20260507_1913"
+      ],
       "purpose": "replication",
       "hypothesis": "H: an EEGNet transfer reference run exists at n=21 to fill the missing EEGNet binary/ternary transfer baseline cell",
-      "rationale": "baseline_registry.md '缺失 Baseline' table lists EEGNet binary/ternary transfer as missing; 2026-05-09_random_init_ablation.md cites 20260507_1835/20260507_1913 as the closest n=21 EEGNet transfer reference. All six commands share --pretrained-eegnet 20260330_0709/0735 ckpts -> repeated retries of same config.",
+      "rationale": "baseline_registry.md '缺失 Baseline' table lists EEGNet binary/ternary transfer as missing; 2026-05-09_random_init_ablation.md cites 20260507_1835/20260507_1913 as the closest n=21 EEGNet transfer reference. All six commands share --pretrained-eegnet 20260330_0709/0735 ckpts -> repeated retries of same config. [handoff-remediation 2026-05-13] Runs designated 'Task E-3: EEGNet 128ch transfer (binary + ternary)' in docs/handoffs/2026-05-05_paper_review_experiments.md §3.3, filling the §3.3 transfer-learning EEGNet column. The May 5 abort retries (20260505_2318/2321) and May 7 reruns (20260507_1835/1913) are documented in 2026-05-05_paper_review_results.md §5.1 / §5.4.",
       "confidence": "high"
     },
     {
       "name": "leave_3_out_sensitivity_may5",
-      "run_tags": ["20260505_0116", "20260505_0145"],
+      "run_tags": [
+        "20260505_0116",
+        "20260505_0145"
+      ],
       "purpose": "ablation",
       "hypothesis": "H: removing the 3 high-artifact subjects (S04/S10/S14) does not collapse cross-subject CBraMod headline accuracy",
-      "rationale": "docs/handoffs/2026-05-04_overnight_experiments.md §3 Task B specifies leaving out S04/S10/S14; commands list exactly the 18 retained subjects and write to results/sensitivity_leave3out/. Binary + ternary pair matches Task B's two-subtask spec.",
+      "rationale": "docs/handoffs/2026-05-04_overnight_experiments.md §3 Task B specifies leaving out S04/S10/S14; commands list exactly the 18 retained subjects and write to results/sensitivity_leave3out/. Binary + ternary pair matches Task B's two-subtask spec. [handoff-remediation 2026-05-13] docs/handoffs/2026-05-04_overnight_results.md §3.2 confirms this as 'Task B -- leave-S04/S10/S14-out sensitivity' (N=18 robustness check supporting paper's claim that removing 3 high-artifact subjects does not collapse cross-subject CBraMod accuracy).",
       "confidence": "high"
     },
     {
       "name": "dapt_v3_downstream_eval_may5",
-      "run_tags": ["20260505_2100", "20260505_2131"],
+      "run_tags": [
+        "20260505_2100",
+        "20260505_2131"
+      ],
       "purpose": "ablation",
       "hypothesis": "H: DAPT V3 (Stieger downweighted to ~30%) reverses the V1/V2 negative transfer on cross-subject binary/ternary",
-      "rationale": "docs/handoffs/2026-05-04_overnight_experiments.md §5 Task D defines V3; both commands use --further-pretrained-cbramod .../further_pretrain_v3_continued_20260505_1800/best_model.pth and write to results/dapt_v3.",
+      "rationale": "docs/handoffs/2026-05-04_overnight_experiments.md §5 Task D defines V3; both commands use --further-pretrained-cbramod .../further_pretrain_v3_continued_20260505_1800/best_model.pth and write to results/dapt_v3. [handoff-remediation 2026-05-13] Both run_tags form the cross-subject half of the V3 4-condition downstream evaluation matrix per docs/handoffs/2026-05-04_overnight_results.md §9.3 (Task D continuation). The within-subject pair 20260505_2012/2033 noted in §9.5 was JSON-only and is not in ExperimentDB.",
       "confidence": "high"
     },
     {
       "name": "cbramod_random_init_ablation_may8_9",
-      "run_tags": ["20260508_2338", "20260509_0014", "20260509_0047", "20260509_0102", "20260509_0124", "20260509_0135", "20260509_1229", "20260509_1838"],
+      "run_tags": [
+        "20260508_2338",
+        "20260509_0014",
+        "20260509_0047",
+        "20260509_0102",
+        "20260509_0124",
+        "20260509_0135",
+        "20260509_1229",
+        "20260509_1838"
+      ],
       "purpose": "ablation",
       "hypothesis": "H: a from-scratch (no foundation-model pretraining) CBraMod loses substantial accuracy vs the foundation-pretrained baseline, isolating pretraining contribution",
       "rationale": "docs/handoffs/2026-05-09_random_init_ablation.md lists all 6 runs by tag with explicit --no-pretrained flag; commands match exactly. 20260509_1229 repeats within_ternary; 20260509_1838 is the seed=1234 reproducibility check.",
@@ -130,7 +251,22 @@
     },
     {
       "name": "eegnet_huge_capacity_ablation_may9",
-      "run_tags": ["20260509_0016", "20260509_0201", "20260509_0234", "20260509_0248", "20260509_0735", "20260509_0825", "20260509_0832", "20260509_0838", "20260509_0847", "20260509_0932", "20260509_1030", "20260509_1310", "20260509_1353", "20260509_1444"],
+      "run_tags": [
+        "20260509_0016",
+        "20260509_0201",
+        "20260509_0234",
+        "20260509_0248",
+        "20260509_0735",
+        "20260509_0825",
+        "20260509_0832",
+        "20260509_0838",
+        "20260509_0847",
+        "20260509_0932",
+        "20260509_1030",
+        "20260509_1310",
+        "20260509_1353",
+        "20260509_1444"
+      ],
       "purpose": "ablation",
       "hypothesis": "H: scaling EEGNet capacity toward CBraMod parameter count (20-30M, then 5.84M/1.90M with LayerNorm) closes the foundation-model gap",
       "rationale": "docs/handoffs/2026-05-09_eegnet_huge.md documents v1/v2/v3/Mid configs with these exact run_tags. 20260509_0016 is the eegnet_huge_smoke single-subject pre-flight.",
@@ -138,7 +274,21 @@
     },
     {
       "name": "dapt_v4_v5_downstream_may10",
-      "run_tags": ["20260510_1020", "20260510_1019", "20260510_1710", "20260510_1738", "20260510_1812", "20260510_1950", "20260510_2010", "20260510_2038", "20260510_2053", "20260510_2113", "20260510_2131", "20260510_2157", "20260510_2210"],
+      "run_tags": [
+        "20260510_1020",
+        "20260510_1019",
+        "20260510_1710",
+        "20260510_1738",
+        "20260510_1812",
+        "20260510_1950",
+        "20260510_2010",
+        "20260510_2038",
+        "20260510_2053",
+        "20260510_2113",
+        "20260510_2131",
+        "20260510_2157",
+        "20260510_2210"
+      ],
       "purpose": "ablation",
       "hypothesis": "H: DAPT V4 (3-set + strict filter) or V5 (Stieger-only single-channel-count) eliminates the V1-V3 negative transfer on the full {within,cross,transfer}x{binary,ternary} matrix",
       "rationale": "docs/handoffs/2026-05-10_dapt_v4_v5.md lists all V4/V5 run_tags by cell, including the duplicate launch of V4 cross/ternary (20260510_1019 then 20260510_1020). within+transfer 8-cell runs and the explicit V4/V5 checkpoint paths in commands match.",
@@ -146,7 +296,10 @@
     },
     {
       "name": "label_shuffle_negative_control_may10",
-      "run_tags": ["20260510_1847_labelshuffle_seed42", "20260510_1914_labelshuffle_seed123"],
+      "run_tags": [
+        "20260510_1847_labelshuffle_seed42",
+        "20260510_1914_labelshuffle_seed123"
+      ],
       "purpose": "ablation",
       "hypothesis": "H: shuffling within-subject trial labels collapses cross-subject CBraMod accuracy to chance, ruling out data leakage",
       "rationale": "docs/handoffs/2026-05-10_p03_label_shuffle_results.md (P0.3 control) documents both runs by tag with seed 42/123. Commands carry --shuffle-labels --shuffle-seed N and tags carry the _labelshuffle_seedN suffix.",
@@ -154,7 +307,14 @@
     },
     {
       "name": "dapt_v1_v2_v3_transfer_backfill_may10_11",
-      "run_tags": ["20260510_2357", "20260511_0012", "20260511_0031", "20260511_0042", "20260511_0058", "20260511_0109"],
+      "run_tags": [
+        "20260510_2357",
+        "20260511_0012",
+        "20260511_0031",
+        "20260511_0042",
+        "20260511_0058",
+        "20260511_0109"
+      ],
       "purpose": "ablation",
       "hypothesis": "H: per-subject transfer fine-tuning rescues the V1/V2/V3 DAPT negative effect observed at cross-subject, completing the 18-cell DAPT failure matrix",
       "rationale": "docs/handoffs/2026-05-10_dapt_v4_v5.md '追加 (2026-05-11)' section lists all six tags with their V1/V2/V3 source checkpoints. Output dirs results/dapt_v{1,2,3} match.",
@@ -162,7 +322,12 @@
     },
     {
       "name": "paper_figure_regeneration_may12",
-      "run_tags": ["20260512_0851", "20260512_0852", "20260512_0916", "20260512_0926"],
+      "run_tags": [
+        "20260512_0851",
+        "20260512_0852",
+        "20260512_0916",
+        "20260512_0926"
+      ],
       "purpose": "misc",
       "hypothesis": "H: rerunning the comparison scripts on cached predictions regenerates paper figures with the latest plotting style",
       "rationale": "20260512_0851 uses --skip-training (replot mode, no DB entry per MEMORY feedback_replot_no_db_entry); the other three use plain --cache-only with no model/subject args. Output is for paper figure refresh, not new experimental data.",
