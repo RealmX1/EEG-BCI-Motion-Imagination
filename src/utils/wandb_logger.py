@@ -201,26 +201,41 @@ class WandbLogger:
             if run_details["goal"]:
                 config["goal"] = run_details["goal"]
 
-        # Initialize wandb run
-        self._run = wandb.init(
-            project=project,
-            entity=entity,
-            name=name,
-            config=config,
-            tags=tags,
-            group=group,
-            job_type=job_type,
-            notes=notes,
-            settings=wandb.Settings(
-                _disable_stats=not log_system,
-                console="off",
-            ),
-        )
+        # api.wandb.ai 在国内偶发挂死 init（曾观测到 Windows WMI 探测和 file_stream context deadline）。
+        # 给 wandb.init 加上 30s 超时，并把异常吞掉降级为 no-op，避免训练被遥测拖死。
+        try:
+            self._run = wandb.init(
+                project=project,
+                entity=entity,
+                name=name,
+                config=config,
+                tags=tags,
+                group=group,
+                job_type=job_type,
+                notes=notes,
+                settings=wandb.Settings(
+                    _disable_stats=not log_system,
+                    console="off",
+                    init_timeout=30,
+                ),
+            )
+        except Exception as exc:
+            logger.warning(
+                "wandb.init() failed (%s: %s); continuing without wandb. "
+                "Training results still write to JSON + ExperimentDB.",
+                type(exc).__name__, exc,
+            )
+            self._enabled = False
+            self._run = None
+            return
 
         # 声明 epoch 为所有指标的 x 轴，避免使用显式 step= 参数
         # 解决同一进程内多个 run 之间 step 不单调递增的问题
-        wandb.define_metric("epoch")
-        wandb.define_metric("*", step_metric="epoch")
+        try:
+            wandb.define_metric("epoch")
+            wandb.define_metric("*", step_metric="epoch")
+        except Exception as exc:
+            logger.warning("wandb.define_metric() failed (%s); metrics may be misaligned.", exc)
 
         logger.info(f"wandb initialized: {self._run.url}")
 
@@ -419,7 +434,7 @@ class WandbLogger:
             logger.warning(f"{len(self._upload_threads)} uploads did not complete in time")
 
     def finish(self, exit_code: int = 0, quiet: bool = False) -> None:
-        """Finish wandb run, waiting for pending uploads."""
+        """Finish wandb run, waiting for pending uploads. Never raises."""
         if not self._enabled or self._run is None:
             return
 
@@ -427,9 +442,15 @@ class WandbLogger:
         self.wait_for_uploads()
 
         import wandb
-        wandb.finish(exit_code=exit_code, quiet=quiet)
-        self._run = None
-        logger.info("wandb run finished")
+        try:
+            wandb.finish(exit_code=exit_code, quiet=quiet)
+        except Exception as exc:
+            logger.warning(
+                "wandb.finish() failed (%s: %s); ignoring.", type(exc).__name__, exc
+            )
+        finally:
+            self._run = None
+            logger.info("wandb run finished")
 
     def __enter__(self):
         return self
