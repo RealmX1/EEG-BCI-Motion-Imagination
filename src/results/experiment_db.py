@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_DB_PATH = 'results/experiments.db'
 
 # Schema version for future migrations
-_SCHEMA_VERSION = 10
+_SCHEMA_VERSION = 11
 
 _SCHEMA_SQL = """
 -- Schema version tracking
@@ -168,6 +168,29 @@ CREATE TABLE IF NOT EXISTS run_baseline_refs (
 -- COALESCE handles SQLite NULL!=NULL in UNIQUE constraints
 CREATE UNIQUE INDEX IF NOT EXISTS uq_baseline_refs
     ON run_baseline_refs(run_id, baseline_run_id, ref_type, COALESCE(model_type, ''));
+
+-- Pending experiment queue (schema v11). Researcher enqueues a command;
+-- scripts/queue/runner.py dequeues highest-priority pending entry and runs it.
+-- See QUEUE_STATUS_VALUES in src/config/constants.py for the state machine.
+CREATE TABLE IF NOT EXISTS pending_runs (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    command          TEXT NOT NULL,        -- shlex-quoted full command line
+    purpose          TEXT,                 -- from PURPOSE_VALUES; researcher's intent
+    notes            TEXT,                 -- hypothesis text, free-form
+    priority         INTEGER NOT NULL DEFAULT 0,   -- higher number = earlier
+    status           TEXT NOT NULL DEFAULT 'pending',  -- QUEUE_STATUS_VALUES
+    created_at       TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    claimed_at       TEXT,                 -- when runner flipped 'pending' -> 'claimed'
+    completed_at     TEXT,                 -- when entered terminal state
+    completed_run_id TEXT,                 -- runs.run_id once completed (NULL otherwise)
+    error_summary    TEXT,                 -- one-line failure summary when needs_attention/failed
+    handoff_path     TEXT,                 -- docs/handoffs/... when monitor agent gave up
+    debug_attempts   INTEGER NOT NULL DEFAULT 0,
+    created_by       TEXT,                 -- researcher name or 'agent'
+    FOREIGN KEY (completed_run_id) REFERENCES runs(run_id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pending_status_priority
+    ON pending_runs(status, priority DESC, created_at);
 """
 
 
@@ -267,6 +290,8 @@ class ExperimentDB:
                 self._migrate_to_v9(conn)
             if current_version < 10:
                 self._migrate_to_v10(conn)
+            if current_version < 11:
+                self._migrate_to_v11(conn)
 
             conn.execute(
                 "INSERT OR REPLACE INTO schema_info (key, value) VALUES (?, ?)",
@@ -505,6 +530,20 @@ class ExperimentDB:
             "CREATE INDEX IF NOT EXISTS idx_runs_provenance "
             "ON runs(purpose_provenance, purpose)"
         )
+
+    def _migrate_to_v11(self, conn: sqlite3.Connection):
+        """v10 -> v11: Add pending_runs queue table.
+
+        The table is created in _SCHEMA_SQL (idempotent CREATE IF NOT EXISTS);
+        this migration is structurally a no-op on existing databases beyond
+        ensuring the index exists. Logged separately so re-running on an
+        already-v11 DB stays silent (version check in _ensure_schema gates it).
+        """
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pending_status_priority "
+            "ON pending_runs(status, priority DESC, created_at)"
+        )
+        logger.info("Schema migration v11: pending_runs queue table ready")
 
     def close(self):
         """Close the database connection."""
@@ -1110,6 +1149,209 @@ class ExperimentDB:
         logger.info(
             f"mark_superseded: {deprecated_run_id} -> {superseding_run_id}"
         )
+
+    # ========================================================================
+    # Pending queue operations (schema v11)
+    # ========================================================================
+
+    def enqueue_run(
+        self,
+        command: str,
+        *,
+        purpose: Optional[str] = None,
+        notes: Optional[str] = None,
+        priority: int = 0,
+        created_by: Optional[str] = None,
+    ) -> int:
+        """Register a pending experiment in the queue.
+
+        Args:
+            command: Full command line to execute (single string; runner
+                shlex-splits it). Example:
+                "uv run python scripts/experiments/run_within_subject.py
+                 --subjects S01 --cache-only --purpose ablation"
+            purpose: Optional intent tag (controlled vocab; see PURPOSE_VALUES).
+                Encodes WHY the run is launched, not its outcome.
+            notes: Optional free-form hypothesis text.
+            priority: Higher number runs first within the queue (default 0).
+            created_by: Optional researcher / agent identifier.
+
+        Returns:
+            Auto-assigned pending_runs.id.
+        """
+        from ..config.constants import PURPOSE_VALUES
+        if purpose is not None and purpose not in PURPOSE_VALUES:
+            raise ValueError(
+                f"invalid purpose: {purpose!r}; must be one of "
+                f"{sorted(PURPOSE_VALUES)} or None"
+            )
+        with self._connection() as conn:
+            cur = conn.execute(
+                "INSERT INTO pending_runs "
+                "(command, purpose, notes, priority, created_by) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (command, purpose, notes, priority, created_by),
+            )
+            new_id = cur.lastrowid
+        logger.info(
+            f"enqueue_run: id={new_id} priority={priority} purpose={purpose}"
+        )
+        return int(new_id)
+
+    def claim_next_pending(self) -> Optional[Dict[str, Any]]:
+        """Atomically pick the highest-priority pending entry, flip to 'claimed'.
+
+        Order: priority DESC, then created_at ASC (FIFO within priority).
+        Returns the full row as a dict, or None if no pending entries.
+        """
+        now = datetime.now().isoformat()
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM pending_runs WHERE status = 'pending' "
+                "ORDER BY priority DESC, created_at ASC LIMIT 1"
+            ).fetchone()
+            if row is None:
+                return None
+            updated = conn.execute(
+                "UPDATE pending_runs SET status='claimed', claimed_at=? "
+                "WHERE id = ? AND status = 'pending'",
+                (now, row['id']),
+            ).rowcount
+            if updated == 0:
+                # Race: another worker grabbed it between SELECT and UPDATE.
+                return None
+            # Re-fetch to get the updated claimed_at field
+            row = conn.execute(
+                "SELECT * FROM pending_runs WHERE id = ?", (row['id'],)
+            ).fetchone()
+        return dict(row)
+
+    def get_pending(self, pending_id: int) -> Optional[Dict[str, Any]]:
+        """Fetch a single pending_runs row by id."""
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM pending_runs WHERE id = ?", (pending_id,)
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def update_pending_status(
+        self,
+        pending_id: int,
+        status: str,
+        *,
+        error_summary: Optional[str] = None,
+        handoff_path: Optional[str] = None,
+        completed_run_id: Optional[str] = None,
+        increment_debug_attempts: bool = False,
+        new_command: Optional[str] = None,
+    ) -> None:
+        """Flip a pending entry's status and optionally update related fields.
+
+        Args:
+            pending_id: pending_runs.id
+            status: new status (must be in QUEUE_STATUS_VALUES)
+            error_summary: stored on needs_attention / failed transitions
+            handoff_path: stored when monitor agent gives up
+            completed_run_id: stored when status='completed'
+            increment_debug_attempts: monitor agent flips status back to
+                'pending' for retry; pass True to bump the counter
+            new_command: replaces command text (monitor's surgical fix path)
+
+        Terminal statuses (completed/failed/skipped/cancelled) also set
+        completed_at = now.
+        """
+        from ..config.constants import QUEUE_STATUS_VALUES, QUEUE_TERMINAL_STATUSES
+        if status not in QUEUE_STATUS_VALUES:
+            raise ValueError(
+                f"invalid status: {status!r}; must be one of "
+                f"{sorted(QUEUE_STATUS_VALUES)}"
+            )
+        now = datetime.now().isoformat()
+        sets = ["status = ?"]
+        params: List[Any] = [status]
+        if error_summary is not None:
+            sets.append("error_summary = ?")
+            params.append(error_summary)
+        if handoff_path is not None:
+            sets.append("handoff_path = ?")
+            params.append(handoff_path)
+        if completed_run_id is not None:
+            sets.append("completed_run_id = ?")
+            params.append(completed_run_id)
+        if new_command is not None:
+            sets.append("command = ?")
+            params.append(new_command)
+        if increment_debug_attempts:
+            sets.append("debug_attempts = debug_attempts + 1")
+        if status in QUEUE_TERMINAL_STATUSES:
+            sets.append("completed_at = ?")
+            params.append(now)
+        params.append(pending_id)
+        with self._connection() as conn:
+            updated = conn.execute(
+                f"UPDATE pending_runs SET {', '.join(sets)} WHERE id = ?",
+                params,
+            ).rowcount
+        if updated == 0:
+            raise ValueError(f"pending_runs.id={pending_id} not found")
+        logger.info(f"update_pending_status: id={pending_id} -> {status}")
+
+    def list_pending(
+        self,
+        status: Optional[str] = None,
+        include_terminal: bool = False,
+        limit: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Browse the queue.
+
+        Args:
+            status: Filter to a single status (e.g. 'needs_attention')
+            include_terminal: Include completed/failed/skipped/cancelled
+                (ignored if status is specified)
+            limit: Cap returned rows
+
+        Returns:
+            Rows ordered by status (active first), priority DESC, created_at ASC.
+        """
+        from ..config.constants import QUEUE_TERMINAL_STATUSES
+        clauses: List[str] = []
+        params: List[Any] = []
+        if status is not None:
+            clauses.append("status = ?")
+            params.append(status)
+        elif not include_terminal:
+            placeholders = ",".join("?" for _ in QUEUE_TERMINAL_STATUSES)
+            clauses.append(f"status NOT IN ({placeholders})")
+            params.extend(sorted(QUEUE_TERMINAL_STATUSES))
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        sql = (
+            f"SELECT * FROM pending_runs {where} "
+            "ORDER BY status, priority DESC, created_at ASC"
+        )
+        if limit is not None:
+            sql += f" LIMIT {int(limit)}"
+        with self._connection() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def cancel_pending(self, pending_id: int) -> None:
+        """Mark a not-yet-claimed entry as 'cancelled'.
+
+        Refuses to cancel if status is already claimed/running/needs_attention
+        (use update_pending_status with status='skipped' for those).
+        """
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT status FROM pending_runs WHERE id = ?", (pending_id,)
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"pending_runs.id={pending_id} not found")
+            if row['status'] != 'pending':
+                raise ValueError(
+                    f"cannot cancel pending_runs.id={pending_id} in status "
+                    f"{row['status']!r}; use update_pending_status(..., 'skipped')"
+                )
+        self.update_pending_status(pending_id, 'cancelled')
 
     def add_baseline_ref(
         self,

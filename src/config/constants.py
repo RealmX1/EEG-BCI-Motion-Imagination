@@ -126,3 +126,22 @@ PURPOSE_VALUES = frozenset({
     'debug',         # debugging a specific issue
     'misc',          # catch-all
 })
+
+
+# ============================================================================
+# Queue Status (pending_runs.status controlled vocabulary, schema v11)
+# ============================================================================
+
+QUEUE_STATUS_VALUES = frozenset({
+    'pending',          # waiting to be picked up by runner
+    'claimed',          # runner has claimed but not yet started subprocess
+    'running',          # subprocess in flight
+    'needs_attention',  # subprocess failed, awaiting monitor agent decision
+    'completed',        # finished successfully (completed_run_id populated)
+    'failed',           # monitor agent gave up; handoff_path populated
+    'skipped',          # monitor agent skipped (e.g., no longer relevant)
+    'cancelled',        # researcher cancelled before runner picked up
+})
+
+# Terminal states: runner / CLI list will hide these by default
+QUEUE_TERMINAL_STATUSES = frozenset({'completed', 'failed', 'skipped', 'cancelled'})

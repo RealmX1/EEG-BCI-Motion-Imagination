@@ -141,6 +141,61 @@ db.set_purpose(run_id, purpose='debug', provenance='backward_search',
                notes='H: 32ch 高准确率是否因数据泄露')
 ```
 
+### 实验队列 `pending_runs`（schema v11）
+
+研究人员可以把"待跑"的命令登记到 `pending_runs` 表，由 `scripts/queue/runner.py` 顺序消化。
+
+#### 状态机
+
+```
+pending → claimed → running → completed (terminal)
+                           ↓
+                  needs_attention → {pending(retry) | skipped | failed} (terminal)
+cancelled (terminal, before claim)
+```
+
+状态词表定义在 `src/config/constants.py::QUEUE_STATUS_VALUES`，终态集合是 `QUEUE_TERMINAL_STATUSES`。
+
+#### CLI（`scripts/queue/cli.py`）
+
+```bash
+# 登记
+uv run python scripts/queue/cli.py add \
+    --command "uv run python scripts/experiments/run_within_subject.py --subjects S01 --cache-only --no-wandb --purpose ablation --notes 'H: ...'" \
+    --purpose ablation \
+    --notes "H: ..." \
+    --priority 5
+
+# 查看（默认仅非终态）
+uv run python scripts/queue/cli.py list
+uv run python scripts/queue/cli.py list --all --json   # 给 monitor agent 用
+
+# 取消未跑的条目
+uv run python scripts/queue/cli.py rm 42
+
+# 启动 runner（典型情况下由 /long-run skill 包装）
+uv run python scripts/queue/cli.py run                  # 持续轮询新条目
+uv run python scripts/queue/cli.py run --drain-and-exit # 跑空就退出
+```
+
+#### Runner 行为
+
+- **GPU pre-flight**：runner 启动后**只对第一条** entry 做 60 秒 GPU sanity check（avg util < 10% 即放行）；失败则进入 10 分钟 rolling window 等待。之后的 entries 顺序串行，不再 gate（同一时刻最多一个训练在跑，不需要额外协调）。
+- **失败时**：runner 把状态翻成 `needs_attention` 并阻塞轮询（每 30 秒一次），等待 monitor agent 通过 `cli.py set <id> --status pending/skipped/failed` 决策。最长等 1 小时（`MAX_NEEDS_ATTENTION_WAIT_S`）无人接手则自动 `failed`。
+- **空队列**：默认 `cli.py run` 持续 poll 新条目（每 60 秒一次），`--drain-and-exit` 跑空立即退出。
+- **SIGINT**：捕获后 kill 当前 subprocess + 把当前 `running` 条目状态翻回 `pending`，不丢任务。
+
+#### Monitor subagent 工作流（由 Claude 通过 `/long-run` 调度）
+
+- 每 N 分钟先用 `cli.py has-attention`（exit 0 = 有条目要管），命中后再 `cli.py list --status needs_attention --json` 拉详情
+- 看到 `needs_attention` 后：
+  1. `cli.py show <id>` 读 `error_summary` 和 command
+  2. 用最多 30 分钟做 debug：
+     - 已知 transient（CUDA OOM / wandb 超时 / 磁盘满）→ 改命令（`cli.py set <id> --command "..." --status pending --increment-debug`）
+     - 代码层修复 → 直接 `cli.py set <id> --status pending --increment-debug`
+  3. 修不动：写 `docs/handoffs/YYYY-MM-DD_queue_failure_<id>_<slug>.md`（含 command、error_summary、debug 尝试历史、推测原因），然后 `cli.py set <id> --status skipped --handoff-path "docs/handoffs/..."`
+  4. runner 自动 unblock，继续下一条
+
 ### 被试数过滤默认值
 
 查询实验结果时，默认只关注覆盖完整被试范围的运行：
