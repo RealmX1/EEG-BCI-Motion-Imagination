@@ -888,9 +888,10 @@ def generate_extra_sessions_paradigm_figure():
         logger.error('Insufficient data for extra_sessions_paradigm figure')
         return
 
-    fig, (ax_line, ax_gain) = plt.subplots(
-        1, 2, figsize=(13, 5.4), gridspec_kw={'width_ratios': [2.2, 1]}
-    )
+    # fig9 c1: 删除右侧 ax_gain pane;Δ pp 改用 Pane A 右侧垂直 ruler(卡尺)表达。
+    # 原 width_ratios=[2.2, 1] 下 Pane A 物理宽度 ≈ 2.2/3.2 × 13 ≈ 8.94in;
+    # 新 figsize 取 (9.5, 5.4) 保持原 Pane A 视觉宽度 + 略加余量给 rulers。
+    fig, ax_line = plt.subplots(figsize=(9.5, 5.4))
 
     for item in series:
         ax_line.plot(
@@ -921,61 +922,44 @@ def generate_extra_sessions_paradigm_figure():
             va='center',
         )
 
+    # fig9 c1: 右侧 per-series 垂直 ruler(卡尺)— Δ pp 编码为 bracket 长度,
+    # 与 fig3d 的 Δpp bracket 同源(arrowstyle='|-|')。三范式 x 偏移 0.20 互不重叠,
+    # bracket y 跨度 = baseline → final value;清晰直观 = pp 增幅。
+    # annotation_clip / clip_on=False 防 xlim 边界夹断(rulers x 在数据轴外)。
+    ruler_x_offsets = [3.25, 3.45, 3.65]
+    for item, rx in zip(series, ruler_x_offsets):
+        y_lo, y_hi = float(item['means'][0]), float(item['means'][-1])
+        ax_line.annotate(
+            '', xy=(rx, y_hi), xytext=(rx, y_lo),
+            arrowprops=dict(arrowstyle='|-|, widthA=0.4, widthB=0.4',
+                            color=item['color'], linewidth=1.6,
+                            shrinkA=0, shrinkB=0),
+            zorder=4, annotation_clip=False,
+        )
+        ax_line.text(
+            rx + 0.05, (y_lo + y_hi) / 2,
+            f'+{item["delta"]:.2f} pp',
+            ha='left', va='center',
+            fontsize=FONT_SIZES['annotation'] - 1,
+            fontweight='bold', color=item['color'],
+            clip_on=False,
+            bbox=dict(boxstyle='round,pad=0.2',
+                      facecolor='white', edgecolor='none', alpha=0.85),
+        )
+
     ax_line.set_xticks(x)
     ax_line.set_xticklabels(step_labels, fontsize=FONT_SIZES['tick'])
     ax_line.set_ylabel('Mean Accuracy ± SD (%)', fontsize=FONT_SIZES['axis_label'])
-    ax_line.set_title('A. Accuracy Trajectory', fontsize=FONT_SIZES['title'], fontweight='bold')
+    # fig9 c1: 删 'A.' panel-letter 前缀,单面板下多余。
+    ax_line.set_title('Accuracy Trajectory', fontsize=FONT_SIZES['title'], fontweight='bold')
     ax_line.grid(True, alpha=0.25)
     ax_line.legend(loc='lower right', fontsize=FONT_SIZES['legend'])
 
     y_min = min(float(np.nanmin(item['means'] - item['sds'])) for item in series)
     y_max = max(float(np.nanmax(item['means'] + item['sds'])) for item in series)
     ax_line.set_ylim(max(75, y_min - 2.5), min(100, y_max + 2.5))
-
-    gain_x = np.arange(len(series))
-    gains = [item['delta'] for item in series]
-    gain_bars = ax_gain.bar(
-        gain_x,
-        gains,
-        color=[item['color'] for item in series],
-        width=0.65,
-        alpha=0.9,
-    )
-    for bar, item in zip(gain_bars, series):
-        height = bar.get_height()
-        ax_gain.text(
-            bar.get_x() + bar.get_width() / 2,
-            height + 0.18 if height >= 0 else height - 0.18,
-            f'{height:+.2f} pp',
-            ha='center',
-            va='bottom' if height >= 0 else 'top',
-            fontsize=FONT_SIZES['annotation'],
-            fontweight='bold',
-            color=item['color'],
-        )
-        ax_gain.text(
-            bar.get_x() + bar.get_width() / 2,
-            0.2,
-            f'Final {item["means"][-1]:.2f}%',
-            ha='center',
-            va='bottom',
-            fontsize=FONT_SIZES['annotation'],
-            rotation=90,
-            color='#444444',
-        )
-
-    ax_gain.axhline(0, color='gray', linewidth=1, alpha=0.6)
-    ax_gain.set_xticks(gain_x)
-    ax_gain.set_xticklabels(
-        ['Within', 'Cross', 'Transfer'],
-        rotation=15,
-        ha='right',
-        fontsize=FONT_SIZES['tick'],
-    )
-    ax_gain.set_ylabel('Gain vs Baseline (pp)', fontsize=FONT_SIZES['axis_label'])
-    ax_gain.set_title('B. Net Gain by +Sess05', fontsize=FONT_SIZES['title'], fontweight='bold')
-    ax_gain.grid(axis='y', alpha=0.25)
-    ax_gain.set_ylim(min(-1.5, min(gains) - 0.8), max(7.5, max(gains) + 1.0))
+    # fig9 c1: xlim 扩到 3.85 容纳右侧 3 根 rulers(x=3.25/3.45/3.65)及其 +pp 标签。
+    ax_line.set_xlim(-0.2, 3.85)
 
     fig.tight_layout()
 
@@ -2719,21 +2703,27 @@ def generate_channel_scaling_v2_figure():
                 [c for md in method_data.values() for c in md]),
             reverse=True,
         )
-        best_chs, best_means, best_stds = [], [], []
+        # c2: best_labels 记录每个 envelope 点的获胜配置名(method 名 或 None)。
+        # 128ch baseline 无方法竞胜 → None;64/32/8/4 method-tier 取 mean 最高的 method。
+        # 61ch 不在 all_chs(只在 outliers)→ 自然 "ignore 61",无需 guard。
+        best_chs, best_means, best_stds, best_labels = [], [], [], []
         for n_ch in all_chs:
             if n_ch in baseline_data:
                 best_chs.append(n_ch)
                 best_means.append(baseline_data[n_ch][0])
                 best_stds.append(baseline_data[n_ch][1])
+                best_labels.append(None)  # 128 baseline: 无 winning method
             else:
-                best_v, best_s = -1.0, 0.0
-                for d in method_data.values():
+                best_method, best_v, best_s = None, -1.0, 0.0
+                for m_name, d in method_data.items():
                     if n_ch in d and d[n_ch][0] > best_v:
+                        best_method = m_name
                         best_v, best_s = d[n_ch]
                 if best_v > 0:
                     best_chs.append(n_ch)
                     best_means.append(best_v)
                     best_stds.append(best_s)
+                    best_labels.append(best_method)
 
         for method, data in method_data.items():
             if not data:
@@ -2741,16 +2731,25 @@ def generate_channel_scaling_v2_figure():
             chs = sorted(data.keys(), reverse=True)
             ms = [data[c][0] for c in chs]
             ss = [data[c][1] for c in chs]
-            ax.errorbar(chs, ms, yerr=ss, linestyle=':', linewidth=1.5,
-                        marker=METHOD_MARKERS[method], markersize=7,
-                        color=METHOD_COLORS[method], capsize=3, alpha=0.7,
-                        label=method, zorder=2)
+            # c1①: distribution (±std error bars) removed — mean-only per
+            # user feedback ("just the average number is needed").
+            ax.plot(chs, ms, linestyle=':', linewidth=1.5,
+                    marker=METHOD_MARKERS[method], markersize=7,
+                    color=METHOD_COLORS[method], alpha=0.7,
+                    label=method, zorder=2)
 
-        ax.errorbar(best_chs, best_means, yerr=best_stds, marker='o',
-                    markersize=11, linewidth=2.6, color='red', capsize=5,
-                    zorder=4, label='Best envelope')
-        for c, m in zip(best_chs, best_means):
-            ax.annotate(f'{c}ch\n{m:.1f}%', (c, m),
+        # c1①: ±std removed (mean-only). c1②: lower zorder so the per-method
+        # type marker (s/^/v/D, zorder=2) draws ON TOP of this red 'o' instead
+        # of being occluded — the size-11 red circle now reads as an *envelope
+        # ring* around the smaller size-7 type marker that shows which method.
+        ax.plot(best_chs, best_means, marker='o',
+                markersize=11, linewidth=2.6, color='red',
+                zorder=1.5, label='Best envelope')
+        # c2: envelope 注释——竞胜档(64/32/8/4)追加第 3 行 winning method 名;
+        # 128 baseline 因无 method 选择(best_labels[i] is None)保持原 2 行。
+        for c, m, lbl in zip(best_chs, best_means, best_labels):
+            text = f'{c}ch\n{m:.1f}%' + (f'\n{lbl}' if lbl else '')
+            ax.annotate(text, (c, m),
                         textcoords='offset points', xytext=(10, 10),
                         fontsize=FONT_SIZES['annotation'],
                         color='red', fontweight='bold')
@@ -2766,11 +2765,12 @@ def generate_channel_scaling_v2_figure():
             style = outlier_styles[key]
             label = style['label_base'] + (' [MOCK]' if info['mock'] else '')
             facecolor = 'white' if info['mock'] else style['color']
-            ax.errorbar(info['n_ch'], info['mean'], yerr=info['std'],
-                        marker=style['marker'], markersize=style['size'],
-                        markerfacecolor=facecolor, markeredgecolor=style['color'],
-                        markeredgewidth=2.0, ecolor=style['color'],
-                        capsize=4, zorder=5, label=label, linestyle='none')
+            # c1①: ±std removed (mean-only).
+            ax.plot(info['n_ch'], info['mean'],
+                    marker=style['marker'], markersize=style['size'],
+                    markerfacecolor=facecolor, markeredgecolor=style['color'],
+                    markeredgewidth=2.0, zorder=5, label=label,
+                    linestyle='none')
             ax.annotate(f'{info["mean"]:.1f}%' + (' (pending)' if info['mock'] else ''),
                         (info['n_ch'], info['mean']),
                         textcoords='offset points', xytext=(10, -16),
@@ -3123,11 +3123,35 @@ def _extra_sessions_baseline_colored(task: str):
     x = np.arange(len(steps))
     all_results = cache.get('results', {})
 
-    # 每个模型一套: 标记形状 + 各自的 baseline-colored diverging colormap
-    # (不同 colormap 让两模型在 baseline-着色 风格下仍可区分)
+    # 每个模型一套: 标记形状 + 各自的【单色相 sequential】colormap, 锚定项目
+    # canonical 模型色 (cbramod=红 #E94F37 / eegnet=蓝 #2E86AB, 即其他图所用).
+    #
+    # fig7 c1/c2 修复: 旧版两条 *diverging* map (coolwarm_r / PuOr_r) 有两个
+    # 问题 ——
+    #   (1) 对端撞色: eegnet 顶 ≈ cbramod 底, 反之亦然 (c1 "overlap on
+    #       opposite sides");
+    #   (2) diverging 中心发白 → "highly transparent middle" (c1, 尤其
+    #       eegnet baseline).
+    # 改为单色相 light→base→dark ramp 后: 两模型分属红/蓝两个色族, 任何取值
+    # 都不可能混淆 (非重叠); 浅端被夹紧 (不趋近白) → 最低 baseline 仍是清晰
+    # 可见的该色相浅色, 中心点恰是最饱和的 canonical 本色 (不再透明).
+    # baseline→深浅 的连续编码 (浅=低 baseline / 深=高 baseline) 与 marker
+    # 区分 (o / ^) 均保留 → 不 regress fig8 settled c1.
+    import matplotlib.colors as mcolors
+
+    def _mono_cmap(hex_color: str, name: str):
+        """Single-hue light→base→dark ramp; light end clamped (no near-white)."""
+        base = np.array(mcolors.to_rgb(hex_color))
+        light = base + (1.0 - base) * 0.55  # 55% 向白: 仍是清晰可辨的浅色相
+        dark = base * 0.55                   # 45% 向黑: 深色相
+        return mcolors.LinearSegmentedColormap.from_list(
+            name, [light, base, dark])
+
     MODEL_STYLES = [
-        ('cbramod', 'CBraMod', 'o', plt.cm.coolwarm_r),
-        ('eegnet', 'EEGNet', '^', plt.cm.PuOr_r),
+        ('cbramod', 'CBraMod', 'o',
+         _mono_cmap(PAPER_COLORS['cbramod'], 'cbramod_seq')),
+        ('eegnet', 'EEGNet', '^',
+         _mono_cmap(PAPER_COLORS['eegnet'], 'eegnet_seq')),
     ]
 
     any_data = False
@@ -3558,10 +3582,21 @@ def generate_reduced_channel_grid_figure():
     ref_ternary = float(np.mean(extract_model_accs(cache_t, 'cbramod')))
 
     n_cols = len(CHANNEL_TIERS_GRID)
+    # fig3d c1: 61ch 列(CHANNEL_TIERS_GRID 中 index 3)物理压窄,使其孤柱以标准
+    # 柱宽 (0.8) 渲染时的物理宽度 ≈ 5-bar 面板柱宽。
+    # 数学:5-bar 面板柱宽 ≈ 0.8/4.9 · W ≈ 0.163W;1-bar 面板 ratio=r 柱宽 ≈
+    # 0.8/0.9 · rW ≈ 0.889 rW;两者相等 → r ≈ 0.18-0.20,取 0.2。
+    # 4/8/32/64ch 维持 ratio=1(4ch 6-bar 与 8/32/64ch 5-bar 的微差为既有现状,
+    # 未纳入本次评论范围)。
+    width_ratios = [
+        0.2 if n_ch == 61 else 1.0
+        for n_ch in CHANNEL_TIERS_GRID
+    ]
     fig, axes = plt.subplots(
         2, n_cols,
         figsize=paper_figsize(rows=2, cols=n_cols, width_in=14.0, row_height_in=4.0),
         sharey='row',
+        gridspec_kw={'width_ratios': width_ratios},
     )
 
     y_limits = {'binary': (40, 100), 'ternary': (25, 85)}
@@ -3597,11 +3632,13 @@ def generate_reduced_channel_grid_figure():
 
             for bar, m, is_mock in zip(bars, means, mocks):
                 txt = f'{m:.1f}' + ('*' if is_mock else '')
+                # fig3d c1: clip_on=False 防 61ch 窄列内文字被夹断(其它面板无副作用)。
                 ax.text(bar.get_x() + bar.get_width() / 2,
                         bar.get_height() + 1.2,
                         txt, ha='center', va='bottom',
                         fontsize=FONT_SIZES['annotation'] - 1,
-                        fontstyle='italic' if is_mock else 'normal')
+                        fontstyle='italic' if is_mock else 'normal',
+                        clip_on=False)
 
             # Vertical bracket + delta ruler from top bar to 128 baseline
             top_idx = int(np.argmax(means))
@@ -3615,12 +3652,15 @@ def generate_reduced_channel_grid_figure():
                 arrowprops=dict(arrowstyle='|-|, widthA=0.4, widthB=0.4',
                                 color='dimgray', linewidth=1.2,
                                 shrinkA=0, shrinkB=0), zorder=4,
+                annotation_clip=False,  # fig3d c1: 61ch 窄列防箭头夹断
             )
+            # fig3d c1: clip_on=False 防 61ch 窄列内 Δpp 文本被夹断。
             ax.text(bracket_x + 0.10, (top_y + ref) / 2,
                     f'{sign}{abs(delta):.1f} pp',
                     fontsize=FONT_SIZES['annotation'] - 1,
                     color='dimgray', fontweight='bold',
                     ha='left', va='center',
+                    clip_on=False,
                     bbox=dict(boxstyle='round,pad=0.2',
                               facecolor='white', edgecolor='none', alpha=0.85))
 
