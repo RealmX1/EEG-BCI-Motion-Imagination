@@ -584,21 +584,21 @@ fixed_combined 策略显示单调递增趋势（消除了测试集难度变化�
 
 | 排名 | 方法 | CBraMod Mean ± SD | Δ vs 128ch | EEGNet Mean ± SD | Δ vs 128ch |
 |------|------|-------------------|------------|------------------|------------|
-| 1 | **FDR** | **87.71 ± 9.18%** | **−2.97 pp** | 74.70 ± 12.46% | −1.97 pp |
-| 2 | Band Power | 86.85 ± 9.76% | −3.83 pp | 76.07 ± 11.50% | −0.60 pp |
-| 3 | Commercial | 86.10 ± 8.88% | −4.58 pp | 73.54 ± 12.57% | −3.13 pp |
-| 4 | Attention | 85.48 ± 9.21% | −5.20 pp | — | — |
-| 5 | CSP | 84.94 ± 10.53% | −5.74 pp | 75.00 ± 11.08% | −1.67 pp |
+| 1 | **FDR** | **87.71 ± 8.99%** | **−2.97 pp** (paired *t*=2.87, *p*=0.009) | 74.70 ± 12.46% | −1.97 pp |
+| 2 | Band Power | 86.85 ± 10.27% | −3.83 pp | 76.07 ± 11.50% | −0.60 pp |
+| 3 | Commercial | 86.10 ± 9.10% | −4.58 pp | 73.54 ± 12.57% | −3.13 pp |
+| 4 | Attention | 85.48 ± 8.81% | −5.20 pp | — | — |
+| 5 | CSP | 84.94 ± 10.81% | −5.74 pp | 75.00 ± 11.08% | −1.67 pp |
 
-FDR 以 87.71% 领先，保留了 128 通道性能的 **96.7%**（87.71% vs 90.68%），通道缩减代价仅 −2.97 pp；而 CSP 的代价最大（−5.74 pp）。值得注意的是，EEGNet 在多数配置下的通道缩减代价反而更小（−0.60 至 −3.13 pp），可能因为其 128ch baseline 本身较低（76.67%），天花板效应更弱。图 3c 展示了 FDR 32 通道配置的逐被试对比。
+> *SD 为 sample std (n−1, n=21)，从 JSON `per_subject_test_acc` 重算确保跨表一致估计器。*
+
+FDR 以 87.71% 领先，保留 128 通道性能的 **96.7%**（87.71% vs 90.68%；paired *t*=2.87, *p*=0.009，仍统计显著），通道缩减代价 −2.97 pp；CSP 代价最大（−5.74 pp）。5 method 间 mean 范围 84.94%–87.71%（spread 2.77 pp，约 1 paired-SEM），任何"哪个方法最好"的 ranking 判断都在噪声以内（详见 §3.5.2 末段"33ch+ 方法选择"讨论）；本节标题"FDR 领先"只标识**操作起点**，不是统计上分离的优胜者。图 3c 展示了 FDR 32 通道配置的逐被试对比。
 
 **图 3c. 32 通道 FDR 配置跨被试二分类逐被试对比。** 同时叠加 128ch 跨被试基线（EEGNet + CBraMod，点状填充），显示 32ch FDR 在绝大多数被试上接近 128ch 性能。
 
 ![图 3c. 32ch FDR 跨被试对比](../../results/32_channel/fdr/20260330_0836_cross-subject_combined_imagery_binary.png)
 
 五种方法之间的差异仅 2.77 pp（84.94%–87.71%），反映了高密度 EEG 中体积传导导致的信息冗余。Figure S5b 进一步以脑区分布证实 5 种方法虽数值接近但空间分布迥异。这一发现具有重要的实践意义：在 32 通道级别，通道选择方法的选择相对不那么关键——即使使用简单的商用布局（Commercial, 86.10%）也能获得接近最优数据驱动方法的性能。然而，这种"方法不敏感"的特性会随着通道数的进一步减少而急剧消失（见 Section 3.5.2）。
-
-值得注意的是，Commercial 配置的标准差最低（8.88%），表明标准 10-20 布局在跨被试一致性上具有优势——这可能因为其电极分布更均匀，不依赖于特定被试群体的统计特征。
 
 > **数据来源**: `results/32_channel/{fdr,attention,csp,band_power,commercial}/20260330_*_cross_subject_cache_imagery_binary.json`
 > 生成命令: 图 3b 由 `uv run python scripts/paper/generate_paper_figures.py --figure 32ch_comparison` 生成；图 3c 由 `uv run python scripts/experiments/run_cross_subject_comparison.py --replot 20260330_0836` 重绘
@@ -621,7 +621,7 @@ FDR 以 87.71% 领先，保留了 128 通道性能的 **96.7%**（87.71% vs 90.6
 | 8 | BP (84.05%) | 92.7% | BP (66.33%) | 88.6% |
 | 4 | BP (78.75%) | 86.8% | BP (60.67%) | 81.0% |
 
-**结构性观察 4 点**：(i) **包络线沿 128 → 4 平滑降解**，每减半通道损失 1.5–5 pp，无 cliff；(ii) **方法依赖临界点在 32 → 16ch**——5-entry max−min spread 从 32ch+ ≤ 3.24 pp 跳升至 16ch 8.69 pp (binary) / 7.64 pp (ternary)，3–4 倍跃迁，把"32ch+ method-agnostic"论断的下沿锁定到 ≥ 32ch；(iii) **Band Power 在 5 档 × 2 task = 10 cell 上从不是 4 数据驱动方法的最差者**，是本数据集横向最稳健的方法学观察；(iv) **Attention 在 16ch 双 task 上均为最差**，把"全模型 top-K 外推失效"临界点从 8ch 前移至 16ch（机制讨论见 §3.5.3）。Negative_control 在 32 / 64ch ternary 上与最优数据驱动方法 ≤ 0.32 pp 内 indistinguishable，但 16ch ternary 上差距扩大至 4.94 pp ——"低 method-overlap 配置 ≈ 数据驱动" 等价性 **严格限制在 ≥ 32ch 通道档**。以上所有 cell 均为单 run，作为**本数据集 (21-subject finger-MI / CBraMod / 当前预处理) 的具体配置层级现象**，不升级为跨数据集 / 跨任务方法论命题。
+**结构性观察 4 点**：(i) **128 → 8ch 区间平滑降解，8 → 4ch 为独立 regime change**——BP best-method binary 减半损失依次为 64→32 +1.04 pp、32→16 +1.61 pp、16→8 +1.19 pp（三档紧聚 1.04–1.61 pp），而 **8→4 单独跌 5.30 pp，是其余三档量级的 ~4 倍**，提示低密度 cliff 在 8→4 之间而非 32→16 之间；(ii) **方法依赖临界点在 32 → 16ch**——5-entry max−min spread 从 32ch+ ≤ 3.24 pp 跳升至 16ch 8.69 pp (binary) / 7.64 pp (ternary)，3–4 倍跃迁，16ch ternary FDR-vs-neg_ctrl paired Δ = 4.94 pp (*p* ≈ 0.001) 是 single-cohort 内 paired-significant 的方向性证据（需独立 cohort 复制以升格为普适规则）；(iii) **Band Power 在 5 档 × 2 task = 10 cell 上从不是 4 数据驱动方法的最差者**，是本数据集横向最稳健的方法学观察；(iv) **Attention 在 16ch 双 task 上均为最差**，把"全模型 top-K 外推失效"临界点从 8ch 前移至 16ch（机制讨论见 §3.5.3）。Negative_control 在 32 / 64ch ternary 上与最优数据驱动方法 ≤ 0.32 pp 内 indistinguishable，但 binary 32ch FDR-vs-NC Δ ≈ 3.63 pp 是 paired-significant（*p* ≈ 0.02），16ch ternary 上差距扩大至 4.94 pp——故 **"低 method-overlap 配置 ≈ 数据驱动配置" 等价性严格限制在 32ch + ternary 这一档**（详见 §4.3）。以上所有 cell 均为单 run，作为**本数据集 (21-subject finger-MI / CBraMod / 当前预处理) 的具体配置层级现象**，不升级为跨数据集 / 跨任务方法论命题。
 
 **互补可视化**：图 3d 以 2 × 6 = 12 panel bar grid 呈现 method × channel × task 全 cell 的绝对准确率分布；图 4 把 envelope 与 per-method 追踪线 + outlier 标记画在同一对数 x 轴；图 4b 以 slope chart 形式呈现 64 / 32 / 16 / 8 / 4ch 五档的 method ranking 翻转；图 4c (§3.5.3) 给出 4-method spread 与 best-method abs acc 的标量缩放曲线。四视图与图 4d 一致，仅 framing 不同——图 4d 强调 normalized retention 与 subject-std 不确定性；其余视图保留绝对数值。
 
@@ -680,7 +680,7 @@ FDR 以 87.71% 领先，保留了 128 通道性能的 **96.7%**（87.71% vs 90.6
 
 > **解剖学论断的修订**：4 个通道中只有 **D27** 真正落在 Pfurtscheller & Lopes da Silva [14] / Neuper et al. [19] 经典手部 mu/beta ERD 强响应带（C3/C4 hand knob 区域）；D11 处于其前运动边缘；C23 位于 SMA / FCz 中线运动前区；B28 (≈FT8) 完全偏离 sensorimotor cortex。**因此"BP 选出的 4 个通道被空间锁定到 sensorimotor 强响应区"这一直觉化论断不成立**——更精确的描述是：BP top-4 在 sensorimotor + premotor + SMA + 一个右前颞外点 之间形成左偏侧化（3/4 在左半球）的分布式覆盖，而非聚焦于 hand knob。
 
-这一分布的具体机制本研究不能确定。一些可能的解释（互不排斥、均未在本数据上验证）包括：(i) 手指级 (finger-level) MI 任务在皮层上相邻手指间距毫米级，C3 单点 ERD 的类别可分性可能不如前运动区 + SMA + 顶后的分布式联合编码——已有 finger-MI 高密 EEG 文献指出该方向；(ii) ANOVA F (rest vs MI) 衡量的是任务态间的功率差异，与"原始 mu/beta 节律最强处"并非同一指标，可能让非 sensorimotor 区域因稳定的 mu 同步或 beta 偶联而进入排序前列；(iii) 跨被试 F 统计量在被试间 ERD 焦点位置波动较大时会向"群体平均后仍稳健的位点"漂移，这未必是 C3/C4。我们不在本研究中尝试区分这三类机制，留作后续工作（详见 §6）。
+具体形成机制（finger-MI 分布式编码？ANOVA F 与原始 mu/beta 节律强度的差异？跨被试 F 统计量在 ERD 焦点位置波动下的漂移？）本研究单 cohort、单方法不足以区分，留作后续工作（详见 §6）。
 
 **FDR ∩ Att outlier 抽样机制**——FDR∩Attention 的 4 个交集通道（82.71%）的高准确率应被视为一个**有利的巧合**（favorable outlier）。其抽样机制如下：32ch FDR 与 32ch Attention 是两个独立选出的 32 通道集合（覆盖 128 中各占 25%）；它们在**128 通道全空间中的随机交集期望大小**为 32×32 / 128 = **8 个通道**，而本研究观察到的实际交集为 **4 个通道**（B32, C8, D7, D19）——比期望值还少一半。换言之，这 4 个通道并非任一方法排序的 top-4，也不是被两个方法"双重共识"的 top 元素，而是在 32+32 集合的相对小交集中 *碰巧落在的* 4 个位置；它们在 FDR 单独排序中位列第 15–30 位、在 Attention 单独排序中亦位列第 15–30 位（远低于各自 top-4）。82.71% 的高准确率因此不源于"两种方法都认为它们最重要"，而源于交集随机性 + 体积传导冗余 + 这 4 个通道在 cohort 上恰好捕获了部分有效空间模式——属于本数据集的偶然性配置，**不可作为系统化方法复制**。Band Power top-4 与 FDR∩Attention 的差距（82.71% − 78.75% = 3.96 pp）说明 outlier 仍略胜一筹，但 Band Power 提供了一个**可复现、单一方法 top-4、不依赖交集运气**的替代路径。图 4 中橙色菱形标注了 FDR∩Attention 这一 outlier。
 
@@ -723,29 +723,23 @@ Ternary 维度的 4ch 控制实验**与 binary 同向复现**：Band Power top-4
 
 ![图 4c. Sensitivity Scaling](../figures/sensitivity_scaling.png)
 
-#### 3.5.4 缩减通道下的 XSI-FT
+#### 3.5.4 缩减通道下的 XSI-FT — 阴性结果
 
-§3.3 已显示在 128 通道条件下 CBraMod XSI-FT 未提供统计显著收益（Δ = −0.56 pp / +0.20 pp）。一个开放问题是：当跨被试模型因空间信息受限而性能下降时，XSI-FT 的单被试 fine-tune 阶段是否会重新显现增益？我们在 32 通道 FDR 与 8 通道 Band Power 两档配置下做了对照实验。
+§3.3 已显示 128 通道 CBraMod XSI-FT 无统计显著收益（Δ = −0.56 pp，paired *p* = 0.189）。我们在 32 通道 FDR 与 8 通道 Band Power 两档配置下做对照，检验"低密度时单被试 fine-tune 阶段是否重新显现增益"——结果同样**三档全部不显著**。
 
-**表 11c. 缩减通道下 XSI-FT 对比（CBraMod 二分类，N = 21）。**
+**表 11c. 缩减通道下 XSI-FT 对比（CBraMod 二分类，N = 21；所有 Δ 均不显著）。**
 
-| 通道配置 | 跨被试 | XSI-FT | Δ (XSI-FT − xsubj) | 数据来源 run_tag |
-|----------|--------|--------|---------------------|----------------|
-| 128ch | 90.68 ± 9.31% | 90.12 ± 8.98% | −0.56 pp | xsubj `20260324_0023` / XSI-FT `20260329_0507` |
-| 32ch FDR | 87.71 ± 9.18% | **88.45 ± 8.45%** | **+0.74 pp** | xsubj `20260330_0836` / XSI-FT `20260505_0212` |
-| 8ch Band Power | 84.05 ± 9.21% | **82.02 ± 10.74%** | **−2.03 pp** | xsubj `20260331_1950` / XSI-FT `20260506_2159` |
+| 通道配置 | 跨被试 | XSI-FT | Δ (XSI-FT − xsubj) | paired *t* | *p* | 数据来源 run_tag |
+|----------|--------|--------|--------------------:|-----------:|----:|----------------|
+| 128ch | 90.68 ± 9.31% | 90.12 ± 8.98% | −0.56 pp | −1.36 | 0.189 | xsubj `20260324_0023` / XSI-FT `20260329_0507` |
+| 32ch FDR | 87.71 ± 8.99% | 88.45 ± 8.45% | +0.74 pp | +0.70 | 0.492 | xsubj `20260330_0836` / XSI-FT `20260505_0212` |
+| 8ch Band Power | 84.05 ± 9.21% | 82.02 ± 10.74% | −2.02 pp | −1.54 | 0.140 | xsubj `20260331_1950` / XSI-FT `20260506_2159` |
 
-32ch FDR 配置下，XSI-FT 提供 +0.74 pp 的方向性正增益（从 87.71% 升至 88.45%）；但 **8ch Band Power 配置下方向反转**——XSI-FT 反而损失 −2.03 pp（84.05 → 82.02%）。这两个数据点联合起来推翻了原假设的简单形式（"通道越少 XSI-FT 收益越大"），并提出一个更细致的图景：
+**三档 *p* 全部 > 0.13**：本数据集和样本量下我们没有 power 声称 XSI-FT 在缩减通道配置下有任何方向性增益或损失。三个 Δ 的绝对量（|Δ| ≤ 2.02 pp）落在 21 名被试 paired SD ≈ 5–6 pp 的随机抽样波动以内。
 
-1. **128ch CBraMod 已饱和**：cross-subject 表征足够丰富，XSI-FT 的单被试 fine-tune 阶段没有增益空间（Δ = −0.56 pp，p = 0.189）。
-2. **32ch FDR：被试-特异性 spatial adaptation 的窗口**：FDR 选出的 32 通道在 cross-subject 已经接近 96.7% retention，但被试间 spatial topography 仍存在个体差异；XSI-FT 在这一档恰好释放了 +0.74 pp 的边际收益。
-3. **8ch Band Power：cross-subject 已锚定物理签名**：BP 选出的 8 个通道由 mu/beta ERD 物理动机决定，**其空间位置在被试间的差异远小于全 128ch 下的统计 / 注意力 ranking 差异**——cross-subject 已经把"BP 选定的 sensorimotor 通道在群体上的最优响应"学到，XSI-FT 的单被试 fine-tune 阶段提供的边际信号反而被该阶段引入的过拟合风险所抵消。8ch BP cross 84.05% 接近这一通道集合的容量上限，剩余信号容量不足以分摊 fine-tune 的方差代价。
+> **修订说明**：v3.1 及更早草稿基于这 3 个 cell 提出"XSI-FT 收益取决于 cross-subject baseline 离 (channel, method) 容量上限距离"的工作假设。在 0/3 cell 达到 *p* < 0.05 的前提下，该假设**不能作为主文本结论保留**。它降级为可证伪的探索性 hypothesis 保留在 §6 后续工作 #2；本节、§4.6 / §4.8 部署建议**不再以该框架为基础**。
 
-换言之，**基于 3 个数据点（128ch / 32ch FDR / 8ch BP）的方向性观察提示一个工作假设**：XSI-FT 收益可能不是通道数量的单调函数，而是与"cross-subject baseline 离该 (channel, method) 组合的容量上限的距离"相关——32ch FDR 距离上限较远（XSI-FT 有空间），8ch BP 已接近上限（XSI-FT 反而有害），128ch CBraMod 在表征层面对该任务已经饱和。**该工作假设基于 N=3 数据点，强烈受样本量限制；要把它升级为可推广方法论命题，至少需要在 8ch FDR、32ch BP、4ch BP 等额外 (channel, method) 组合上独立验证（§6 后续工作 #2）。** 在该 caveat 下，该方向性观察为 §4.6 部署路线图的"低密度 + XSI-FT"组合添加了一个有待证伪的约束（详见 §4.6 / §4.8）。
-
-需要明确的是，本节仅评估了两个低密度档位 (32ch FDR + 8ch BP)；要把"XSI-FT 收益取决于 baseline 距容量上限"框架升级为可推广的方法论结论，需要在更密集的 (channel, method) 组合上独立观察（如 8ch FDR、4ch BP、64ch FDR 各自的 XSI-FT 等），见 §6 后续工作。
-
-> **数据来源**: 32ch FDR XSI-FT `20260505_0212`: `results/32_channel/fdr/20260505_0212_transfer_cache_imagery_binary.json`; 8ch BP XSI-FT `20260506_2159`: `results/8_channel/band_power/20260506_2159_transfer_cache_imagery_binary.json`（cross-subject baselines: 32ch FDR `20260330_0836_cbramod_imagery_binary`; 8ch BP `20260331_1950`）
+> **数据来源**: 32ch FDR XSI-FT `20260505_0212`: `results/32_channel/fdr/20260505_0212_transfer_cache_imagery_binary.json`; 8ch BP XSI-FT `20260506_2159`: `results/8_channel/band_power/20260506_2159_transfer_cache_imagery_binary.json`（cross-subject baselines: 32ch FDR `20260330_0836_cbramod_imagery_binary`; 8ch BP `20260331_1950`）。Paired *t* 检验对每档 N=21 配对差值计算（双侧）。
 
 ### 3.6 领域自适应 Further Pre-training
 
@@ -1048,17 +1042,19 @@ within-subject 范式下方向反转：random-init CBraMod 在被试内二分类
 | vs. 64ch FDR (89.46%) | 仅差 1.75 pp，通道数减半 |
 | 硬件兼容性 | 与商用 32 通道 EEG 系统兼容 |
 
-64ch 全 5 method 数据点（2026-05-11 矩阵闭合）填补了 32→128ch 之间的中间档位空白：从 32ch FDR 到 64ch FDR 仍有 +1.75 pp 边际 binary 增益，从 64ch 到 128ch 再 +1.22 pp；ternary 上 32→64ch FDR +4.33 pp 但 64ch 75.12% 与 128ch baseline 74.88% 在 run-to-run noise 内一致（详见 §3.5.2）。"32ch 已饱和"的强表述在 binary 上不成立——32→64ch 之间仍可恢复 ~一半的剩余性能空间，但每翻一倍通道的边际增益已落到 1–2 pp 区间，硬件成本与设置时间的边际成本通常超过这一性能收益。综合来看，32ch FDR 仍是部署最优选择，64ch FDR 适合追求 ~89% binary / ~75% ternary 而硬件预算更宽松的场景。
+64ch 全 5 method 数据点（2026-05-11 矩阵闭合）填补了 32→128ch 中间档位。每翻一倍通道（32→64、64→128）的边际 binary 增益均落在 paired SEM 噪声范围内（<2 pp），ternary 上 64ch 75.12% 与 128ch baseline 74.88% 在 run-to-run noise 内一致。**单 cohort 数据下 32 / 64 / 128ch 在最终准确率上操作上不可区分**；硬件成本与设置时间通常主导这一档位的选择。综合来看，32ch FDR 是部署最优起点，64ch 适合追求 ~89% binary / ~75% ternary 且硬件预算更宽松的场景。
 
-**64ch 上方法不敏感性已验证**：64ch 5 method（FDR / Band Power / Attention / CSP / negative_control）binary 范围 86.22–89.46%（spread 3.24 pp），ternary 范围 73.35–75.44%（spread 2.09 pp）——量级与 32ch（2.77 / 2.08 pp）一致。即原"32ch 起方法选择对性能影响相对不敏感"的论断**维持到 64ch**。在 32ch / 64ch ternary 上，数据驱动方法与 negative_control 的差值 ≤ 0.32 pp（well within 21 名被试 std ≈ 13 pp），统计上不可区分；在该 (通道, task) 组合下"用数据驱动方法选择最优 32 / 64 通道"与"选择未被任何方法选中的 32 / 64 通道"性能等价（详见 §3.5.3 / §4.3）。**16ch 档位（2026-05-13 sweep）现已纳入并定位方法依赖临界 boundary**：5-entry spread 跃升到 binary 8.69 pp / ternary 7.64 pp，相比 32ch 的 2.77 / 2.08 pp 跳升约 3–4 倍，**method-agnostic 区间在 32→16ch 之间崩溃**（详见 §3.5.2）；同档 negative_control 与最优方法的差距亦从 32ch 上的 ≤ 0.32 pp 放大到 16ch binary 上的 3.63 pp / ternary 上的 4.94 pp——即"低 method-overlap 配置 ≈ 数据驱动配置"的等价性**严格限制在 ≥ 32ch 通道档**。本研究仍未评估 96ch 档位，因此"电极数量 scaling 在 64ch 以上完全饱和"仍属未验证细节。
+**32ch+ 方法选择的实际影响很小**：32 / 64ch 5-entry spread 分别为 2.77 / 2.08 pp（32ch binary / ternary）和 3.24 / 2.09 pp（64ch binary / ternary），4 数据驱动方法间的最大 Δ 在 binary 上 ~3 pp、ternary 上 ~2 pp 量级。Paired 显著性测试在个别配对（如 32ch binary FDR-vs-CSP, *p* ≈ 0.001）下确实达到 *p* < 0.05，所以严格地说**不是"统计上不可区分"**——但 mean Δ ≤ 3 pp 在硬件成本 + 设置时间这两个部署变量面前几乎不构成决策因素。我们因此把这一区间的论断从早期版本的"统计上不可区分"软化为**"方法间差距在 ≤3 pp 量级、对部署选择实际影响小"**。
 
-低密度区间（≤8ch）的部署门槛同样被本批 4ch BP 实验放宽：原 v2 草稿建议的"部署阈值 8ch"基于 4ch 标准方法均失效；引入 4ch BP (78.75%) 后，**在本数据集与本任务范围内 4 通道 Band Power 是可行的极简部署候选**（保留 86.8% 的 128ch 性能）。这把可部署谱系在本研究的具体配置下从 {128, 64, 32, 8} 扩展到 {128, 64, 32, 8, 4}——仍以 32ch FDR 为推荐起点；极端低成本场景下 4ch BP 是一个值得在新部署 cohort 上独立验证的候选，而非已确立的通用兜底方案。
+**16ch 上方法依赖测得 paired-significant 离开 method-agnostic 区间**：2026-05-13 新增 16ch sweep 显示 5-entry spread 跃升到 binary 8.69 pp / ternary 7.64 pp，相比 32ch 的 2.77 / 2.08 pp 跳升约 3–4 倍。具体地，16ch ternary FDR-vs-neg_ctrl 配对差 Δ = 4.94 pp（paired *t* ≈ 3.84, *p* ≈ 0.001），是单 cohort 内的双 task 同向跃迁——binary 和 ternary 均独立显示同方向的 spread 扩张。这给"method 选择从 32ch 起对实际性能影响小、16ch 起开始 paired-significant 分离"的边界给出方向性支持，但**单 cohort、单数据集的 boundary-locating 论断仍需后续工作（不同 cohort / 任务粒度 / preprocessing）独立复制**才能从"方向性观察"升级为"普适规则"。本研究仍未评估 96ch 档位。
+
+低密度区间（≤8ch）部署门槛被本批 4ch BP 实验放宽：原 v2 草稿建议的"部署阈值 8ch"基于 4ch 标准方法均失效；引入 4ch BP（binary 78.75% / ternary 60.67%，详见 Table 9b）后，**4 通道 Band Power 在本数据集与本任务范围内是可行的极简部署候选**。可部署谱系从 {128, 64, 32, 8} 扩展到 {128, 64, 32, 8, 4}——仍以 32ch FDR 为推荐起点；4ch BP 是值得在新部署 cohort 上**独立验证**的候选，而非已确立的通用兜底方案。
 
 ### 4.3 体积传导与信息冗余
 
 控制实验（Section 3.5.3）揭示了高密度 EEG 的一个基本属性：由于体积传导，皮层源的电信号在头皮上广泛传播，产生了大量信息冗余。4 通道负控制（binary 67.65% / ternary 53.37%）表明，即使是未被任何方法选中的通道，在预训练基座模型下也能显著超越随机水平。在 32 通道级别，五种方法之间仅 2.77 pp 的窄 binary 性能差异、2.08 pp 的 ternary 性能差异证实了广泛的冗余——这一性能层面的"方法不敏感"在空间布局上对应着"大体不重叠的通道集合"：5 配置两两 Jaccard ∈ [0.12, 0.23] 的量化证据见 Figure S6a。
 
-新增的 32ch / 64ch ternary 矩阵为体积传导冗余提供了更强的实证证据：**在 32ch+ ternary 上，数据驱动方法与"未被任何方法选中"的随机通道在性能上统计不可区分**——32ch ternary negative_control 72.38% vs 该档最优数据驱动方法 BP 72.20%（Δ=+0.18 pp），64ch ternary negative_control 75.44% vs FDR 75.12%（Δ=+0.32 pp）。两个 Δ 均远小于 21 名被试间 std ≈ 13 pp，paired 比较下无显著差异。换言之，**"选择被某个数据驱动方法识别为最重要的 32 / 64 通道"与"选择不被任何方法看中的 32 / 64 通道"在 ternary 任务上提供的判别力等价**。这把 §3.5.3 的"4 通道负控制超越随机"弱论断升级为"32ch+ ternary 任务下方法识别行为对最终性能没有信号增益"的强形式。需要 disclose 的是 32ch / 64ch negative_control 注册表实质是"31 pure-complement + 1 pad" / "4 pure-complement + 60 pad"（详见 §3.5.3 末段 Caveat），所以这一论断的严格形式是"低度 method-overlap 配置 ≈ 数据驱动配置"，而非"纯互补 ≈ 数据驱动"。64ch neg_ctrl 因 pure complement 仅 4 通道、60 通道来自 method union pad，**不能单独作为"纯互补通道仍然有效"的论据**；32ch neg_ctrl 仅 1 通道 pad，弱化程度有限，仍可作为体积传导论证的辅助证据。Binary 任务上 32ch+ neg_ctrl 也与最优方法接近（32ch neg_ctrl 84.08% vs FDR 87.71% 差 3.63 pp，64ch neg_ctrl 88.57% vs FDR 89.46% 差 0.89 pp），但 binary 差距比 ternary 略大——可能反映 binary 任务对空间精度的要求高于 ternary（后者多一个 rest 类，rest 检测对通道选择鲁棒性更高）。
+**等价性论断的精确范围**：32ch ternary negative_control 72.38% 与最优数据驱动方法 BP 72.20% 相差 +0.18 pp（paired *p* = 0.85），构成体积传导冗余的**最干净证据**——但适用范围仅限于 **32ch + ternary**。Binary 32ch FDR-vs-neg_ctrl Δ = 3.63 pp（paired *t* ≈ 2.43, *p* ≈ 0.02）是统计显著的，binary 任务上 neg_ctrl 仍落后于数据驱动方法约一个 SEM。64ch ternary 的 +0.32 pp 等价性虽数值上极小，但 64ch `negative_control` 注册表实质是 **4 pure-complement + 60 pad from method-union**（详见 §3.5.3 末段 Caveat / Limitation #14），不能独立构成"纯互补通道仍有效"的论据。综合：**§3.5.3 的"4 通道负控制超越随机"论断只在 32ch ternary 这一档严格升级为"低 method-overlap 配置 ≈ 数据驱动配置"；binary 维度以及 64ch 维度不能再当作该升级的支撑证据**。其余通道档（4ch / 8ch / 16ch ternary 中 neg_ctrl 与 best method 间差距均 ≥ 4.9 pp 且 paired-significant）也不属于该等价区间。
 
 ### 4.4 纵向数据扩展：突破 Session 平台期
 
@@ -1091,7 +1087,7 @@ within-subject 范式下方向反转：random-init CBraMod 在被试内二分类
 综合以上发现，本研究支持以下 BCI 部署路径：
 
 1. **起步方案（推荐）**：CBraMod + FDR 32 通道配置（87.71% 基线准确率），兼容商用硬件；中端预算可上 64ch FDR (89.46%)；极简成本场景下 4ch Band Power (78.75%, +11.10 pp vs 负控制) 是一个值得独立 cohort 验证的候选，而非已确立的通用兜底
-2. **个性化适配**：收集 2–3 个额外 session 数据即可突破 90% 准确率，低基线用户获益最大；XSI-FT 在 32ch FDR 配置下提供 +0.74 pp 增益（§3.5.4），在 8ch BP 配置下反而损失 −2.03 pp——即**XSI-FT 不应作为低密度部署的默认推荐**，需先确认所选 (channel, method) 组合是否仍有余量空间
+2. **个性化适配**：收集 2–3 个额外 session 数据即可突破 90% 准确率，低基线用户获益最大。**XSI-FT 在缩减通道配置下未观察到任何显著效应**（§3.5.4：128ch / 32ch FDR / 8ch BP 三档 paired *p* 均 > 0.13），因此不构成低密度部署的默认推荐；其在哪些 (channel, method) 组合下可能有益仍待更大样本验证（§6 #2）
 3. **模型选择（按数据量）**：CBraMod 在 cross-subject 与高密度通道（≥32ch）下最优；EEGNet 在低预算/边缘场景且必须用 XSI-FT 时可作备选——但 EEGNet 在所有任务上均落后 CBraMod，不应作为首选
 4. **领域自适应预训练**：直接使用 TUEG 预训练权重；只在存在类型更接近的 source MI 数据（手指级、手部精细动作 MI）可用时再考虑 DAPT，本研究使用的粗运动 MI 数据池不推荐
 5. **实时可行性**：单用户场景下 CBraMod batch=1 延迟 ~13 ms，远低于 100 ms 实时阈值；多用户共享服务场景下 batch=64 延迟仍为 ~71 ms（满足 100 ms 阈值），每用户 GPU 时间降至 ~1 ms，使一张 GPU 可并发服务数十用户
@@ -1105,7 +1101,7 @@ within-subject 范式下方向反转：random-init CBraMod 在被试内二分类
 将通道缩减、纵向数据扩展、DAPT 三条线整合，可以在"数据可得性"坐标轴上勾勒一条决策路径：
 
 1. **零额外数据 + 高密度通道**：CBraMod 跨被试 pooled 模型（binary 90.68%）是最佳起点；EEGNet 在该范式下边际收益为负（−1.43 pp, p = 0.456），不适合 cohort-pooled 训练；但 EEGNet 在 XSI-FT 范式下反而获得 +5.38/+5.10 pp（§3.3，p < 0.01），构成"小模型必须借助 XSI-FT 才能从群体数据中获益"的证据。
-2. **零额外数据 + 低密度通道（<32ch）**：32ch FDR 保留 96.7%、64ch FDR 保留 98.7%、8ch Band Power 保留 92.7%、**4ch Band Power 仍保留 86.8%**——可部署谱系比初版 v2 草稿（4ch 全失效）显著放宽。32ch FDR 配置下 XSI-FT 提供 +0.74 pp 方向性增益；但 8ch BP 配置下 XSI-FT 反而损失 −2.03 pp——这说明 **XSI-FT 收益取决于 cross-subject baseline 离 (channel, method) 容量上限的距离，而非通道数本身**：32ch FDR 距上限远（XSI-FT 有空间），8ch BP 接近上限（XSI-FT 反而引入过拟合）。低密度部署应先评估 cross-subject baseline 是否已饱和，再决定是否使用 XSI-FT。
+2. **零额外数据 + 低密度通道（<32ch）**：32ch FDR 保留 96.7%、64ch FDR 保留 98.7%、8ch Band Power 保留 92.7%、4ch Band Power 仍保留约 87%——可部署谱系比初版 v2 草稿（4ch 全失效）显著放宽。**XSI-FT 在所有缩减通道档位上未观察到统计显著效应**（§3.5.4：128ch / 32ch FDR / 8ch BP 三档 *p* 均 > 0.13），故在低密度部署中不作为默认 add-on 推荐——若主要目标是性能上限而非样本经济，应优先增加同被试 session 数据（§3.4）。
 3. **少量同被试新数据 (~1 session)**：XSI-FT (+5.70 pp) 与被试内重训练 (+6.13 pp) 终点接近，但 XSI-FT 起点更高，更适合冷启动用户；EEGNet 在 XSI-FT 下也获得 +5.38/+5.10 pp（p < 0.01，小但统计显著），适合极低算力部署。
 4. **多 session 同被试 (3-5 sessions)**：被试内重训练达到 93.36% 全文最高终点；标准差从 10.81% 压缩至 5.98%——临床部署的"最差用户"承诺。
 5. **外部域外数据 (~870h, 以 grasp/wrist MI 为主)**：DAPT 5 个独立配置（V1–V5）评估呈 **task-asymmetric 负迁移**——cross-subject binary 5/5 一致负向（mean Δ=−1.79 pp，Stouffer Z=−5.32, p<0.001），cross-subject ternary 4/5 弱正、仅 V5 弱负（mean Δ=+0.18 pp，Stouffer p=0.564）。V4 (3-set 域对齐 + strict filter) 与 V5 (Stieger 单源 60ch) 两次 surgical fix 把候选机制收紧到 **MI 粒度错配** 唯一存活假设，并反方向证伪"通道数异质"假设。本研究的负面结果不构成对 DAPT 范式本身的否定，但提示在 finger MI 任务上**source domain 的信号粒度对齐比任务语义类别更关键**——只在存在类型更接近的 source MI 数据集（如手指级、手部精细动作 MI）时才值得再尝试 DAPT；以粗运动 MI 为主的当前外部数据池在 CBraMod backbone 设置下不推荐（详见 §4.5 / §3.6）。
@@ -1130,7 +1126,7 @@ within-subject 范式下方向反转：random-init CBraMod 在被试内二分类
 | 8 | **Further pre-training 评估覆盖（部分闭合）** — V4/V5 已于 2026-05-10 补完 within + transfer 评估（共 8 cell），与原 V1/V2/V3 within+cross 12 cell 合并共 24 cell；剩余 6 cell 未跑全部为 V1/V2/V3 × XSI-FT × {bin, ter}。V4/V5 跨三种 paradigm 全部方向负、Stouffer 集体证据稳健，先验上不期望 V1–V3 transfer 反转方向。V2 训练亦在 Epoch 13 因 Windows LMDB MapResizedError 中断而非自然 early-stop。 | V4/V5 三-paradigm 全矩阵负向的事实部分回答了"DAPT 是否仅在 cross-subject 失败"——失败是跨范式稳健现象（详见 §3.6.4 Caveat #6 闭合）；V1–V3 transfer 严格意义上未被回答；V2 是否在更长训练后达到不同结论缺乏直接证据。 |
 | 9 | **Stieger2021 主导效应通过 V3 实验部分验证，未做完整逐数据集消融** — V3（Stieger 占比 ~30%）相对 V2（~79%）平均改善 +0.68 pp，约恢复 V1→V2 阶段加剧负迁移的一半，但整体仍呈方向性负迁移（vs Baseline −0.70 pp 平均）。完整的 leave-one-out 数据集消融（逐数据集排除）尚未完成。 | 已能判断 Stieger 主导是 V2 阶段加剧负迁移的主因之一，但其余 9 个数据集的独立贡献仍未隔离；当前结论支持"两层归因"（Stieger 主导 + 整体粗运动 MI 域错配）。 |
 | 10 | **Ternary 任务 baseline 时间不齐** — 三分类 baseline 来自 pre-HPO 运行（2026-02），与 binary post-HPO baseline（2026-03）不在同一管线版本下，引入 confound。 | Ternary delta 的精度估计弱于 Binary，但定性方向（一致负迁移）不受影响。 |
-| 11 | **缩减通道下 XSI-FT 的全 (channel, method) 矩阵未完成** — §3.5.4 现覆盖 128ch / 32ch FDR / 8ch BP 三档：32ch FDR 下 XSI-FT +0.74 pp、8ch BP 下 XSI-FT −2.03 pp、128ch 下 −0.56 pp。Cross-subject baseline 在 2026-05-11 矩阵闭合 + 2026-05-13 16ch sweep 后已覆盖 {4, 8, 16, 32, 64}ch × 5 method × {binary, ternary} = **50 cell**（§3.5.2 envelope 表 9b + 图 4d / §3.5.3 表 10b），但 XSI-FT 仍只覆盖这 3 个 cell。三档样本不足以系统验证"XSI-FT 收益取决于 baseline 距容量上限"的解释框架；同档位下不同方法（如 8ch FDR、32ch BP）、4ch 档位下任何 method、16ch 档位下任何 method 的 XSI-FT 行为，以及全部 ternary 的 XSI-FT 行为均尚未测试。 | 解释框架基于三个数据点的归纳，可证伪但尚未充分检验；§4.8 决策路径在 4 / 8 / 16ch 多方法组合下的精确度受限。Cross-subject baseline 矩阵闭合（5 × 5 × 2 = 50 cell）是该框架进一步检验的必要前置条件，现已就绪。 |
+| 11 | **缩减通道下 XSI-FT 的全 (channel, method) 矩阵未完成 + 现有 3 cell 全部 n.s.** — §3.5.4 覆盖 128ch / 32ch FDR / 8ch BP 三档，三档 paired Δ (XSI-FT − xsubj) 分别为 −0.56 / +0.74 / −2.02 pp，**全部 *p* > 0.13**。Cross-subject baseline 在 2026-05-11 矩阵闭合 + 2026-05-13 16ch sweep 后已覆盖 5 × 5 × 2 = 50 cell，但 XSI-FT 仍只覆盖这 3 个 cell。早期 v2/v3 草稿基于这 3 个非显著 cell 提出过"XSI-FT 收益取决于 baseline 距容量上限"的解释框架，**已在 v3.1+ 撤回为主文本结论**；该 hypothesis 保留在 §6 #2 作为可证伪的探索性方向。 | 本论文不在 §3.5.4 / §4.6 / §4.8 中以 XSI-FT 缩减通道下任何方向性效应作为部署建议；要把该 hypothesis 升格为可独立检验的方法论命题，需在 ≥10 个 (channel, method) cells 上做 paired-significant 检测并校正多重比较。 |
 | 12 | **DAPT 训练配置的单次性 + V1–V3 transfer 评估缺失** — (a) V1–V5 均为单次 pre-training 尝试；V3 采用"先训 15 ep + warm-restart-from-weights 续训 12 ep"的两阶段策略（详见 §2.7.2 caveat），optimizer 与 LR scheduler 状态在阶段 ii 重置，与 V1/V2/V4/V5 的单阶段训练严格意义上不可同等比较。训练超参数（mask_ratio=50%、AdamW、warmup 0.5 epoch、恒定/cosine lr=5e-5）沿用 [4] 在 TUEG 上的下游 fine-tuning 默认值，未针对 MI 数据特性系统调参。(b) **V4 / V5 已覆盖三种 paradigm**（within + cross + transfer × bin + ter，2026-05-10 补完）；**V1 / V2 / V3 仍仅覆盖 within + cross 两种 paradigm，未运行 XSI-FT (transfer)**。即 5 V × 3 paradigm × 2 task = 30 cell 中实际评估 24 cell（V1–V3: 12 within+cross；V4/V5: 12 within+cross+transfer），剩余 6 cell 全部为 V1–V3 × XSI-FT × {bin, ter} 未跑；V4/V5 三-paradigm 全部方向负向支持先验"V1–V3 在 transfer 上不会反转"，但严格意义上 V1/V2/V3 transfer 仍属未回答。(c) **V4 同时变更"数据组成"与"过滤强度"**（3-set + strict filter），未运行 V6=V2 数据组成 + strict filter 以隔离过滤效应——当前结论"strict filter + 域对齐均未救回 binary"不可严格归因到单一变量。(d) **Stieger filter scope 不一致**：V4 三数据集均过 strict filter，V5 的 Stieger 仅过 basic filter（重处理 ~25h wall-clock 妥协）。V5 binary 显著恶化（−2.77 pp）的极小一部分可能受此 filter 不一致影响，但 V1/V2/V3 共用 basic filter 上 binary 也均负向，故这不是 V5 binary 恶化的主因。(e) **V1/V2 cross-subject 不在 ExperimentDB**：V1/V2 时期评估走 ad-hoc JSON cache 路径无双写 DB，本论文表 16 中的 V1/V2 t-test 是用 paper/analysis/further_pretraining_analysis.md 中记录的 per-subject acc + 当前 baseline 重算的，与 V3/V4/V5 走 DB 路径不完全对称。(f) **V4 small-data 警告**：V4 仅 4,937 段（Cho 1,135 + Schirr 3,310 + Ofner 492），Schirrmeister 占 67% 采样权重——"3-set 域对齐"实质偏向 Schirrmeister 主导（128ch 通道匹配下游，但属 motor execution 而非纯 imagery）。strict filter 让 Cho/Ofner 大幅减重的副作用，V4 binary 负向可能部分受此偏倚影响。(g) **24-cell BH-FDR 重做后survivor 退化**：在新 24-cell DAPT family 下重做 BH-FDR @ 0.05 后，原 v3.1 16-cell family 下的 3 个 survivors 仅 V2_within_binary (q=0.048) 仍存活；V1_cross_binary (q=0.072) 与 V4_cross_binary (q=0.072) 在更严苛的多重比较惩罚下不再 BH 显著。但 paradigm-level Stouffer 集体证据全部仍稳健（cross-bin Z=−5.32 / within-bin Z=−4.42 / transfer-bin Z=−2.79 p≤0.005，full v3.1 family Z=−4.83）——多重比较的功效损失不改变 task-asymmetric 定性结论。 | (a) 观测到的负迁移可能部分源于 DAPT 方法配置（mask ratio、loss 公式）与 MI 数据不匹配，而非纯粹反映外部 MI 数据的领域差异；分离两类成因需扫 mask ratio / loss / epoch 数等系统 ablation。(b) V1–V3 在 XSI-FT 范式上严格意义上未被回答；考虑 V4/V5 三-paradigm 全部方向负、within / cross / transfer 上 task-asymmetric 模式均成立，先验难以期望 V1–V3 transfer 反转方向，但补全属后续工作。(c) V6 缺失留待未来；(d) (e) (f) 三项 caveat 不影响 task-asymmetric 定性结论（5/5 binary 一致负 vs 4/5 ternary 弱正在 cross Stouffer 聚合下分别 p<0.001 / p=0.564；within / transfer 上 binary 同向负、Stouffer Z<-2.7），但弱化"V4 = pure 3-set domain alignment"与"V5 = pure single-cohort"作为干净因果隔离的强主张。(g) 单元格层面的 BH 退化提示读者优先关注集体证据（Stouffer）而非任一 single-cell 显著性。 |
 | 13 | **EEGNet vs CBraMod 预处理管线不对齐** — 两模型使用不同的滤波带通（4–40 Hz vs 0.3–75 Hz）、采样率（100 Hz vs 200 Hz）和归一化（Z-score per-channel vs ÷100 全局缩放）；这是为各自模型架构和原训练管线分别选取的"近最优"配置（EEGNet 沿用 [3]/[5] 的标准 mu/beta 频带配置；CBraMod 沿用 [4] TUEG 预训练阶段的滤波/采样率约束）。 | 严格意义上 §3.1–§3.3 报告的"模型差异"是"模型架构 + 预训练 + 预处理管线"三因子复合估计，无法将 backbone 优势完全归因到"模型架构 / 预训练"——预处理管线本身可能贡献 1–2 pp 的独立效应。隔离方案需要交叉对调实验（EEGNet 用 200 Hz / 0.3–75 Hz / ÷100 vs CBraMod 用 100 Hz / 4–40 Hz / Z-score），属 §6 后续工作；当前结论的方向性不变（CBraMod 优势 ≥ 7 pp），但定量分解需此交叉实验闭合。 |
 | 14 | **32ch / 64ch negative_control 不是纯互补配置** — 32ch `negative_control` 注册表为 31 pure-complement + 1 seed=42 pad（pad 来自 4 method union 的索引 29 / A30），以满足 `len(indices)==n_channels` 校验；64ch `negative_control` 为 4 pure-complement + 60 seed=42 pad（4 method 在 64ch 各选 64 后 union 已覆盖 124 通道，pure complement 仅余 4）。详见 §3.5.3 末段。 | 32ch neg_ctrl 1-channel pad 不影响其作为"低 method-overlap 配置"的论证价值（仍 31/32 = 96.9% 纯互补）；64ch neg_ctrl 60/64 = 93.8% 来自 method-union，实质是"低度 method-overlap 配置"而非"纯互补"。§4.3 体积传导论证中 64ch neg_ctrl 不可单独作为"纯互补通道仍有效"的论据，但 32ch neg_ctrl 与 4ch / 8ch neg_ctrl 仍可作为体积传导论证的主要证据。 |
@@ -1144,7 +1140,7 @@ within-subject 范式下方向反转：random-init CBraMod 在被试内二分类
 
 1. **运动执行范式验证**：使用同一数据集中的运动执行（Motor Execution）录制数据复制完整实验流程，检验 CBraMod 的优势是否跨范式持续，以及最优通道配置是否因范式而异。
 
-2. **缩减通道下 XSI-FT 的全 (channel, method) 矩阵**：§3.5.4 现已覆盖 128ch / 32ch FDR / 8ch BP 三档，发现"通道越少 XSI-FT 收益越大"的简单假设被 8ch BP 反例推翻，并提出"XSI-FT 收益取决于 cross-subject baseline 距 (channel, method) 容量上限的距离"的修订框架。验证该框架需要补全 (channel, method) 矩阵：8ch FDR、32ch BP、4ch BP、64ch FDR 各自的 XSI-FT 是优先候选。
+2. **缩减通道下 XSI-FT 的全 (channel, method) 矩阵 + 充分 power 检测**：§3.5.4 现已覆盖 128ch / 32ch FDR / 8ch BP 三档，三档 paired Δ (XSI-FT − xsubj) 全部 *p* > 0.13（−0.56 / +0.74 / −2.02 pp）。早期 v2/v3 草稿基于这 3 个非显著 cell 提出过"XSI-FT 收益取决于 baseline 距容量上限距离"的解释框架，已在 v3.1+ 撤回。后续工作需要 (a) **补全 (channel, method) 矩阵**（8ch FDR / 32ch BP / 4ch BP / 64ch FDR / 16ch × 多 method 等），(b) **每 cell 在更大 cohort 上 paired *t*-test 达到 p<0.05**，并 (c) **family-wise / FDR 校正多重比较**——这三个前提齐备后，"XSI-FT 收益取决于 baseline 距容量上限距离" 才能作为可推广命题被检验。
 
 3. **DAPT 配置 ablation**：本研究的 DAPT 负迁移结论已通过 V3 实验完成"Stieger 主导效应 vs 整体域错配"的初步拆分（§3.6 / Limitation #9），剩余的"方法配置不匹配"成因（mask ratio、loss 公式、epoch 数、warmup schedule）尚需扫描 ablation 才能与"域内分布偏移"分离；同时单数据集 leave-one-out 消融（逐一排除 10 个外部数据集）可进一步定量化各数据集对负迁移的边际贡献。
 
@@ -1166,7 +1162,7 @@ within-subject 范式下方向反转：random-init CBraMod 在被试内二分类
 
 > **发现 1 — 基座模型在三种训练范式下一致优于 EEGNet；探索性消融初步检验差距来源。** CBraMod 对 EEGNet 的优势从 **+7.05 pp**（被试内）扩大至 **+14.01 pp**（跨被试 128 通道），在 32 通道下仍保持 **+10–13 pp** 差距。两项探索性消融（§3.7）对该差距的来源做了初步检验：(i) **沿当前扩参轴扩参 EEGNet 在受限 HPO 预算下方向性有害**——把 EEGNet 沿 (conv stem, MLP 头) 双轴扩参到 1.90M / 5.84M / 30M 三档，cross-subject 准确率从 76.67% 单调下降至 51.37% / 50%（chance），其中 v1/v2 (~30M) 不可训根据作者本人交接诊断更可能是 BF16 下深 MLP 头优化栈兼容性问题（v3 加 LayerNorm 立即 trainable）；(ii) **架构提供独立价值的方向性证据**——在 ~30M 参数 + 无预训练同等条件下，CBraMod random-init cross 86.34% vs EEGNet-Huge v3 (5.84M) cross 51.37% 差距 ~+35 pp，但因 EEGNet-Huge / random-init 均未做专属 HPO 且 baseline → Mid 跳跃同时改 conv stem 与 MLP 头，该差距不可独立归因到 backbone 架构；(iii) **TUEG 预训练贡献同规模、同 HP 下唯一干净的 Δ**——random-init → original-weights backbone 切换的 Δ 在被试内为 **binary +23.10 / ternary +30.79 pp**，在跨被试与 XSI-FT 为 +1.6 ~ +4.3 pp，这是本研究归因强度最高的一组 Δ。本研究在三种训练范式下系统量化了 CBraMod vs EEGNet 的性能差距；补充的探索性消融暗示该差距由架构归纳偏置 + 预训练先验 + 容量约束三因素叠加，但本研究的 HPO 预算与单轴扩参限制使我们**无法对各因素做独立定量归因**。"基座模型价值随数据约束放大" 的方向性结论在两项消融中均得到方向性支持。**该结论限于 CBraMod backbone × 本数据集（21 名 responder cohort）× 当前 HPO 预算；其他 EEG transformer backbone (LaBraM [6], NeuroLM [15], BIOT [16]) 是否复现该三向分解需独立验证（§6 #7）。** 这一限制由 §6 #8（EEGNet-Huge ≥ 25 trial 独立 HPO + random-init CBraMod ≥ 25 trial 独立 HPO，预算 ~80–120 GPU 小时）描述的后续工作处理。
 >
-> **发现 2 — 32 通道是最优部署目标，64 通道追加 +1.75 pp，32ch+ 上方法选择 statistically indistinguishable，16ch 起 method-agnostic 区间崩溃。** FDR 选取的 32 通道保留了 128 通道性能的 **96.7%**（87.71% vs 90.68%；在 21 名 responder cohort × cross-subject binary 上；通道选择 ranking 包含全 session 信息，可能轻微夸大 retention，详见 Limitation #1），兼容商用 32 通道 EEG 硬件；中端预算可上 64ch FDR (89.46% binary / 75.12% ternary，binary 98.7% retention，ternary 与 128ch baseline 在 run-to-run noise 内一致)；极简成本场景下 4ch Band Power 在双 task 上均可作为兜底方案（binary 78.75% / 86.8% retention；ternary 60.67% / 81.0% retention）——这把可部署谱系从初版草稿的 {128, 32, 8} 扩展到 {128, 64, 32, **16**, 8, 4}（16ch BP/FDR ~85% / 94% retention binary）。2026-05-11 矩阵闭合 + 2026-05-13 16ch sweep 后 {4, 8, **16**, 32, 64}ch × 5 method × {binary, ternary} = **50 cell** 完整数据表明：**32ch 起，5 method 之间以及与 negative_control 之间的差异均在 ±3.24 pp 内（ternary ≤ 2.09 pp，落在被试间 std ≈ 13 pp 的 noise 量级内），统计上不可区分**；该不敏感性维持到 64ch（binary spread 3.24 pp、ternary 2.09 pp，与 32ch 同量级）；**而 16ch 上 5-entry spread 跃升到 binary 8.69 pp / ternary 7.64 pp（3–4 倍跃迁），method-agnostic 等价性论断严格限制在 ≥ 32ch**。换言之，32ch+ 部署只需选**任一**数据驱动方法（含商用 10-20 布局或随机 method-complement 通道），性能等价；16ch 及以下方法选择重新关键，需 BP（binary 最稳）或 FDR（ternary 最优）；硬件选择应以舒适度、成本、可用性为主在 32ch+ 区段，但 ≤ 16ch 时需配合方法选择。
+> **发现 2 — 32 通道是部署起点；32ch+ 方法选择对最终准确率影响小（≤3 pp 量级）；16ch 起方法依赖开始 paired-significant 离开等价区间。** FDR 选取的 32 通道保留了 128 通道性能的 **96.7%**（87.71% vs 90.68%；paired *t*=2.87, *p*=0.009 仍达统计显著；在 21 名 responder cohort × cross-subject binary 上；通道选择 ranking 包含全 session 信息，可能轻微夸大 retention，详见 Limitation #1），兼容商用 32 通道 EEG 硬件；中端预算可上 64ch FDR (89.46% binary / 75.12% ternary，与 128ch baseline 在 run-to-run noise 内一致)；极简成本场景下 4ch Band Power 在双 task 上均可作为兜底（binary 78.75% / ternary 60.67%）——可部署谱系从初版草稿的 {128, 32, 8} 扩展到 {128, 64, 32, **16**, 8, 4}。2026-05-11 矩阵闭合 + 2026-05-13 16ch sweep 后 5 × 5 × 2 = 50 cell 完整数据上：**32ch+ 上 5 method 间 spread 落在 2.08–3.24 pp（约 1 paired-SEM），方法选择对部署性能的实际影响小**；16ch 上 spread 跃升到 8.69 / 7.64 pp（3–4×），且 16ch ternary FDR-vs-neg_ctrl paired Δ = 4.94 pp, *p* ≈ 0.001 是 single-cohort 内 paired-significant 的，作为"方法依赖在 32→16ch 之间扩张"的方向性证据（需独立 cohort 复制才能上升为普适规则）。**部署 takeaway**：32ch+ 选任一数据驱动方法（含商用 10-20）性能差异 ≤3 pp；≤16ch 时方法选择重新成为决策变量，binary 优先 BP（10 cell 从不最差）、ternary 优先 FDR；硬件选择在 32ch+ 区段以舒适度 / 成本 / 可用性为主。
 >
 > **发现 3 — 同被试数据增加显著改善性能；同时 cross-subject 训练所带来的额外优势随之减弱。** 在被试内重训练中，额外 session 数据为两种模型均带来显著增益（CBraMod 二分类 +6.13 pp / 三分类 +8.55 pp, p ≤ 0.012；EEGNet 二分类 +7.34 pp, p = 0.009）；XSI-FT（§3.3 定义；以 cross-subject checkpoint 作为单被试 fine-tune 初始权重）在二分类上达到 +5.70 pp (p = 0.015) 至 92.93% 的相近终点，与被试内重训练接近但未进一步突破。低基线被试获益尤为突出，被试间标准差压缩约 45%（10.81% → 5.98%），最低单被试准确率从 60.62% 提升至 74.38%。相对地，沿用相同 21 名被试 cross-subject 训练并随 session 累积训练数据的 CBraMod 模型仅获得 +0.86 pp 的微弱改善（p = 0.662）——这一对照说明：当个体已经有足够的同被试数据时，cross-subject 训练所带来的额外优势随之减弱，新增同被试 trial 不再依赖跨被试群体信息即可推动决策边界收敛。
 >
