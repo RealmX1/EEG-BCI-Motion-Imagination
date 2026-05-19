@@ -16,6 +16,9 @@
 #   1. 61ch standard_1010 ternary           (binary 20260330_1213 already present)
 #   2-6.  16ch {fdr, csp, attention, band_power, negative_control} binary
 #   7-11. 16ch {fdr, csp, attention, band_power, negative_control} ternary
+# set -u catches unset-var typos; set -e is INTENTIONALLY omitted so that a
+# single failing run is logged (FAIL_*) and the sweep still runs the rest —
+# do not add `set -e` or `|| exit` to the run_one calls below.
 set -u
 cd "$(dirname "$0")/../.." || exit 1
 
@@ -46,30 +49,45 @@ echo "############################################################"
 echo "# [$(date '+%Y-%m-%d %H:%M:%S')] SECONDARY GATE: overwatch (cap 30 min)"
 echo "############################################################"
 OW_LOG="$LOG_DIR/_overwatch.log"
-# Run overwatch with --disable-network in background, kill after 30 min
-uv run python scripts/overwatch/overwatch.py --disable-network > "$OW_LOG" 2>&1 &
-OW_PID=$!
-OW_TIMEOUT=1800
-OW_START=$(date +%s)
-while kill -0 "$OW_PID" 2>/dev/null; do
-  ELAPSED=$(($(date +%s) - OW_START))
-  if [[ $ELAPSED -ge $OW_TIMEOUT ]]; then
-    echo "Overwatch timeout at ${OW_TIMEOUT}s — killing and proceeding (primary gate already passed)"
-    kill -TERM "$OW_PID" 2>/dev/null || true
-    sleep 3
-    kill -KILL "$OW_PID" 2>/dev/null || true
-    break
-  fi
-  sleep 30
-done
-wait "$OW_PID" 2>/dev/null
-OW_RC=$?
-if [[ $OW_RC -eq 0 ]]; then
-  echo "Overwatch released cleanly"
+# If `uv` is not on PATH (e.g. under nohup with a stripped env), the overwatch
+# subprocess would exit 127 instantly, the kill -0 loop would end without ever
+# hitting the timeout branch, and we'd silently "proceed". That's still SAFE
+# because the primary gate above already proved the GPU is free for compute —
+# but a broken environment must NOT be inferred from a cryptic "exit 127". So:
+# surface it loudly, skip the (pointless) dead-PID dance, and rely on the
+# primary gate. We do NOT exit here: the training command also uses `uv run`,
+# so if uv were truly gone every run would FAIL_* and be obvious anyway.
+if ! command -v uv >/dev/null 2>&1; then
+  echo "WARNING: 'uv' not on PATH — SECONDARY GATE SKIPPED (overwatch can't run)."
+  echo "         Relying on PRIMARY gate (already passed). If uv is genuinely"
+  echo "         missing, every run below will also FAIL_ (training uses uv run)."
+  echo "ABORT_SECONDARY_GATE_uv_missing=skipped_primary_gate_ok" >> "$LOG_DIR/_results.txt"
 else
-  echo "Overwatch exit $OW_RC (proceeding — primary gate passed)"
+  # Run overwatch with --disable-network in background, kill after 30 min
+  uv run python scripts/overwatch/overwatch.py --disable-network > "$OW_LOG" 2>&1 &
+  OW_PID=$!
+  OW_TIMEOUT=1800
+  OW_START=$(date +%s)
+  while kill -0 "$OW_PID" 2>/dev/null; do
+    ELAPSED=$(($(date +%s) - OW_START))
+    if [[ $ELAPSED -ge $OW_TIMEOUT ]]; then
+      echo "Overwatch timeout at ${OW_TIMEOUT}s — killing and proceeding (primary gate already passed)"
+      kill -TERM "$OW_PID" 2>/dev/null || true
+      sleep 3
+      kill -KILL "$OW_PID" 2>/dev/null || true
+      break
+    fi
+    sleep 30
+  done
+  wait "$OW_PID" 2>/dev/null
+  OW_RC=$?
+  if [[ $OW_RC -eq 0 ]]; then
+    echo "Overwatch released cleanly"
+  else
+    echo "Overwatch exit $OW_RC (proceeding — primary gate passed)"
+  fi
+  echo "(see $OW_LOG for full overwatch trace)"
 fi
-echo "(see $OW_LOG for full overwatch trace)"
 
 # ── Run helper ──────────────────────────────────────────────────────────────
 run_one () {

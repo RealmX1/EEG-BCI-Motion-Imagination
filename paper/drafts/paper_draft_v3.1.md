@@ -243,7 +243,7 @@ CBraMod [4] 是一个 12 层 Transformer 基座模型，在 TUEG 语料上以 ma
 **手工设计配置（1 种）：**
 5. **商用布局（Commercial）**：标准 10-20 系统在 BioSemi 128 通道上的映射
 
-此外，还测试了 61 通道（标准 10-10 系统）、8 通道（FDR/Attention top-8）、4 通道（FDR ∩ Attention 交集 + 负控制）配置。5 种方法的具体电极空间布局以及 §3.5.3 控制实验所用的 32 通道负控制电极位置，详见 Figure S3（2D 详细图）与 Figure S4（3D 多视角）。
+此外，还测试了 64、61（标准 10-10 系统）、16、8（FDR/Attention top-K）、4（FDR ∩ Attention 交集 + 负控制）通道配置——完整 64–4ch × 5 method × {binary, ternary} 缩放矩阵见 §3.5.2。5 种方法的具体电极空间布局以及 §3.5.3 控制实验所用的 32 通道负控制电极位置，详见 Figure S3（2D 详细图）与 Figure S4（3D 多视角）。
 
 ### 2.7 领域自适应 Further Pre-training
 
@@ -607,7 +607,7 @@ FDR 以 87.71% 领先，保留了 128 通道性能的 **96.7%**（87.71% vs 90.6
 
 表 9 展示了 CBraMod 从 128 到 4 通道的性能降解轨迹（binary 与 ternary 平行）。Ternary baseline 取 128ch CBraMod cross-subject `20260324_0109`，mean = **74.88%**（run-to-run range 跨 6 个 21 名被试完整运行为 73.06–75.50%，详见 §3.2）。
 
-**表 9. CBraMod 通道缩放分析（跨被试 binary / ternary 双 task）。** Δ 列相对 128ch 单点 baseline（binary 90.68% / ternary 74.88%）；64ch 行新增 attention / band_power / csp / negative_control 4 method（数据来源：2026-05-11 21-cell 矩阵闭合，详见 [docs/handoffs/2026-05-11_reduced_channel_matrix_closure.md](../../docs/handoffs/2026-05-11_reduced_channel_matrix_closure.md)）。**16ch 行（2026-05-13 transition-point sweep）**填补了 32→8ch 之间的中间档位，揭示 method-agnostic 区间在 32ch 以下开始崩溃（详见正文）。
+**表 9. CBraMod 通道缩放分析（跨被试 binary / ternary 双 task）。** **Δ 列基准依"过渡"列首端而定（双基准约定）**：`128 → X` 行的 Δ 相对 **128ch 单点 baseline**（binary 90.68% / ternary 74.88%，即表头括注值）；`X → Y` 行（如 `32 → 8`、`32 → 4`、`16 → 8`）的 Δ 相对 **源端 X 通道档同一方法的该 task 准确率**——`32 → ` 行相对 32ch best（binary 87.71% / ternary 72.20%），`16 → ` 行相对该方法的 16ch 值（如 `16 → 8 (FDR)` 相对 16ch FDR 84.26%）。因此表头括注 90.68% / 74.88% 仅对 `128 →` 行成立，`X → Y` 行的 Δ 不可直接与 90.68% / 74.88% 对照（其 (绝对准确率) 括注值才是跨行可比的统一锚点）。64ch 行新增 attention / band_power / csp / negative_control 4 method（数据来源：2026-05-11 21-cell 矩阵闭合，详见 [docs/handoffs/2026-05-11_reduced_channel_matrix_closure.md](../../docs/handoffs/2026-05-11_reduced_channel_matrix_closure.md)）。**16ch 行（2026-05-13 transition-point sweep）**填补了 32→8ch 之间的中间档位，揭示 method-agnostic 区间在 32ch 以下开始崩溃（详见正文）。
 
 | 过渡 | 通道缩减 | Δ binary (vs 90.68%) | Δ ternary (vs 74.88%) | 说明 |
 |------|---------|---:|---:|------|
@@ -637,13 +637,13 @@ FDR 以 87.71% 领先，保留了 128 通道性能的 **96.7%**（87.71% vs 90.6
 | 32 → 4 (负控制) | −88% | −20.06 pp (67.65%) | −18.85 pp (53.37%) | 双 task 上仍 ≈ FDR/CSP top-4 |
 | 32 → 4 (FDR∩Att, outlier) | −88% | −4.97 pp (82.71%) | — | 交集通道，favorable outlier（binary 仅） |
 
-图 3d 以分组柱状的 2×4 grid panel 形式直观呈现 4×5×2 = 40 cell 完整矩阵，让 method × channel × task 三向交互一次可视。
+图 3d 以分组柱状的 2×5 grid panel 形式直观呈现 reduced-channel × method × task 矩阵，让 method × channel × task 三向交互一次可视。
 
-**图 3d. Reduced-channel × method × task 40-cell 矩阵全景（cross-subject CBraMod, N = 21）。** Row：binary（panel A-D）/ ternary（panel E-H）；col：4 / 8 / 32 / 64 ch。每 panel 内 5 method 分组柱：FDR（红）/ Attention（蓝）/ Band Power（绿）/ CSP（橙）/ negative_control（灰）；柱高为 mean cross-subject accuracy，error bar 为 subject 间 std。横虚线为 128ch CBraMod cross-subject baseline（binary 90.68% / ternary 74.88%）。**核心可视化论断**：(i) panel D / H（64ch）柱高接近 128ch baseline 虚线、5 method 之间几乎齐平 — "32ch+ method-agnostic" 视觉证据；(ii) panel A / E（4ch）BP 绿柱孤立突出于其他 4 个 method — "低通道下 BP 单独保持判别力"；(iii) panel C / G（32ch）灰柱（neg_ctrl）与 4 数据驱动 method 柱高在 ±0.32 pp 内不可区分 — 体积传导冗余的强证据（见 §3.5.3 / §4.3）。Panel 注释数字 = mean accuracy 1 位小数。
+**图 3d. Reduced-channel × method × task 矩阵全景（cross-subject CBraMod, N = 21）。** Row：binary（panel A-E）/ ternary（panel F-J）；col：4 / 8 / 32 / 61 / 64 ch（每 task 5 列，其中 61ch 为 standard 10-10 单配置列）。每 panel 内 5 method 分组柱：FDR（红）/ Attention（蓝）/ Band Power（绿）/ CSP（橙）/ negative_control（灰）；4ch 列额外含 FDR∩Att 交集柱；柱高为 mean cross-subject accuracy，error bar 为 subject 间 std。横虚线为 128ch CBraMod cross-subject baseline（binary 90.68% / ternary 74.88%）。**注：本图当前为 4/8/32/61/64ch 版本，尚未纳入 2026-05-13 新增的 16ch 列（5×5×2 = 50 cell 中的 16ch × 5 method × 2 task = 10 cell）；16ch 数据以表 9 为权威来源，图 3d 的 16ch 列待图表重生成后补齐。** **核心可视化论断**：(i) panel E / J（64ch）柱高接近 128ch baseline 虚线、5 method 之间几乎齐平 — "32ch+ method-agnostic" 视觉证据；(ii) panel A / F（4ch）BP 绿柱孤立突出于其他 4 个 method — "低通道下 BP 单独保持判别力"；(iii) panel C / H（32ch）灰柱（neg_ctrl）与 4 数据驱动 method 柱高在 ±0.32 pp 内不可区分 — 体积传导冗余的强证据（见 §3.5.3 / §4.3）。Panel 注释数字 = mean accuracy 1 位小数。
 
-![图 3d. 40-cell reduced-channel matrix](../figures/reduced_channel_40cell_grid.png)
+![图 3d. reduced-channel × method × task 矩阵（4/8/32/61/64ch，16ch 列待补）](../figures/reduced_channel_40cell_grid.png)
 
-> **数据来源**：40 个 alias `reduced_{N}_{method}_{task}`（N ∈ {4,8,32,64}, method ∈ 5, task ∈ {binary, ternary}）注册在 [paper/run_registry.yaml](../../paper/run_registry.yaml)；完整 run_tag → mean_acc 映射见 [docs/handoffs/2026-05-11_reduced_channel_matrix_closure.md §40-cell 矩阵](../../docs/handoffs/2026-05-11_reduced_channel_matrix_closure.md#40-cell-矩阵-cross-subject--cbramod--n21)。
+> **数据来源**：alias `reduced_{N}_{method}_{task}`（N ∈ {4,8,32,64}, method ∈ 5, task ∈ {binary, ternary}）加 `standard_1010_61_cross_{task}` 注册在 [paper/run_registry.yaml](../../paper/run_registry.yaml)；完整 run_tag → mean_acc 映射见 [docs/handoffs/2026-05-11_reduced_channel_matrix_closure.md §40-cell 矩阵](../../docs/handoffs/2026-05-11_reduced_channel_matrix_closure.md#40-cell-矩阵-cross-subject--cbramod--n21)。**当前 PNG 文件名沿用 `reduced_channel_40cell_grid.png`，但实际渲染为 4/8/32/61/64ch 列；16ch 列（表 9 已含）尚未进入本图，以表 9 为权威。**
 > 生成命令：`uv run python scripts/paper/generate_paper_figures.py --figure reduced_channel_40cell_grid`
 
 图 4 以曲线形式直观呈现了这一非线性降解过程。
@@ -690,7 +690,7 @@ FDR∩Attention 的 4 个交集通道（82.71%）的高准确率应被视为一�
 > **数据来源 — Binary**: 128ch: `results/20260324_0023_cross_subject_cache_imagery_binary.json`; 64ch FDR `20260505_2223`: `results/64_channel/fdr/20260505_2223_cross_subject_cache_imagery_binary.json`; 64ch attention `20260511_1038` / band_power `20260511_1050` / csp `20260511_1111` / negative_control `20260511_1131`: `results/64_channel/{attention,band_power,csp,negative_control}/20260511_*_cross_subject_cache_imagery_binary.json`; 61ch: `results/61_channel/standard_1010/20260330_1213_cross_subject_cache_imagery_binary.json`; 32ch: `results/32_channel/{fdr,band_power,commercial,attention,csp}/20260330_*_cross_subject_cache_imagery_binary.json`; **16ch（2026-05-13 sweep）fdr `20260513_1959` / csp `20260513_2027` / attention `20260513_2048` / band_power `20260513_2108` / negative_control `20260513_2132`: `results/16_channel/{fdr,csp,attention,band_power,negative_control}/20260513_*_cross_subject_cache_imagery_binary.json`**; 8ch: `results/8_channel/{band_power/20260331_1950,csp/20260331_2044,fdr/20260330_1311,attention/20260330_1334}_cross_subject_cache_imagery_binary.json`; 8ch negative_control `20260511_1425`: `results/8_channel/negative_control/20260511_1425_cross_subject_cache_imagery_binary.json`; 4ch BP `20260505_2308`: `results/4_channel/band_power/20260505_2308_cross_subject_cache_imagery_binary.json`; 4ch CSP `20260505_2246`: `results/4_channel/csp/20260505_2246_cross_subject_cache_imagery_binary.json`
 >
 > **数据来源 — Ternary（2026-05-11 21-cell 矩阵闭合 + 2026-05-13 16ch / 61ch 补齐）**: 128ch baseline `20260324_0109`; **61ch standard_1010 `20260513_1938`: `results/61_channel/standard_1010/20260513_1938_cross_subject_cache_imagery_ternary.json`**; 64ch fdr `20260511_1148` / attention `20260511_1217` / band_power `20260511_1237` / csp `20260511_1256` / negative_control `20260511_1314`; 32ch fdr `20260221_0332` / attention `20260228_2247` / band_power `20260511_1348` / csp `20260511_1404` / negative_control `20260511_1757`; **16ch fdr `20260513_2146` / csp `20260513_2227` / attention `20260513_2241` / band_power `20260513_2319` / negative_control `20260513_2343`: `results/16_channel/{fdr,csp,attention,band_power,negative_control}/20260513_*_cross_subject_cache_imagery_ternary.json`**; 8ch fdr `20260511_1439` / attention `20260302_2140` / band_power `20260511_1508` / csp `20260511_1539` / negative_control `20260511_1600`; 4ch fdr `20260511_1618` / attention `20260511_1642` / band_power `20260511_1655` / csp `20260511_1731` / negative_control `20260310_0054`; 完整 run_tag → mean_acc 映射见 [docs/handoffs/2026-05-11_reduced_channel_matrix_closure.md §40-cell 矩阵](../../docs/handoffs/2026-05-11_reduced_channel_matrix_closure.md#40-cell-矩阵-cross-subject--cbramod--n21) + [docs/handoffs/2026-05-14_16ch_transition_point.md](../../docs/handoffs/2026-05-14_16ch_transition_point.md)（16ch / 61ch ternary 补齐记录）。
-> 生成命令: 图 4 由 `uv run python scripts/paper/generate_paper_figures.py --figure channel_scaling` 生成；图 4b 由 `uv run python scripts/paper/generate_paper_figures.py --figure channel_ranking_flip` 生成；ternary 维度的对应可视化见 §3.5.2 图 3d (`--figure reduced_channel_40cell_grid`)，4×5×2 = 40 cell 矩阵全景。
+> 生成命令: 图 4 由 `uv run python scripts/paper/generate_paper_figures.py --figure channel_scaling` 生成；图 4b 由 `uv run python scripts/paper/generate_paper_figures.py --figure channel_ranking_flip` 生成；ternary 维度的对应可视化见 §3.5.2 图 3d (`--figure reduced_channel_40cell_grid`)，当前渲染 4/8/32/61/64ch 矩阵（16ch 列待补，以表 9 为权威）。
 
 #### 3.5.3 控制实验
 
