@@ -923,11 +923,28 @@ def generate_extra_sessions_paradigm_figure():
         )
 
     # fig9 c1: 右侧 per-series 垂直 ruler(卡尺)— Δ pp 编码为 bracket 长度,
-    # 与 fig3d 的 Δpp bracket 同源(arrowstyle='|-|')。三范式 x 偏移 0.20 互不重叠,
-    # bracket y 跨度 = baseline → final value;清晰直观 = pp 增幅。
-    # annotation_clip / clip_on=False 防 xlim 边界夹断(rulers x 在数据轴外)。
-    ruler_x_offsets = [3.25, 3.45, 3.65]
-    for item, rx in zip(series, ruler_x_offsets):
+    # 与 fig3d 的 Δpp bracket 同源(arrowstyle='|-|')。bracket y 跨度 = baseline
+    # → final value;清晰直观 = pp 增幅。
+    # fig9 c2: rulers 间距 0.20→0.15 收窄;leftmost 3.25→3.40 右移避免与主图
+    # 最终 accuracy 标签重叠;Δ 数值标签从"沿 bracket 中点 side-attached"
+    # 改为"3 列居中、按 final accuracy 排名垂直分层"——每列居中对齐其 ruler
+    # (ha='center'),y 位置按 final accuracy 大小排序(最高 → 顶,固定 row_dy
+    # 分隔)。同步把 c1 的 `+{:.2f}` 字面正号 → `{:+.2f}` format-spec
+    # 自动符号(原写法若 delta 为负会渲染为 "+-x.xx",虽现数据无负值仍是 bug)。
+    # annotation_clip / clip_on=False 防 xlim/ylim 边界夹断。
+    ruler_x_offsets = [3.40, 3.55, 3.70]
+
+    # c2: 按 final accuracy 排名分配 label 行(rank 0 = 最高 → 顶部 y)
+    final_accs = [float(item['means'][-1]) for item in series]
+    ranked_order = sorted(range(len(series)), key=lambda i: -final_accs[i])
+    rank_of = {idx: rank for rank, idx in enumerate(ranked_order)}
+
+    # c2: 3 行固定 y stagger,锚定在所有 ruler 顶部上方;row_dy = 1.5 pp 固定
+    y_max_final = max(final_accs)
+    label_top_y = y_max_final + 3.0
+    row_dy = 1.5
+
+    for i, (item, rx) in enumerate(zip(series, ruler_x_offsets)):
         y_lo, y_hi = float(item['means'][0]), float(item['means'][-1])
         ax_line.annotate(
             '', xy=(rx, y_hi), xytext=(rx, y_lo),
@@ -936,10 +953,11 @@ def generate_extra_sessions_paradigm_figure():
                             shrinkA=0, shrinkB=0),
             zorder=4, annotation_clip=False,
         )
+        label_y = label_top_y - rank_of[i] * row_dy
         ax_line.text(
-            rx + 0.05, (y_lo + y_hi) / 2,
-            f'+{item["delta"]:.2f} pp',
-            ha='left', va='center',
+            rx, label_y,
+            f'{item["delta"]:+.2f} pp',
+            ha='center', va='center',
             fontsize=FONT_SIZES['annotation'] - 1,
             fontweight='bold', color=item['color'],
             clip_on=False,
@@ -957,8 +975,10 @@ def generate_extra_sessions_paradigm_figure():
 
     y_min = min(float(np.nanmin(item['means'] - item['sds'])) for item in series)
     y_max = max(float(np.nanmax(item['means'] + item['sds'])) for item in series)
-    ax_line.set_ylim(max(75, y_min - 2.5), min(100, y_max + 2.5))
-    # fig9 c1: xlim 扩到 3.85 容纳右侧 3 根 rulers(x=3.25/3.45/3.65)及其 +pp 标签。
+    # fig9 c2: ylim 顶扩到容纳 stacked label(顶行 y = label_top_y)+ ~1 pp 缓冲
+    ax_line.set_ylim(max(75, y_min - 2.5),
+                     min(100, max(y_max + 2.5, label_top_y + 1.0)))
+    # fig9 c1: xlim 扩到 3.85 容纳右侧 3 根 rulers(c2 后 x=3.40/3.55/3.70)。
     ax_line.set_xlim(-0.2, 3.85)
 
     fig.tight_layout()
@@ -2771,6 +2791,11 @@ def generate_channel_scaling_v2_figure():
                     markerfacecolor=facecolor, markeredgecolor=style['color'],
                     markeredgewidth=2.0, zorder=5, label=label,
                     linestyle='none')
+            # c3: 4ch outlier (4_fdr_att_overlap) 跳过 inline accuracy 文本——
+            # 用户反馈 "remove text label for the 4 ch outlier"。★ marker
+            # 与 legend 项保留;61ch ◆ outlier 文本不变。
+            if key == '4_fdr_att_overlap':
+                continue
             ax.annotate(f'{info["mean"]:.1f}%' + (' (pending)' if info['mock'] else ''),
                         (info['n_ch'], info['mean']),
                         textcoords='offset points', xytext=(10, -16),
