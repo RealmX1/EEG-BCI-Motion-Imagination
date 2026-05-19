@@ -77,11 +77,11 @@ PAPER_COLORS: Dict[str, str] = {
     'subject_dot':      '#222222',  # 被试散点近黑色
 
     # ---- 通道选择方法色 (method colors) — 既有方案保留 ----
-    'fdr':              '#d62728',  # 红
-    'band_power':       '#2ca02c',  # 绿
-    'csp':              '#ff7f0e',  # 橙
-    'attention':        '#1f77b4',  # 蓝
-    'negative_control': '#7f7f7f',  # 中性灰 — 控制项，区分于 method 色但保留 visibility
+    'fdr':        '#d62728',  # 红
+    'band_power': '#2ca02c',  # 绿
+    'csp':        '#ff7f0e',  # 橙
+    'attention':  '#1f77b4',  # 蓝
+    'negative_control': '#7f7f7f',  # 中性灰 — 控制项 (used by reduced_channel_40cell_grid)
 
     # ---- 范式色 (paradigm colors) ----
     'imagery':   '#5e35b1',   # 深紫 — Motor Imagery

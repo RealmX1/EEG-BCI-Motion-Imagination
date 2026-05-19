@@ -18,6 +18,7 @@ import numpy as np
 
 from ..config.constants import MODEL_COLORS
 from ..results.dataclasses import PlotDataSource, TrainingResult
+from .paper_style import PAPER_COLORS
 from .plots import (
     CHANCE_LEVELS, annotate_bars_with_leaders, accuracy_ylim,
     separate_paired_labels, draw_label_with_leader,
@@ -244,7 +245,8 @@ def generate_extra_sessions_combined_plot(
     ax_bar.set_title(title)
     ax_bar.set_xticks(x_base)
     ax_bar.set_xticklabels(subjects, rotation=45, ha='right')
-    ax_bar.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5,
+    ax_bar.axhline(y=chance_level, color=PAPER_COLORS['chance_red'], linestyle='--',
+                   alpha=0.85, linewidth=1.0,
                    label=f'Chance ({chance_level*100:.1f}%)')
     ax_bar.set_ylim(accuracy_ylim(task, data_min=_data_min))
     ax_bar.legend(loc='lower right', fontsize=8, ncol=2)
@@ -318,7 +320,8 @@ def generate_extra_sessions_combined_plot(
     ax_line.set_xticklabels(step_labels, fontsize=10)
     ax_line.set_ylabel('Test Accuracy')
     ax_line.set_ylim(accuracy_ylim(task, data_min=_data_min, top_pad=0.08))
-    ax_line.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5,
+    ax_line.axhline(y=chance_level, color=PAPER_COLORS['chance_red'], linestyle='--',
+                    alpha=0.85, linewidth=1.0,
                     label=f'Chance ({chance_level*100:.1f}%)')
     ax_line.legend(loc='lower right', fontsize=8)
     ax_line.set_title('Performance Progression with Additional Training Data')
@@ -410,7 +413,8 @@ def generate_extra_sessions_combined_plot(
 
     ax_box.set_ylabel('Test Accuracy')
     ax_box.set_title('Accuracy Distribution')
-    ax_box.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5)
+    ax_box.axhline(y=chance_level, color=PAPER_COLORS['chance_red'], linestyle='--',
+                   alpha=0.85, linewidth=1.0)
     ax_box.set_ylim(accuracy_ylim(task, data_min=_data_min, top_pad=0.08))
 
     # =========================================================================
