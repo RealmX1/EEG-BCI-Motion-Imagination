@@ -1516,20 +1516,20 @@ within-subject 范式下方向反转：random-init CBraMod 在被试内二分类
 
 ### Table S5e. EEGNet HP source trace
 
-为响应 §2.5.1 的 HP-维度校准说明，本表追踪 EEGNet 7 维搜索空间中各 HP 的来源——继承自 Ding et al. [3] 的 EEGNet-8,2 / deepEEGNet 经验值，还是本研究在 Optuna 中重新搜索得到。
+为响应 §2.5.1 的 HP-维度校准说明，本表追踪 EEGNet 7 维搜索空间中各 HP 的来源——继承自 Ding et al. [3] 的 EEGNet-8,2 经验值，还是本研究在 Optuna 中重新搜索得到。
 
-| HP | 来源 | Ding [3] 默认 | 本研究 HPO 搜索范围 | 本研究 HPO 最优 |
-|----|------|--------------|---------------------|----------------|
+| HP | 来源 | Ding [3] 实际值 | 本研究 HPO 搜索范围 | 本研究 HPO 最优 |
+|----|------|----------------|---------------------|----------------|
 | F1 (filters) | [3] EEGNet-8,2 默认 8 | 8 | {4, 8, 16}（categorical） | **16** |
 | D (depth multiplier) | [3] EEGNet-8,2 默认 2 | 2 | {1, 2, 4}（categorical） | **4** |
 | F2 (= F1 × D) | 派生 | 16 | 派生（不独立搜索） | 64 |
-| kernel_length | [3] EEGNet 默认 64 (= sample_rate / 2) | 64 | {32, 64, 128}（categorical） | 64（未变） |
-| learning_rate | 本研究新搜 | — | [1e-4, 1e-2] log-uniform | 4e-3 |
+| kernel_length | [3] Ding 实际显式设为 32（EEGNet 库形参默认 64 面向 128 Hz；Ding 100 Hz / 4-40 Hz 带通沿用 EEGNet 原作者对 SMR 高通数据的 32 建议） | 32 | {32, 64, 128}（categorical） | 64（≠ Ding 的 32，HPO 选择放大 2×） |
+| learning_rate | 本研究新搜 | 1e-3 (Orig) / 1e-4 (Finetune) | [1e-4, 1e-2] log-uniform | 4e-3 |
 | weight_decay | 本研究新搜 | — | [1e-5, 0.1] log-uniform | 1e-5 |
-| dropout_rate | 本研究新搜 | — | [0.2, 0.7] uniform | 0.27 |
-| batch_size | 本研究新搜 | — | {32, 64, 128} | 64 |
+| dropout_rate | 本研究新搜 | 0.5 (Orig) / 0.65 (Finetune) | [0.2, 0.7] uniform | 0.27 |
+| batch_size | 本研究新搜 | 16 | {32, 64, 128} | 64 |
 
-注：F1 / D / kernel_length 三个 architecture HP 虽继承 [3] 的设计经验，但本研究的 Optuna 搜索仍把它们作为可变 categorical 在指定范围内独立采样；HPO 最优 (F1=16, D=4) 为本研究的搜索结果而非 [3] 默认值的直接采用。本研究未从零冷启动搜索 architecture HP 的边界（如 F1=32 等更大值）——这一上界限制在 §3.7.1 EEGNet-Mid（F1=32）实验中被独立扩展并验证（详见正文）。
+注：F1 / D 两个 architecture HP 虽继承 [3] 的 EEGNet-8,2 设计经验，但本研究的 Optuna 搜索仍把它们作为可变 categorical 在指定范围内独立采样；HPO 最优 (F1=16, D=4) 为本研究的搜索结果而非 [3] 默认值的直接采用。kernel_length 在本研究的搜索空间 {32, 64, 128} 中以 Ding 实际值 32 为下界、库形参默认 64 为中点；HPO 选择 64，相对 Ding 的 32 增加 2×。本研究未从零冷启动搜索 architecture HP 的边界（如 F1=32 等更大值）——这一上界限制在 §3.7.1 EEGNet-Mid（F1=32）实验中被独立扩展并验证（详见正文）。
 
 > **数据来源**: 搜索空间定义见 [src/hpo/search_spaces.py](../../src/hpo/search_spaces.py) `_sample_eegnet_within` / `_sample_eegnet_cross`；HPO 最优值见 Table S5b。
 
