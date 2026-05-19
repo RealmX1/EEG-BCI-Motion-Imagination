@@ -1486,15 +1486,18 @@ def generate_all_baseline_plots():
 # =============================================================================
 
 def generate_8ch_ranking_flip_figure():
-    """T3.1 — 通道选择方法排序翻转 slope chart (40-cell matrix update).
+    """T3.1 — 通道选择方法排序翻转 slope chart (50-cell matrix update).
 
-    双面板版本：左 binary、右 ternary，每子图 4 档 (64 / 32 / 8 / 4ch)。
+    双面板版本：左 binary、右 ternary，每子图 5 档 (64 / 32 / 16 / 8 / 4ch)。
     强调"高通道档 4 method 几乎并排（method-agnostic），低通道档发散并翻转"
     的方法选择敏感度现象（v3.1 Section 3.5.2 末段对应论点）。
 
     数据来源：
-      reduced_{64,32,8,4}_{fdr,band_power,csp,attention}_{binary,ternary}
+      reduced_{64,32,16,8,4}_{fdr,band_power,csp,attention}_{binary,ternary}
       4ch 负控制（reduced_4_negative_control_{task}）作虚线天花板对照
+
+    2026-05-20: 16ch tier inserted; flip narrative now spans 32→16→8 instead
+    of 32→8 (binary), and binary FDR/BP near-tie at 16ch is now visible.
     """
     import matplotlib.pyplot as plt
 
@@ -1509,7 +1512,7 @@ def generate_8ch_ranking_flip_figure():
         'CSP':        PAPER_COLORS['csp'],
         'Attention':  PAPER_COLORS['attention'],
     }
-    channel_tiers = [64, 32, 8, 4]
+    channel_tiers = [64, 32, 16, 8, 4]
     channel_levels = [f'{n}ch' for n in channel_tiers]
 
     def _compute_means(task):
@@ -1556,12 +1559,14 @@ def generate_8ch_ranking_flip_figure():
         ax.set_xlabel('Channel count (reduced)', fontsize=FONT_SIZES['axis_label'])
         if task == 'binary':
             ax.set_ylim(50, 105)
-            flip_text = ('At 64/32ch: FDR leads (within 3.24 pp)\n'
+            flip_text = ('At 64/32ch: FDR leads (spread ≤ 3.24 pp)\n'
+                         'At 16ch: BP/FDR near-tie (spread 8.69 pp; Att collapses)\n'
                          'At 8/4ch: Band Power dominates (reversal)')
         else:
             ax.set_ylim(35, 90)
             flip_text = ('At 64ch: FDR > BP (1.77 pp)\n'
-                         'At 32/8/4ch: Band Power leads (consistent)')
+                         'At 32ch: BP > FDR (transition)\n'
+                         'At 16/8/4ch: FDR/BP swap leadership; Att collapses')
         y_top = ax.get_ylim()[1]
         for level_idx in range(len(channel_levels)):
             ranking = sorted(
@@ -2696,15 +2701,19 @@ def generate_channel_scaling_v2_figure():
     Replaces existing `paper/figures/channel_scaling_curve.png`.
 
     Each panel:
-      - Per-method tracking lines (FDR/Att/BP/CSP) across {64, 32, 8, 4} tiers
+      - Per-method tracking lines (FDR/Att/BP/CSP) across {64, 32, 16, 8, 4} tiers
       - Best envelope line: 128 baseline + best-of-methods at each tier (61 NOT in envelope)
-      - Negative-control overlay markers at {32, 8, 4}
+      - Negative-control overlay markers at {64, 32, 16, 8, 4}
       - 61ch standard 10-10 outlier dot (separate marker, NOT in envelope)
       - 4ch FDR ∩ Attention overlap outlier dot (separate marker, NOT in envelope)
 
-    For ternary, two outliers fall back to MOCK values pending make-up runs:
-      reduced_4_fdr_attention_overlap_ternary, standard_1010_61_cross_ternary.
-    Mock dots render with hollow markers and an italic "(pending)" annotation.
+    For ternary, the 4ch FDR ∩ Att overlap outlier still falls back to MOCK
+    (no real make-up run yet); standard_1010_61_cross_ternary now has real data
+    (run_tag 20260513_1938, 76.71±12.04%). Mock dots render with hollow markers
+    and an italic "(pending)" annotation.
+
+    2026-05-20: 16ch tier added (sweep run_tags 20260513_19:59–23:43) — envelope
+    now shows 6-step degradation 128→64→61→32→16→8→4 instead of 5-step.
     """
     import matplotlib.pyplot as plt
 
@@ -2719,13 +2728,15 @@ def generate_channel_scaling_v2_figure():
         'FDR': 'fdr', 'Band Power': 'band_power',
         'Attention': 'attention', 'CSP': 'csp',
     }
-    CHANNEL_TIERS = [64, 32, 8, 4]
+    # 2026-05-20: 16ch tier added (from 16ch_sweep_plus_61ch_ternary closure).
+    CHANNEL_TIERS = [64, 32, 16, 8, 4]
 
     # MOCK values used when ternary make-up experiments are still pending.
     # Replace with real (mean, std) after experiments land.
+    # 2026-05-20: standard_1010_61_cross_ternary now has real data
+    # (20260513_1938, 76.71±12.04%), removed from MOCK fallback.
     MOCK_TERNARY = {
         'reduced_4_fdr_attention_overlap_ternary': (50.0, 5.0),
-        'standard_1010_61_cross_ternary':          (70.0, 5.0),
     }
 
     def _load_acc(path):
@@ -2776,7 +2787,8 @@ def generate_channel_scaling_v2_figure():
             if mean is not None:
                 baseline_data[128] = (mean, std)
         neg_ctrl_overlay = {}
-        for n_ch in [32, 8, 4]:
+        # 2026-05-20: 64ch + 16ch neg_ctrl added (full sweep coverage).
+        for n_ch in [64, 32, 16, 8, 4]:
             path = _safe_get_path(f'reduced_{n_ch}_negative_control_{task}')
             if path is None:
                 continue
@@ -2933,12 +2945,17 @@ def generate_channel_scaling_v2_figure():
 def generate_sensitivity_scaling_figure():
     """T3.2 — Sensitivity scaling: spread vs absolute acc across channel counts.
 
-    双面板版本（40-cell matrix update）：左 binary、右 ternary，每子图双 y 轴。
-      x: channel count (log: 64, 32, 8, 4)
+    双面板版本（50-cell matrix update）：左 binary、右 ternary，每子图双 y 轴。
+      x: channel count (log: 64, 32, 16, 8, 4)
       left y: method spread (max − min, pp), 4 数据驱动 method 间
       right y: best-method absolute acc (%)
-    数据来源：reduced_{64,32,8,4}_{fdr,band_power,attention,csp}_{binary,ternary}
+    数据来源：reduced_{64,32,16,8,4}_{fdr,band_power,attention,csp}_{binary,ternary}
     (注册表动态加载，替代旧版硬编码 dict)
+
+    2026-05-20: 16ch tier added — the 32→16 spread jump (binary 2.77 → 8.69 pp,
+    ternary 2.08 → 7.64 pp) is now the visual headline. 61ch (single-config
+    standard_1010, no per-method spread) is intentionally NOT plotted here —
+    that comparison is handled cleanly by fig4d.
     """
     import matplotlib.pyplot as plt
 
@@ -2947,7 +2964,7 @@ def generate_sensitivity_scaling_figure():
         'fdr': 'FDR', 'band_power': 'Band Power',
         'attention': 'Attention', 'csp': 'CSP',
     }
-    CHANNEL_TIERS = [64, 32, 8, 4]
+    CHANNEL_TIERS = [64, 32, 16, 8, 4]
 
     def _compute_row(n_channels, task):
         method_accs = {}
@@ -3059,6 +3076,195 @@ def generate_sensitivity_scaling_figure():
     add_provenance_footer(fig, 'sensitivity_scaling')
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     out_path = OUTPUT_DIR / 'sensitivity_scaling.png'
+    fig.savefig(out_path, dpi=200, bbox_inches='tight')
+    plt.close(fig)
+    logger.info(f'Saved: {out_path}')
+
+
+# -----------------------------------------------------------------------------
+# fig4d — Per-config % retention faceted line plot (replaces Table 9)
+# -----------------------------------------------------------------------------
+
+def generate_channel_retention_faceted_figure():
+    """fig4d — % retention vs 128ch baseline, faceted binary | ternary.
+
+    Replaces the dense 24-row Table 9. Encodes the full reduced-channel matrix
+    as 2 normalized line panels with subject-std bands; the bands are the key
+    visual device that makes cell-level Δ < band-width visually un-interpretable,
+    matching the "single-run cells, high variance" caveat in §3.5.2.
+
+    Layout: 1×2 panels (binary | ternary), shared y-axis.
+      X: channels on log2 scale, ticks [4, 8, 16, 32, 61, 64, 128].
+      Y: % retention = 100 × N-ch_mean_acc / 128ch_baseline_mean_acc.
+
+    Per panel:
+      - One solid line + filled std band per method:
+          FDR / Band Power / Attention / CSP / Neg. control across {4,8,16,32,64}
+        Band = ±1 (subject-std / baseline) × 100, alpha=0.18.
+      - 128ch anchor: hollow black circle pinned at 100% retention.
+      - 61ch standard 10-10: hollow purple square (separate from method family).
+      - 4ch FDR ∩ Att outlier (binary panel only): orange diamond, labeled.
+      - Reference lines: dashed at 100% (baseline); dotted at chance retention
+        (binary 50/baseline, ternary 33.33/baseline), shaded grey floor below.
+
+    Aliases consumed (all already in paper/run_registry.yaml):
+      reduced_{4,8,16,32,64}_{fdr,band_power,attention,csp,negative_control}_{binary,ternary}
+      standard_1010_61_cross_{binary,ternary}
+      reduced_4_fdr_attention_overlap_binary
+      cross_cbramod_{binary,ternary}                    (128ch baseline)
+    """
+    import matplotlib.pyplot as plt
+
+    METHOD_REGISTRY_KEYS = {
+        'FDR':          'fdr',
+        'Band Power':   'band_power',
+        'Attention':    'attention',
+        'CSP':          'csp',
+        'Neg. control': 'negative_control',
+    }
+    METHOD_COLORS = {
+        'FDR':          PAPER_COLORS['fdr'],
+        'Band Power':   PAPER_COLORS['band_power'],
+        'Attention':    PAPER_COLORS['attention'],
+        'CSP':          PAPER_COLORS['csp'],
+        'Neg. control': PAPER_COLORS['median_gray'],
+    }
+    CHANNEL_TIERS = [4, 8, 16, 32, 64]
+    OUTLIER_PURPLE = '#9C27B0'
+    OUTLIER_ORANGE = '#FFC107'
+
+    def _safe_get_path(alias):
+        from src.paper.run_registry import get_run_entry
+        try:
+            get_run_entry(alias)
+        except KeyError:
+            return None
+        return get_run_path(alias)
+
+    def _load_mean_std(alias):
+        path = _safe_get_path(alias)
+        if path is None or not resolve_project_path(path).exists():
+            return None, None
+        cache = load_json_cache(path)
+        accs = extract_model_accs(cache, 'cbramod')
+        if not accs:
+            return None, None
+        return float(np.mean(accs)), float(np.std(accs))
+
+    def _draw_panel(ax, task, baseline):
+        chance_pct = 50.0 if task == 'binary' else 100.0 / 3.0
+        chance_retention = 100.0 * chance_pct / baseline
+
+        for method_label, key_suffix in METHOD_REGISTRY_KEYS.items():
+            chs, means, stds = [], [], []
+            for n_ch in CHANNEL_TIERS:
+                mean, std = _load_mean_std(f'reduced_{n_ch}_{key_suffix}_{task}')
+                if mean is None:
+                    continue
+                chs.append(n_ch)
+                means.append(100.0 * mean / baseline)
+                stds.append(100.0 * std / baseline)
+            if not chs:
+                continue
+            chs_arr = np.array(chs, dtype=float)
+            means_arr = np.array(means, dtype=float)
+            stds_arr = np.array(stds, dtype=float)
+            color = METHOD_COLORS[method_label]
+            ax.fill_between(chs_arr, means_arr - stds_arr, means_arr + stds_arr,
+                            color=color, alpha=0.18, zorder=2)
+            ax.plot(chs_arr, means_arr, marker='o', markersize=8,
+                    linewidth=2.0, color=color,
+                    label=method_label, zorder=3)
+
+        # 128ch anchor at 100% retention
+        ax.plot([128], [100.0], marker='o', markersize=12,
+                markerfacecolor='white', markeredgecolor='black',
+                markeredgewidth=2.0, zorder=5,
+                linestyle='none', label='128ch baseline (anchor)')
+
+        # 61ch standard 10-10 — hollow square (off the method family)
+        mean61, _ = _load_mean_std(f'standard_1010_61_cross_{task}')
+        if mean61 is not None:
+            ax.plot([61], [100.0 * mean61 / baseline],
+                    marker='s', markersize=11,
+                    markerfacecolor='white', markeredgecolor=OUTLIER_PURPLE,
+                    markeredgewidth=2.2, zorder=5,
+                    linestyle='none', label='61ch standard 10-10')
+
+        # 4ch FDR ∩ Att outlier — binary only
+        if task == 'binary':
+            mean_overlap, _ = _load_mean_std('reduced_4_fdr_attention_overlap_binary')
+            if mean_overlap is not None:
+                ax.plot([4], [100.0 * mean_overlap / baseline],
+                        marker='D', markersize=11,
+                        color=OUTLIER_ORANGE, markeredgecolor='black',
+                        markeredgewidth=0.8, zorder=6,
+                        linestyle='none', label='4ch FDR ∩ Att (outlier)')
+
+        ax.axhline(100.0, color='black', linestyle='--',
+                   linewidth=1.0, alpha=0.55, zorder=1)
+        ax.axhspan(0, chance_retention,
+                   color=PAPER_COLORS['median_gray'], alpha=0.10, zorder=0)
+        ax.axhline(chance_retention,
+                   color=PAPER_COLORS['chance_red'], linestyle=':',
+                   linewidth=1.0, alpha=0.7, zorder=1,
+                   label=f'Chance retention ({chance_retention:.0f}%)')
+
+        ax.set_xscale('log', base=2)
+        # 61 / 64 are too close on log2 to render as horizontal labels without
+        # collision — rotate 30° to keep both readable.
+        xticks = [4, 8, 16, 32, 61, 64, 128]
+        ax.set_xticks(xticks)
+        ax.set_xticklabels([str(c) for c in xticks], rotation=30, ha='right')
+        ax.set_xlabel('Number of channels (log scale)',
+                      fontsize=FONT_SIZES['axis_label'])
+        ax.set_ylabel('% retention vs 128ch baseline',
+                      fontsize=FONT_SIZES['axis_label'])
+        ax.set_title(
+            f"{task.capitalize()} (128ch baseline = {baseline:.2f}%)",
+            fontsize=FONT_SIZES['title'])
+        ax.set_ylim(0, 115)
+        ax.grid(True, alpha=0.3, zorder=1)
+
+    baseline_binary, _ = _load_mean_std('cross_cbramod_binary')
+    baseline_ternary, _ = _load_mean_std('cross_cbramod_ternary')
+    if baseline_binary is None or baseline_ternary is None:
+        logger.error('fig4d: missing 128ch baseline cache — abort')
+        return
+
+    fig, (ax_bin, ax_ter) = plt.subplots(1, 2, figsize=(15, 7.2), sharey=True)
+    _draw_panel(ax_bin, 'binary', baseline_binary)
+    _draw_panel(ax_ter, 'ternary', baseline_ternary)
+
+    # Reserve ~22% of vertical space for legend + caption below the panels,
+    # then place legend mid-band and caption near the very bottom.
+    fig.tight_layout(rect=(0, 0.22, 1, 1))
+
+    handles_b, labels_b = ax_bin.get_legend_handles_labels()
+    handles_t, labels_t = ax_ter.get_legend_handles_labels()
+    seen = {}
+    for h, l in list(zip(handles_b, labels_b)) + list(zip(handles_t, labels_t)):
+        if l not in seen:
+            seen[l] = h
+    fig.legend(
+        list(seen.values()), list(seen.keys()),
+        loc='lower center', ncol=5,
+        bbox_to_anchor=(0.5, 0.08),
+        fontsize=FONT_SIZES['legend'], frameon=False,
+    )
+    fig.text(
+        0.5, 0.02,
+        'Bands = ±1 subject-std / baseline; cell-level Δ < band width '
+        'is not interpretable as a method effect.',
+        ha='center', va='bottom',
+        fontsize=FONT_SIZES['annotation'],
+        style='italic', color='dimgray',
+    )
+
+    apply_paper_style(fig=fig)
+    add_provenance_footer(fig, 'channel_retention_faceted')
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = OUTPUT_DIR / 'channel_retention_faceted.png'
     fig.savefig(out_path, dpi=200, bbox_inches='tight')
     plt.close(fig)
     logger.info(f'Saved: {out_path}')
@@ -3596,21 +3802,22 @@ def generate_reduced_channel_grid_figure():
 
     Layout: 2 rows × len(CHANNEL_TIERS_GRID) cols.
       Row 0: binary  | Row 1: ternary
-      Cols (default): 4ch | 8ch | 32ch | 61ch | 64ch
+      Cols (default): 4ch | 8ch | 16ch | 32ch | 61ch | 64ch
+      → 2 × 6 = 12 panels (50-cell matrix update, 2026-05-20).
 
     Per panel content:
-      - 4ch:  6 bars — FDR / Att / BP / CSP / NegCtrl / FDR ∩ Att overlap
-      - 8/32/64ch: 5 bars — FDR / Att / BP / CSP / NegCtrl
-      - 61ch: 1 bar — Standard 10-10 outlier
+      - 4ch:        6 bars — FDR / Att / BP / CSP / NegCtrl / FDR ∩ Att overlap
+      - 8/16/32/64ch: 5 bars — FDR / Att / BP / CSP / NegCtrl
+      - 61ch:       1 bar  — Standard 10-10 outlier
 
     Each panel includes:
       - Horizontal dashed line at 128ch CBraMod cross-subject baseline
       - Vertical bracket from top-method bar up to the baseline,
         labeled with the gap (e.g., "−12.3 pp")
 
-    For ternary, two cells fall back to MOCK values pending make-up runs:
+    For ternary, only one cell still falls back to MOCK (no real make-up run):
       reduced_4_fdr_attention_overlap_ternary  →  (50.0, 5.0)
-      standard_1010_61_cross_ternary           →  (70.0, 5.0)
+    (standard_1010_61_cross_ternary now has real data 20260513_1938, 76.71%.)
     Mock bars render with hatched fill and italic asterisked value annotation.
     """
     import matplotlib.pyplot as plt
@@ -3619,7 +3826,8 @@ def generate_reduced_channel_grid_figure():
         FONT_SIZES, apply_paper_style, paper_figsize, add_panel_label,
     )
 
-    CHANNEL_TIERS_GRID = [4, 8, 32, 61, 64]
+    # 2026-05-20: 16ch column inserted (5-cell binary + 5-cell ternary new).
+    CHANNEL_TIERS_GRID = [4, 8, 16, 32, 61, 64]
     METHODS = ['fdr', 'attention', 'band_power', 'csp', 'negative_control']
     METHOD_LABELS = {
         'fdr': 'FDR', 'attention': 'Att', 'band_power': 'BP',
@@ -3628,9 +3836,9 @@ def generate_reduced_channel_grid_figure():
     OVERLAP_COLOR = '#FFC107'
     STANDARD_1010_COLOR = '#9C27B0'
 
+    # 2026-05-20: standard_1010_61_cross_ternary now real (20260513_1938).
     MOCK_TERNARY = {
         'reduced_4_fdr_attention_overlap_ternary': (50.0, 5.0),
-        'standard_1010_61_cross_ternary':          (70.0, 5.0),
     }
 
     def _safe_get_path(alias):
@@ -3842,6 +4050,7 @@ FIGURE_GENERATORS = {
     'extra_sessions_ternary_v2': generate_extra_sessions_ternary_v2_figure,
     'fig5_merged': generate_fig5_merged_figure,
     'reduced_channel_40cell_grid': generate_reduced_channel_grid_figure,
+    'channel_retention_faceted': generate_channel_retention_faceted_figure,
 }
 
 

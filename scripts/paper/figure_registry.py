@@ -131,7 +131,7 @@ _FIGS: list[FigureSpec] = [
     FigureSpec(
         fig_id="fig3d",
         paper_label="图 3d",
-        caption="40-cell reduced-channel matrix 全景",
+        caption="50-cell reduced-channel matrix 全景 (2×6 grid, 4/8/16/32/61/64ch)",
         canonical_filename="reduced_channel_40cell_grid.png",
         output_dir="paper/figures",
         generator_script="scripts/paper/generate_paper_figures.py",
@@ -151,7 +151,7 @@ _FIGS: list[FigureSpec] = [
     FigureSpec(
         fig_id="fig4b",
         paper_label="图 4b",
-        caption="通道选择方法排序翻转 (32ch → 8ch → 4ch)",
+        caption="通道选择方法排序翻转 slope chart (64/32/16/8/4ch)",
         canonical_filename="channel_method_ranking_flip.png",
         output_dir="paper/figures",
         generator_script="scripts/paper/generate_paper_figures.py",
@@ -167,6 +167,16 @@ _FIGS: list[FigureSpec] = [
         generator_script="scripts/paper/generate_paper_figures.py",
         generator_command="uv run python scripts/paper/generate_paper_figures.py --figure sensitivity_scaling",
         figure_generators_key="sensitivity_scaling",
+    ),
+    FigureSpec(
+        fig_id="fig4d",
+        paper_label="图 4d",
+        caption="Per-config % retention vs 128ch baseline (binary | ternary)",
+        canonical_filename="channel_retention_faceted.png",
+        output_dir="paper/figures",
+        generator_script="scripts/paper/generate_paper_figures.py",
+        generator_command="uv run python scripts/paper/generate_paper_figures.py --figure fig4d",
+        figure_generators_key="channel_retention_faceted",
     ),
     FigureSpec(
         fig_id="fig5",
