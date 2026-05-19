@@ -837,7 +837,19 @@ Ternary 维度的 4ch 控制实验**与 binary 同向复现**：Band Power top-4
 
 ![图 10a. DAPT V1-V5 paradigm × task small-multiples](../figures/dapt_v1_v5_smallmultiples.png)
 
-**图 10b. Further Pre-training 下游评估（V1-V5 + reverse-gradient，post Step 1d 30-cell expansion）。** 左图：5 V × 6 paradigm-task 柱状（transfer 列升级为完整 5V；thick border = BH-FDR 显著，新 30-cell family 下 0/30 cell survive）；右图：(effective sample size, Δ) 反向梯度散点 — 全 30 cell 含 transfer 标记（★/♦ 表示 transfer-bin/ternary，x-jittered 至 ~94/142 trials 与 within markers 区分）；每被试 ~80 trial 的 within / transfer 范式上 Δ 更深负向（binary）或方向翻转（ternary 3/5 正），cross 21× pooled 上 4/5 ternary 弱正、5/5 binary 一致负——task asymmetry 在 (sample size, Δ) 反向梯度图上视觉化为 binary 全负 / ternary 在 transfer 与 cross 两个 paradigm 上接近 0 或弱正。
+**图 10b. Further Pre-training 下游评估（V1-V5 + reverse-gradient，post Step 1d 30-cell expansion）。** 左图：5 V × 6 paradigm-task 柱状（transfer 列升级为完整 5V；thick border = BH-FDR 显著，新 30-cell family 下 0/30 cell survive）；右图：(effective sample size, Δ) 反向梯度散点 — 全 30 cell 含 transfer 标记（★/♦ 表示 transfer-bin/ternary，x-jittered 至 ~94/142 trials 与 within markers 区分）；每被试 ~80 trial 的 within / transfer 范式上 Δ 更深负向（binary）或方向翻转（ternary 3/5 正），cross 21× pooled 上 4/5 ternary 弱正、5/5 binary 一致负——task asymmetry 在 (sample size, Δ) 反向梯度图上视觉化为 binary 全负 / ternary 在 transfer 与 cross 两个 paradigm 上接近 0 或弱正。**Panel 标注约定**（原图内文字已移至此 caption）：左图 (Panel A) 柱色按 V1–V5 配色（见图例 V1–V5），**粗黑边框 = BH-FDR q<0.05（在新 30-cell DAPT family 内重算，0/30 cell survive；V1/V2/V3 transfer 6 cell 于 2026-05-11 补完）**；右图 (Panel B) marker 编码 **circle = within、▲ = cross、★ = transfer-binary、♦ = transfer-ternary，粗边框 = BH-FDR 显著，transfer markers 沿 x 轴轻微 jitter（×1.18，至 ~94/142 trials）以与 within (per-subject) markers 区分**。**Stouffer 聚合（Step 1d，每条 5V；与原图内文字框逐字一致）**：
+
+```
+Stouffer aggregates (Step 1d, 5V each):
+cross-bin (n=5): Z=−5.33, p<0.001
+cross-ter (n=5): Z=+0.58, p=0.564
+within-bin (n=5): Z=−4.42, p<0.0001
+within-ter (n=5): Z=−2.16, p=0.031
+transfer-bin (n=5) ★1d: Z=−3.39, p=0.0007
+transfer-ter (n=5) ★1d: Z=+0.18, p=0.860
+— legacy (v3.1) —
+full DAPT family (n=16): Z=−4.83, p<0.001
+```
 
 ![图 10b. Further Pre-training 下游评估](../figures/further_pretraining.png)
 

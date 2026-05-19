@@ -160,6 +160,7 @@ def _generate_plots(
     db, db_run_id,
     comparison=None,
     historical_selection='baseline',
+    baseline_only=False,
 ):
     """
     生成 within-subject 对比图（提取自 main 以支持 replot）.
@@ -173,6 +174,12 @@ def _generate_plots(
         db_run_id: DB run ID (None for replot → skips DB writes)
         comparison: ModelComparison 对象 (用于 fallback comparison plot)
         historical_selection: 'baseline' | 'best'
+        baseline_only: True = 纯 baseline 呈现模式 (fig1 的 replot 路径专用).
+            只画"每个类别最新的 is_baseline run"——cbramod 与 eegnet 各一条，
+            均作为 primary (solid) 主系列；不注入 historical 半透明斜线背景条，
+            不把 baseline 当成额外散点系列。这样每个模型在所有面板里只出现一次，
+            消除 fig1 的 "两份 cbramod baseline 同时画" 问题。
+            常规 (非 replot) within_subject 运行保持 False，行为不变。
     """
     # Unified task: use plot_unified_comparison with per-subtask breakdown
     if task == 'unified':
@@ -223,6 +230,62 @@ def _generate_plots(
                 log_io.info(f"Unified comparison plot saved: {plot_path}")
         else:
             log_io.info("No subtask data available for unified plot")
+    elif baseline_only:
+        # Pure baseline-presentation mode (fig1 replot path).
+        # 只取"每个类别最新的 is_baseline run"——cbramod / eegnet 各一条，
+        # 各自来自其类别最新的 is_baseline 运行（两者可能是不同的源 run）。
+        # 两条都标记 is_current_run=True → 在三个面板里都作为 primary (solid)
+        # 主系列绘制：无半透明斜线背景条，配对面板里 baseline 不再是额外散点系列。
+        # 这样每个模型在所有面板只出现一次，根除 "两份 cbramod baseline" 问题。
+        subjects_set = set(subjects)
+        channel_config_filter = channel_config if n_channels != FULL_N_CHANNELS else None
+
+        data_sources = []
+        for model_type in ['eegnet', 'cbramod']:
+            base_result = db.find_baseline_within_subject_results(
+                paradigm=paradigm,
+                task=task,
+                model_type=model_type,
+                n_channels=n_channels,
+                channel_config=channel_config_filter,
+                subjects=subjects_set if subjects_set else None,
+                exclude_run_id=None,  # replot: do NOT exclude; want the designated baseline itself
+                return_run_id=True,
+            )
+            if base_result is None:
+                log_io.warning(
+                    f"No within-subject baseline found for {model_type} "
+                    f"({paradigm}/{task}, {n_channels}ch) — skipping series"
+                )
+                continue
+            base_results, base_run_id = base_result
+            if base_results:
+                data_sources.append(PlotDataSource(
+                    model_type=model_type,
+                    results=base_results,
+                    is_current_run=True,  # primary solid series (no hatched background)
+                    label=model_type.upper(),
+                ))
+                log_io.info(
+                    f"Baseline series: {model_type.upper()} ← run {base_run_id} "
+                    f"({len(base_results)} subjects)"
+                )
+
+        if len(data_sources) >= 2:
+            log_io.info("Generating combined plot (baseline-only presentation)")
+            plot_filename = generate_result_filename('combined', paradigm, task, 'png', run_tag)
+            plot_path = Path(results_dir) / plot_filename
+            generate_combined_plot(
+                data_sources=data_sources,
+                output_path=str(plot_path),
+                task_type=task,
+                paradigm=paradigm,
+            )
+        else:
+            log_io.warning(
+                "Baseline-only mode: fewer than 2 baseline series available — "
+                "no combined plot generated"
+            )
     else:
         # Non-unified: standard combined/comparison plot
         # Query DB for historical comparison data
@@ -397,6 +460,13 @@ Examples:
             db=ctx['db'],
             db_run_id=None,
             historical_selection=args.historical_selection,
+            # fig1 / baseline-presentation: show exactly the single newest
+            # is_baseline run per model (one cbramod + one eegnet) as the
+            # primary series; no duplicate cbramod, no hatched background
+            # baseline bars, no baseline-as-extra-scatter. Only the replot
+            # path opts in — normal training runs keep the historical-vs-
+            # current comparison behavior unchanged.
+            baseline_only=True,
         )
         ctx['db'].close()
         log_main.info(f"Replot complete for {args.replot}")

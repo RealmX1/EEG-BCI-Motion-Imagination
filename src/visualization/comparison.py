@@ -16,7 +16,9 @@ from ..utils.logging import SectionLogger
 from .plots import (
     CHANCE_LEVELS, annotate_bars_with_leaders, accuracy_ylim,
     separate_paired_labels, draw_label_with_leader,
+    force_directed_label_layout,
 )
+from .paper_style import PAPER_COLORS, FONT_SIZES, apply_paper_style
 
 logger = logging.getLogger(__name__)
 log_plot = SectionLogger(logger, 'plot')
@@ -126,10 +128,7 @@ def generate_combined_plot(
 
     ax_bar.set_xlabel('Subject')
     ax_bar.set_ylabel('Test Accuracy')
-    title = f'Per-Subject Accuracy Comparison ({paradigm.title()} {task_type.title()})'
-    if historical_timestamp:
-        title += f'\n(Historical data from: {historical_timestamp[:10]})'
-    ax_bar.set_title(title)
+    ax_bar.set_title('Per-Subject Accuracy Comparison')
     ax_bar.set_xticks(x_base)
     ax_bar.set_xticklabels(subjects, rotation=45, ha='right')
     ax_bar.axhline(y=chance_level, color='gray', linestyle='--', alpha=0.5,
@@ -162,16 +161,13 @@ def generate_combined_plot(
                 box_hatches.append('' if source.is_current_run else '///')
 
     if box_data:
-        # 交错标签：位置 2,4,... 下移一行，避免重叠
-        for i in range(len(box_labels)):
-            if i % 2 == 1:
-                box_labels[i] = '\n' + box_labels[i]
-
         bp = ax_box.boxplot(
             box_data, labels=box_labels, patch_artist=True,
             showmeans=True, meanline=True,
             meanprops={'color': mean_color, 'linewidth': 2, 'linestyle': (0, (3, 2))}
         )
+        # 倾斜 x 轴标签 45°（与顶部 per-subject 条形图一致），避免长类别名重叠
+        ax_box.set_xticklabels(box_labels, rotation=45, ha='right')
 
         for patch, color, alpha, hatch in zip(bp['boxes'], box_colors, box_alphas, box_hatches):
             patch.set_facecolor(color)
@@ -229,6 +225,8 @@ def generate_combined_plot(
 
     all_accs = []  # 用于计算坐标轴范围
     has_any_pair = False
+    scatter_points: List[tuple] = []
+    scatter_labels: List[str] = []
 
     if eegnet_baseline:
         eegnet_by_subj = {r.subject_id: r.test_acc_majority for r in eegnet_baseline.results}
@@ -248,10 +246,9 @@ def generate_combined_plot(
                                    c='#E94F37', label=current_label,
                                    edgecolors='black', linewidths=1)
 
-                # 为当前运行添加被试标签
-                for i, subj in enumerate(common):
-                    ax_scatter.annotate(subj, (eegnet_accs[i], cbramod_accs[i]),
-                                        xytext=(5, 5), textcoords='offset points', fontsize=7)
+                # 收集散点位置和标签，稍后由 force_directed_label_layout 统一布局
+                scatter_points = list(zip(eegnet_accs, cbramod_accs))
+                scatter_labels = list(common)
                 has_any_pair = True
 
         # 绘制所有历史配对：各历史 CBraMod vs EEGNet
@@ -281,6 +278,34 @@ def generate_combined_plot(
             ax_scatter.set_xlabel(f'{eegnet_baseline.label} Accuracy')
             ax_scatter.set_ylabel('CBraMod Accuracy')
             ax_scatter.legend(loc='lower right', fontsize=7)
+
+            # Force-directed label placement (replaces hard-coded xytext=(5,5) offset)
+            if scatter_points:
+                pts_arr = np.array(scatter_points)
+                fig.canvas.draw()
+                label_pos = force_directed_label_layout(
+                    pts_arr,
+                    ax_scatter,
+                    w_point=0.0005,
+                    w_label=0.0005,
+                    w_diagonal=0.0005,
+                    w_spring=50.0,
+                    w_edge=0.0005,
+                    iterations=100,
+                )
+                label_fontsize = max(1, FONT_SIZES['annotation'] - 2)
+                for k, subj in enumerate(scatter_labels):
+                    lx, ly = label_pos[k]
+                    ox, oy = pts_arr[k]
+                    ax_scatter.plot([ox, lx], [oy, ly], color='gray',
+                                    linewidth=0.5, alpha=0.6, zorder=4)
+                    ax_scatter.text(
+                        lx, ly, subj,
+                        fontsize=label_fontsize, ha='center', va='center',
+                        bbox=dict(facecolor='white', alpha=0.85,
+                                  edgecolor='none', pad=1),
+                        zorder=7,
+                    )
         else:
             ax_scatter.text(0.5, 0.5, 'No common subjects\nfor paired comparison',
                             ha='center', va='center', transform=ax_scatter.transAxes)
@@ -289,6 +314,9 @@ def generate_combined_plot(
                         ha='center', va='center', transform=ax_scatter.transAxes)
 
     ax_scatter.set_title('CBraMod vs EEGNet (Paired Comparison)')
+
+    # 统一应用论文字号 / 字重 (single source of truth)
+    apply_paper_style(fig=fig)
 
     # 保存
     plt.savefig(output_path, dpi=150, bbox_inches='tight')

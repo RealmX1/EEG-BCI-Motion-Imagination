@@ -1153,8 +1153,11 @@ def generate_extra_sessions_strategy_figure():
     if all_means:
         y_min = max(50, np.nanmin(all_means) - 2.0)
         y_max = min(100, np.nanmax(all_means) + 2.0)
-    label_lower = y_min + 1.2
-    label_upper = y_max - 1.2
+    # 标签 band 上下各放宽 0.6 (原 1.2 → 0.6), 为右侧更大的 min_gap=3.6
+    # 腾出垂直空间, 避免 _spread_label_positions 因越界 clip 而重新挤压;
+    # 标签 bbox clip_on=False, 轻微贴近轴边可接受 (左侧 1 行标签同样受益, 不退化)
+    label_lower = y_min + 0.6
+    label_upper = y_max - 0.6
     x = np.arange(len(steps))
 
     for ax, ax_table, model in zip(axes, table_axes, models):
@@ -1190,10 +1193,14 @@ def generate_extra_sessions_strategy_figure():
                 lower=label_lower,
                 upper=label_upper,
             )
+            # 右侧标签是 2 行 (值 + Δ pp), 比左侧 1 行高约 ~2x;
+            # 显式传更大的 min_gap (3.6 acc-% 数据单位) 避免 2 行框互相重叠,
+            # 左侧调用保持默认 1.9 不受影响 (用户 comment fig_s1)
             end_positions = _spread_label_positions(
                 [float(item['means'][-1]) for item in model_series],
                 lower=label_lower,
                 upper=label_upper,
+                min_gap=3.6,
             )
 
             for item, start_y, end_y in zip(model_series, start_positions, end_positions):
@@ -2336,28 +2343,13 @@ def generate_further_pretraining_v3_figure():
     axA.set_xticks(x)
     axA.set_xticklabels([c[2] for c in conditions], fontsize=FONT_SIZES['tick'])
     axA.set_ylabel('Δ (DAPT − Baseline, pp)', fontsize=FONT_SIZES['axis_label'])
-    axA.set_title('A. DAPT V1-V5 effect by paradigm × task (30-cell post Step 1d full closure)\n(thick border = BH-FDR q<0.05 within 30-cell DAPT family - 0/30 survive; V1/V2/V3 transfer added 2026-05-11)',
+    # Pane 标题精简 — 详细 BH-FDR / Stouffer 说明移至论文 caption (用户 comment fig10b)
+    axA.set_title('A. DAPT V1–V5 effect by paradigm × task',
                   fontsize=FONT_SIZES['title'])
     axA.legend(loc='lower right', ncol=5, fontsize=FONT_SIZES['legend'], title='Pretrain config', title_fontsize=FONT_SIZES['legend'])
     axA.grid(axis='y', alpha=0.3)
-    axA.set_ylim(-3.5, 1.5)
-
-    # Annotate Stouffer summary in panel A — 6 paradigm-level 5V + 1 legacy.
-    summary = (
-        'Stouffer aggregates (Step 1d, 5V each):\n'
-        'cross-bin (n=5): Z=−5.33, p<0.001\n'
-        'cross-ter (n=5): Z=+0.58, p=0.564\n'
-        'within-bin (n=5): Z=−4.42, p<0.0001\n'
-        'within-ter (n=5): Z=−2.16, p=0.031\n'
-        'transfer-bin (n=5) ★1d: Z=−3.39, p=0.0007\n'
-        'transfer-ter (n=5) ★1d: Z=+0.18, p=0.860\n'
-        '— legacy (v3.1) —\n'
-        'full DAPT family (n=16): Z=−4.83, p<0.001'
-    )
-    axA.text(0.02, 0.02, summary, transform=axA.transAxes,
-             fontsize=FONT_SIZES['annotation'], va='bottom',
-             bbox=dict(boxstyle='round,pad=0.3', facecolor='#fffde7',
-                       edgecolor='#fbc02d', alpha=0.9))
+    # 文字框已移除, 收紧下界 (最负 bar = -2.92 pp, 留 ~0.28 pp 余量)
+    axA.set_ylim(-3.2, 1.5)
 
     # Panel B: reverse-gradient scatter — all 3 paradigms.
     # Effective training sample sizes per condition (per-subject ~80 for binary,
@@ -2425,9 +2417,8 @@ def generate_further_pretraining_v3_figure():
     axB.set_xscale('log')
     axB.set_xlabel('Effective training sample size (trials, log scale)', fontsize=FONT_SIZES['axis_label'])
     axB.set_ylabel('Δ (DAPT − Baseline, pp)', fontsize=FONT_SIZES['axis_label'])
-    axB.set_title('B. Reverse-gradient scatter — all 3 paradigms\n'
-                  '(circle/▲ = within/cross; ★/♦ = transfer; thick border = BH-FDR sig; '
-                  'transfer markers x-jittered for visibility)',
+    # Pane 标题精简 — marker 图例说明移至论文 caption (用户 comment fig10b)
+    axB.set_title('B. Reverse-gradient scatter — all 3 paradigms',
                   fontsize=FONT_SIZES['title'])
     axB.grid(True, alpha=0.3)
     axB.legend(loc='lower right', fontsize=FONT_SIZES['legend'])
@@ -3126,98 +3117,124 @@ def _extra_sessions_baseline_colored(task: str):
     fig, (ax_traj, ax_delta) = plt.subplots(1, 2, figsize=(14, 5.8),
                                             gridspec_kw={'width_ratios': [1.4, 1]})
 
-    # CBraMod per-subject trajectories
-    results = cache.get('results', {}).get('cbramod', {})
-    subj_trajs = {}  # sid -> [bl, s3, s4, s5]
+    # 多模型 per-subject trajectories — cbramod 用圆点 'o', eegnet 用三角 '^'
+    # (用户 comment fig8: 保留更新后的样式, 仅额外叠加 eegnet 数据)
     steps = ['baseline', 'sess03', 'sess04', 'sess05']
-    for sid, sdata in sorted(results.items()):
-        if not isinstance(sdata, dict) or not sid.startswith('S'):
-            continue
-        seq = []
-        for s in steps:
-            v = sdata.get(s, {}).get('test_acc_majority')
-            seq.append(v * 100 if v is not None else np.nan)
-        if not all(np.isnan(seq)):
-            subj_trajs[sid] = seq
-
-    if not subj_trajs:
-        logger.warning(f'No subject data in {path}')
-        return
-
-    # Baseline distribution → colormap
-    bls = [v[0] for v in subj_trajs.values() if not np.isnan(v[0])]
-    cmap = plt.cm.coolwarm_r
-    norm = plt.Normalize(vmin=min(bls), vmax=max(bls))
-
     x = np.arange(len(steps))
-    for sid, seq in subj_trajs.items():
-        bl = seq[0]
-        if np.isnan(bl):
-            continue
-        c = cmap(norm(bl))
-        # 被试个体轨迹 — 置于最底层 (zorder=1), 让均值线与散点都能在其上方显示
-        ax_traj.plot(x, seq, color=c, alpha=0.55, linewidth=1.2,
-                     marker='o', markersize=4, zorder=1)
+    all_results = cache.get('results', {})
 
-    # 均值线 — 比原版更细 / 半透明 / 白心圆点, 显式置于个体轨迹之上 (zorder=2)
-    # 但仍允许下方散点透出, 解决"黑色粗线覆盖被试数据"的可读性问题
-    mean_seq = np.nanmean(np.array(list(subj_trajs.values())), axis=0)
-    ax_traj.plot(x, mean_seq,
-                 color=PAPER_COLORS['mean_marker'],
-                 linewidth=2,
-                 marker='o',
-                 markersize=6,
-                 alpha=0.85,
-                 zorder=2,
-                 markerfacecolor='white',
-                 markeredgewidth=1.8,
-                 label=f'Mean (N={len(subj_trajs)})')
+    # 每个模型一套: 标记形状 + 各自的 baseline-colored diverging colormap
+    # (不同 colormap 让两模型在 baseline-着色 风格下仍可区分)
+    MODEL_STYLES = [
+        ('cbramod', 'CBraMod', 'o', plt.cm.coolwarm_r),
+        ('eegnet', 'EEGNet', '^', plt.cm.PuOr_r),
+    ]
+
+    any_data = False
+    cbar_pad = 0.02
+    for model_key, model_label, marker, cmap in MODEL_STYLES:
+        results = all_results.get(model_key, {})
+        if not isinstance(results, dict) or not results:
+            logger.warning(f'No {model_key} data in {path}; skipping that series')
+            continue
+
+        subj_trajs = {}  # sid -> [bl, s3, s4, s5]
+        for sid, sdata in sorted(results.items()):
+            if not isinstance(sdata, dict) or not sid.startswith('S'):
+                continue
+            seq = []
+            for s in steps:
+                v = sdata.get(s, {}).get('test_acc_majority')
+                seq.append(v * 100 if v is not None else np.nan)
+            if not all(np.isnan(seq)):
+                subj_trajs[sid] = seq
+
+        if not subj_trajs:
+            logger.warning(f'No {model_key} subject data in {path}; skipping')
+            continue
+        any_data = True
+
+        # Baseline distribution → 该模型独立 colormap norm
+        bls = [v[0] for v in subj_trajs.values() if not np.isnan(v[0])]
+        norm = plt.Normalize(vmin=min(bls), vmax=max(bls))
+
+        for sid, seq in subj_trajs.items():
+            bl = seq[0]
+            if np.isnan(bl):
+                continue
+            c = cmap(norm(bl))
+            # 被试个体轨迹 — 置于最底层 (zorder=1), 让均值线与散点都能在其上方显示
+            ax_traj.plot(x, seq, color=c, alpha=0.55, linewidth=1.2,
+                         marker=marker, markersize=4, zorder=1)
+
+        # 均值线 — 更细 / 半透明 / 白心标记, 显式置于个体轨迹之上 (zorder=2)
+        # 但仍允许下方散点透出, 解决"粗线覆盖被试数据"的可读性问题
+        mean_seq = np.nanmean(np.array(list(subj_trajs.values())), axis=0)
+        ax_traj.plot(x, mean_seq,
+                     color=PAPER_COLORS['mean_marker'],
+                     linewidth=2,
+                     marker=marker,
+                     markersize=6,
+                     alpha=0.85,
+                     zorder=2,
+                     markerfacecolor='white',
+                     markeredgewidth=1.8,
+                     label=f'{model_label} mean (N={len(subj_trajs)})')
+
+        # 每个模型一条独立 colorbar (各自 baseline 分布)
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])
+        cbar = fig.colorbar(sm, ax=ax_traj, pad=cbar_pad)
+        cbar.set_label(f'{model_label} baseline acc (%)',
+                       fontsize=FONT_SIZES['annotation'])
+        cbar_pad += 0.10  # 下一条 colorbar 往右排, 避免重叠
+
+        # Δ vs baseline scatter + regression (该模型)
+        bl_arr = []
+        delta_arr = []
+        for sid, seq in subj_trajs.items():
+            if np.isnan(seq[0]) or np.isnan(seq[-1]):
+                continue
+            bl_arr.append(seq[0])
+            delta_arr.append(seq[-1] - seq[0])
+        bl_arr = np.array(bl_arr)
+        delta_arr = np.array(delta_arr)
+
+        # 被试散点 — 白色描边 + 提升 zorder, 保证在 OLS 拟合线之上可读
+        ax_delta.scatter(bl_arr, delta_arr, c=bl_arr, cmap=cmap, norm=norm,
+                         s=85, alpha=0.95, marker=marker,
+                         edgecolor='white', linewidth=0.8,
+                         zorder=3, label=f'{model_label}')
+
+        if len(bl_arr) > 2:
+            slope, intercept = np.polyfit(bl_arr, delta_arr, 1)
+            x_fit = np.linspace(bl_arr.min(), bl_arr.max(), 50)
+            y_fit = slope * x_fit + intercept
+            # OLS 拟合线置于散点之下 (zorder=2), 避免遮挡数据点
+            ax_delta.plot(x_fit, y_fit,
+                          color=PAPER_COLORS['mean_marker'],
+                          linestyle='--', linewidth=1.5,
+                          alpha=0.7, zorder=2,
+                          label=f'{model_label} OLS: slope={slope:+.3f} pp/pp')
+
+    if not any_data:
+        logger.warning(f'No subject data in {path}')
+        plt.close(fig)
+        return
 
     ax_traj.set_xticks(x)
     ax_traj.set_xticklabels(['Baseline', '+Sess03', '+Sess04', '+Sess05'])
     ax_traj.set_ylabel('Accuracy (%)', fontsize=FONT_SIZES['axis_label'])
-    ax_traj.set_title(f'A. Per-subject trajectory\n(CBraMod, {task}, baseline-colored)',
+    ax_traj.set_title(f'A. Per-subject trajectory\n({task}, baseline-colored; ● CBraMod / ▲ EEGNet)',
                       fontsize=FONT_SIZES['title'])
     ax_traj.grid(True, alpha=0.3)
     ax_traj.legend(loc='lower right', fontsize=FONT_SIZES['legend'])
-    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-    sm.set_array([])
-    cbar = fig.colorbar(sm, ax=ax_traj, pad=0.02)
-    cbar.set_label('Baseline accuracy (%)', fontsize=FONT_SIZES['annotation'])
 
-    # Δ vs baseline scatter + regression
-    bl_arr = []
-    delta_arr = []
-    for sid, seq in subj_trajs.items():
-        if np.isnan(seq[0]) or np.isnan(seq[-1]):
-            continue
-        bl_arr.append(seq[0])
-        delta_arr.append(seq[-1] - seq[0])
-    bl_arr = np.array(bl_arr)
-    delta_arr = np.array(delta_arr)
-
-    # 被试散点 — 白色描边 + 提升 zorder, 保证在 OLS 拟合线之上可读
-    sc = ax_delta.scatter(bl_arr, delta_arr, c=bl_arr, cmap=cmap, norm=norm,
-                          s=85, alpha=0.95,
-                          edgecolor='white', linewidth=0.8,
-                          zorder=3)
     ax_delta.axhline(0, color=PAPER_COLORS['chance_level'],
                      linestyle='--', alpha=0.6, zorder=1)
-
-    if len(bl_arr) > 2:
-        slope, intercept = np.polyfit(bl_arr, delta_arr, 1)
-        x_fit = np.linspace(bl_arr.min(), bl_arr.max(), 50)
-        y_fit = slope * x_fit + intercept
-        # OLS 拟合线置于散点之下 (zorder=2), 避免遮挡数据点
-        ax_delta.plot(x_fit, y_fit,
-                      color=PAPER_COLORS['mean_marker'],
-                      linestyle='--', linewidth=1.5,
-                      alpha=0.7, zorder=2,
-                      label=f'OLS: slope={slope:+.3f} pp/pp')
-
     ax_delta.set_xlabel('Baseline accuracy (%)', fontsize=FONT_SIZES['axis_label'])
     ax_delta.set_ylabel('Δ (BL → +Sess05, pp)', fontsize=FONT_SIZES['axis_label'])
-    ax_delta.set_title(f'B. Δ vs baseline ({task}; high baselines saturate)',
+    ax_delta.set_title(f'B. Δ vs baseline ({task}; ● CBraMod / ▲ EEGNet; high baselines saturate)',
                       fontsize=FONT_SIZES['title'])
     ax_delta.grid(True, alpha=0.3)
     ax_delta.legend(loc='upper right', fontsize=FONT_SIZES['legend'])
