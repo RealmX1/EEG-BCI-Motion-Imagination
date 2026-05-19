@@ -1,9 +1,59 @@
 ---
 name: figure-snapshot-diff
-description: Generate a static HTML page that lets the user visually drag-wipe between before and after versions of a directory of images (paper figures, dashboard plots, generated charts, screenshots, anything rendered). Use this skill whenever the user is about to modify plot/figure-generation code, regenerate a batch of figures with new params, restyle plots, refactor visualization helpers, or wants to see "what changed visually" after any visualization update. Triggers strongly on phrases like "compare before/after of these images", "I just regenerated the figures, show me what changed", "snapshot these plots before I touch them", "diff these two image directories visually", "build me a slider comparison page", "did my style change break anything visually", or any workflow where the user has a `pre-change` and `post-change` state of rendered images and wants to compare them side-by-side. The skill provides a snapshot → modify → compare workflow with two bundled scripts (`snapshot_figures.py` and `build_compare_page.py`) that handle the backup copy and the HTML generation respectively. Also use proactively before agreeing to modify any code that generates images, so a snapshot exists for later comparison.
+description: Track and visually compare versions of generated figures (paper plots, dashboards, charts, screenshots). Two modes — (1) **History mode** (recommended for paper figures): per-figure version chain stored under `paper/figures/_history/<fig_id>/` with trunk + staging + rejected branches, browsed via a local HTTP server + Web UI (`history_server.py`). Any two versions can be slider-compared; rejection is soft-delete (kept for compare/learning); new proposals appear in real time and the user accepts/rejects them. The history mode persists free-form user comments (`comment-add`) keyed by SHA-256 of the image content so feedback survives accept/reject and version renames. Comment body can contain both critique of the current pair AND requests for future updates (no feedback/request kind split). (2) **Legacy pair mode**: static before/after HTML built from two image directories (`snapshot_figures.py` + `build_compare_page.py`). Triggers strongly on phrases like "compare before/after of these images", "show me the version history of figure 4b", "approve this plot change", "diff these two image directories visually", or any workflow where the user has multiple states of rendered images and wants to inspect or accept/reject them. **Also auto-triggers on conversation-mode plot change requests** ("make Fig 4b's y-axis bigger", "change the colors of Fig 7 to match", "add a legend") — these MUST be captured immediately via `comment-at-tip` (alias `request-add`) before implementing, so the request is recorded against the figure's trunk tip and surfaced to any future implementer.
 ---
 
 # figure-snapshot-diff
+
+## Two modes
+
+This skill has two delivery modes that share the goal of visually comparing rendered images:
+
+### History mode (recommended for paper / long-lived figures)
+
+A persistent, append-only **version chain** per figure with a **staging** area for proposed changes, **comments** attached to (before, after) pairs, and an agent-driven workflow to address open comments. Backed by:
+
+- `scripts/history_cli.py` — propose / accept / reject (soft-delete) / list / import-snapshots / comment-add / comment-at-tip / comment-status / comments-open / context-bundle
+- `scripts/history_server.py` — local HTTP server (stdlib http.server, port 8765, bind 127.0.0.1) that serves a vanilla-JS web UI
+- `web/{index.html, app.js, style.css}` — single-page UI: 3-column layout (sidebar / info+staging+comments+trunk / slider) with auto-advance after staging is cleared
+- `references/history_manifest_format.md` — manifest schema (trunk + staging)
+- `references/staging_workflow.md` — propose → accept/reject lifecycle
+- `references/comment_workflow.md` — comment system: SHA-keyed (survives accept/reject), researcher feedback → agent ideation → plotting-skill subagent dispatch → resolution
+
+When to use this mode:
+- Paper figures evolving over many revisions
+- Multiple agents proposing changes; user is the gate
+- Want "show me how figure 4b evolved from v0 to today" or "is the latest agent proposal an improvement"
+- Researcher leaves persistent feedback ("y-axis is too small", "legend covers data point", etc.) that should drive future updates
+
+**How to start:**
+
+```bash
+# (one-time) populate _history/ from existing snapshots + paper/figures/
+uv run python paper/figures/_audit_corpus/2026-05-13/_import_history.py
+
+# Start the UI server
+uv run python .claude/skills/figure-snapshot-diff/scripts/history_server.py --port 8765
+# → open http://127.0.0.1:8765/
+```
+
+Agents propose new versions via:
+
+```bash
+python .claude/skills/figure-snapshot-diff/scripts/history_cli.py propose \
+    fig4b /path/to/new.png \
+    --tag <slug> --source-cmd "<full command>" --proposed-by "<identifier>"
+```
+
+User accepts/rejects via the UI buttons (or `history_cli.py accept fig4b s1`).
+
+### Legacy pair mode
+
+Static HTML built once from two image dirs. Two scripts: `snapshot_figures.py` (copies a dir with a tag) and `build_compare_page.py` (emits one HTML with N×2 slider pairs). No staging, no live updates. Useful for one-shot reviews of an ad-hoc refactor in a project that doesn't have a history-mode setup. The legacy mode docs are below.
+
+> **DEPRECATED for the EEG-BCI paper figures (2026-05-20, Phase 6).** `scripts/build_compare_page.py` here, the project-level `scripts/paper/build_figures_compare_page.py`, and the root `paper/figures_compare*.html` artifacts it generated are all superseded by History mode. They are kept only as a fallback for projects without a history-mode setup. For this repo's paper figures use the History mode server + `generate_paper_figures.py --stage-history`; see the project `CLAUDE.md` section "## 论文图表生成与版本管理".
+
+---
 
 ## Why this exists
 
@@ -101,9 +151,16 @@ If no JSON is provided, sections fall back to the filename and the change descri
 
 ## Reference docs
 
-- `references/descriptions_format.md` — the sidecar JSON schema, with worked example
+- `references/history_manifest_format.md` — manifest + global index schema (History mode)
+- `references/staging_workflow.md` — propose / accept / reject lifecycle (History mode)
+- `references/descriptions_format.md` — the sidecar JSON schema for legacy pair mode
 
 ## Bundled scripts
 
+History mode (recommended):
+- `scripts/history_cli.py` — propose / accept / reject / list / import-snapshots
+- `scripts/history_server.py` — local HTTP server + Web UI launcher
+
+Legacy pair mode:
 - `scripts/snapshot_figures.py` — Step 1, atomic copy with tag
-- `scripts/build_compare_page.py` — Step 3, the HTML generator with all the visual features above
+- `scripts/build_compare_page.py` — Step 3, the static HTML generator

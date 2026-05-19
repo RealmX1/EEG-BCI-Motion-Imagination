@@ -268,6 +268,70 @@ Baseline 是每个类别 (model + task + experiment_type) 的标准参考运行�
 2. **执行替换前，Agent 必须与开发者二次确认类别**：明确列出将被替换的 (model, task, experiment_type) 组合及新旧 run_tag
 3. **长时间运行任务期间**：如果新 baseline 的标记状态不会直接影响当前正在执行的 run，应等待所有任务完成后再向开发者提出替换确认，避免干扰运行中的实验
 
+## 论文图表生成与版本管理
+
+论文图表（paper figure）有**单一生成入口**和**持久版本链**，不要再用散落的 ad-hoc 脚本或手改路径。
+
+### 单一来源：figure registry
+
+`scripts/paper/figure_registry.py` 是所有论文图表元数据的唯一真源（fig_id →
+paper_label / caption / canonical 输出路径 / 生成器）。新增/修改图表时改这里，
+其余脚本都从它读取，禁止再硬编码图表路径或时间戳。
+
+### 统一生成入口
+
+```bash
+# 单张（fig_id：fig1..fig_s2）
+uv run python scripts/paper/generate_paper_figures.py --figure fig4b
+# 全部 registry 图（21 张，含 14 主图）
+uv run python scripts/paper/generate_paper_figures.py --figure all
+# 仅重生成 canonical PNG、不进 staging
+uv run python scripts/paper/generate_paper_figures.py --figure fig4 --no-stage-history
+```
+
+- 有 native generator 的图在进程内直接调用；timestamp `--replot` 图
+  （fig1/fig6/fig6b）由 registry `generator_command` subprocess 生成。
+- `--stage-history`（默认开）：生成后把 PNG `propose` 进版本链 staging；与
+  当前 trunk tip 字节相同则**静默跳过**（不产生噪音），不同则留待人工裁决。
+- 旧 `FIGURE_GENERATORS` short key（如 `channel_scaling`）仍向后兼容，会自动
+  映射到 fig_id 并同样走 staging。
+- `--figure all` 任一图失败不中断批次，结尾汇总并以非零退出。
+
+### 版本链 + staging UI
+
+每张图的历史在 `paper/figures/_history/<fig_id>/manifest.json`（`trunk[]`
+已接受 / `staging[]` 待裁决 / `rejected[]` 软删除；评论按 `(before_sha,
+after_sha)` 内容寻址，跨 accept/reject 存活）。schema 见
+`.claude/skills/figure-snapshot-diff/references/history_manifest_format.md`。
+
+```bash
+# 浏览器里拖动对比任意两版本、Accept/Reject staging、留评论
+uv run python .claude/skills/figure-snapshot-diff/scripts/history_server.py --port 8765
+# CLI（propose / accept / reject / list / comment-* / context-bundle）
+uv run python .claude/skills/figure-snapshot-diff/scripts/history_cli.py list <fig_id>
+```
+
+`accept` 会把 trunk tip 复制到该图的 `canonical_output_path`，论文草稿引用
+路径因此保持稳定（fig1/2/3c/6/6b 的 canonical 按设计在 `results/<timestamp>...`，
+为数据溯源；其余在 `paper/figures/`）。
+
+### 草稿图路径一致性
+
+```bash
+uv run python scripts/paper/update_draft_image_paths.py            # 校验（CI 友好，有 MISMATCH 退出 1）
+uv run python scripts/paper/update_draft_image_paths.py --apply    # 按 registry 规范修正（先写 .bak）
+```
+
+按 alt 文本里的图号匹配 registry `paper_label`，比对草稿相对路径与
+`canonical_output_path`。非 registry 图（电极放置图 3a / S3–S6 等）报
+`NOT_IN_REGISTRY` 并跳过。
+
+### Deprecated（勿再使用）
+
+`scripts/paper/build_figures_compare_page.py`、根目录散落的
+`paper/figures_compare*.html`、skill 内 `scripts/build_compare_page.py` 均已被
+上述版本链 + history server 取代，仅作 legacy fallback。
+
 ## 参考资料
 
 - 数据集论文: "EEG-based brain-computer interface enables real-time robotic hand control at individual finger level"

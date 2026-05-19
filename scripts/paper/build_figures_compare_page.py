@@ -1,4 +1,13 @@
-"""Generate paper/figures_compare.html — side-by-side before/after slider for every figure
+# DEPRECATED (2026-05-20, Phase 6): superseded by the persistent figure
+# version-chain + history server. Produced a one-shot static N×2 HTML with no
+# version chain, no staging accept/reject, no comments. Do NOT use for new work:
+#   uv run python .claude/skills/figure-snapshot-diff/scripts/history_server.py --port 8765
+# Kept only as a legacy fallback; the paper/figures_compare*.html artifacts it
+# generated are likewise deprecated. See CLAUDE.md
+# "## 论文图表生成与版本管理" and the skill SKILL.md "History mode".
+"""DEPRECATED — see banner above.
+
+Generate paper/figures_compare.html — side-by-side before/after slider for every figure
 modified by the 2026-05-12 standardization pass.
 
 用法:

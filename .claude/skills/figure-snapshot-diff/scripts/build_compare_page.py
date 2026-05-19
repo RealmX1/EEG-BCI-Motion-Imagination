@@ -1,4 +1,10 @@
-"""Step 3 of the figure-snapshot-diff workflow.
+# DEPRECATED (2026-05-20, Phase 6): legacy pair-only mode. The recommended
+# workflow is now History mode — a persistent per-figure version chain with a
+# local history server (trunk/staging/rejected + content-addressed comments):
+#   uv run python .claude/skills/figure-snapshot-diff/scripts/history_server.py --port 8765
+# This script is kept as a fallback for one-off snapshot-vs-current diffs only.
+# See SKILL.md "History mode (recommended)".
+"""Step 3 of the figure-snapshot-diff workflow. [DEPRECATED — see banner above]
 
 Read a "backup" directory (the snapshot taken by `snapshot_figures.py`) and a
 "current" directory (the post-change images), pair files by relative path, and

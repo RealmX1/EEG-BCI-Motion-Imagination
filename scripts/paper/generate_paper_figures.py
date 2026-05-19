@@ -1,28 +1,37 @@
 #!/usr/bin/env python
 """
-论文 v3 专属图表生成脚本.
+论文图表统一生成脚本 —— 所有论文图表的【单一入口】.
 
-生成现有 --replot 流程无法覆盖的论文图表：
-  - channel_scaling: 通道数 vs 准确率曲线 (128→61→32→8→4)
-  - further_pretraining: Further pre-training V1/V2 vs baseline 对比
-  - inference_latency: 推理延迟对比柱状图
-  - extra_sessions_paradigm: Extra sessions 三范式（within/cross/transfer）总览
-  - extra_sessions_strategy: Extra sessions 三种评估策略折线对比
+Phase 5 (2026-05-19) 起，本脚本由 `scripts/paper/figure_registry.py` 驱动:
+`--figure <fig_id>` 解析出 FigureSpec, 然后
 
-所有结果文件路径统一从 `paper/run_registry.yaml` 读取，避免论文阶段继续散落硬编码。
+  - 有 native generator (figure_generators_key) → 直接在进程内调用;
+  - 无 native generator (fig1/fig6/fig6b 这类 timestamp --replot 图) →
+    subprocess 跑 registry 里的 generator_command;
+
+生成的 PNG 落到 spec.canonical_output_path, 随后默认 propose 进
+figure-history staging (与 trunk tip 字节相同则静默跳过, 不产生噪音)。
+旧的 FIGURE_GENERATORS short key (如 channel_scaling) 仍可用 (向后兼容,
+会自动映射到对应 fig_id 并同样走 staging)。
 
 Usage:
-    uv run python scripts/paper/generate_paper_figures.py --figure channel_scaling
-    uv run python scripts/paper/generate_paper_figures.py --figure further_pretraining
-    uv run python scripts/paper/generate_paper_figures.py --figure inference_latency
-    uv run python scripts/paper/generate_paper_figures.py --figure extra_sessions_paradigm
-    uv run python scripts/paper/generate_paper_figures.py --figure extra_sessions_strategy
+    # 单张图 (fig_id)
+    uv run python scripts/paper/generate_paper_figures.py --figure fig4b
+    # 全部论文图 (registry 内 21 张, 含 14 主图)
     uv run python scripts/paper/generate_paper_figures.py --figure all
+    # 不写 staging (仅重生成 canonical PNG)
+    uv run python scripts/paper/generate_paper_figures.py --figure fig4 --no-stage-history
+    # 旧 key 仍可用
+    uv run python scripts/paper/generate_paper_figures.py --figure channel_scaling
+
+生成后审阅 staging 候选:
+    uv run python .claude/skills/figure-snapshot-diff/scripts/history_server.py --port 8765
 """
 
 import argparse
 import json
 import logging
+import subprocess
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -31,6 +40,9 @@ import numpy as np
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(Path(__file__).parent))  # scripts/paper/ for figure_registry
+
+import figure_registry  # noqa: E402  (scripts/paper is not a package)
 
 from src.results.dataclasses import PlotDataSource, TrainingResult
 from src.results.serialization import cross_subject_result_to_training_results
@@ -3655,9 +3667,11 @@ FIGURE_GENERATORS = {
     'baseline_plots': generate_all_baseline_plots,
     'channel_ranking_flip': generate_8ch_ranking_flip_figure,
     'cross_subject_pooling_forest': generate_cross_subject_pooling_forest_figure,
-    # Stage 4 Step 4 (2026-05-12): §3.6 Figure 10a redesigned away from the
-    # 30-row vertical forest plot. Small-multiples is the paper figure;
-    # heatmap is kept as a backup / supplementary alternative.
+    # DEPRECATED (2026-05-12, Stage 4 Step 4): §3.6 Figure 10a was redesigned
+    # away from the 30-row vertical forest/heatmap. The paper figure is now
+    # `dapt_v1_v5_smallmultiples` (fig10a). This heatmap is kept ONLY as a
+    # supplementary backup alternative — it is NOT in the registry, NOT a paper
+    # figure, and is excluded from `--figure all`. Do not reference in drafts.
     'dapt_v1_v5_heatmap': generate_dapt_v1_v5_heatmap_figure,
     'dapt_v1_v5_smallmultiples': generate_dapt_v1_v5_small_multiples_figure,
     'exploratory_ablation_overview': generate_exploratory_ablation_overview_figure,
@@ -3670,19 +3684,172 @@ FIGURE_GENERATORS = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Phase 5 (2026-05-19): registry-driven central dispatch + history staging.
+#
+# `generate_paper_figures.py` is now the SINGLE entry point for every paper
+# figure. `--figure <fig_id>` resolves a FigureSpec from figure_registry and
+# either (a) calls the native generator (figure_generators_key set) or
+# (b) subprocess-runs the registry generator_command (timestamp --replot figs
+# with no native generator: fig1/fig6/fig6b). The produced PNG is then proposed
+# into the figure-history staging area (skipped silently if byte-identical to
+# the current trunk tip, so unchanged reproductions create no noise).
+# ---------------------------------------------------------------------------
+
+HISTORY_CLI = PROJECT_ROOT / ".claude/skills/figure-snapshot-diff/scripts/history_cli.py"
+
+# legacy FIGURE_GENERATORS key -> fig_id (so old `--figure channel_scaling`
+# style invocations keep working AND now flow through registry + staging).
+_LEGACY_KEY_TO_FIGID: Dict[str, str] = {
+    spec.figure_generators_key: spec.fig_id
+    for spec in figure_registry.all_figures()
+    if spec.figure_generators_key
+}
+
+
+def _stage_to_history(spec, produced: Path, source_cmd: str) -> str:
+    """Propose `produced` into _history/<fig_id>/_staging/.
+
+    Returns one of: 'staged', 'deduped', 'error'. Dedup (byte-identical to the
+    current trunk tip) is the normal no-op outcome and is NOT a failure.
+    """
+    cmd = [
+        "uv", "run", "python", str(HISTORY_CLI), "propose",
+        spec.fig_id, str(produced),
+        "--tag", "central_regen",
+        "--source-cmd", source_cmd,
+        "--proposed-by", "generate_paper_figures.py 2026-05-19",
+    ]
+    r = subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True)
+    if r.returncode == 0:
+        logger.info(f"  [stage] {spec.fig_id}: proposed to staging")
+        return "staged"
+    blob = (r.stdout or "") + (r.stderr or "")
+    if "dedup" in blob or "byte-identical" in blob:
+        logger.info(f"  [stage] {spec.fig_id}: byte-identical to trunk tip — skipped")
+        return "deduped"
+    logger.warning(f"  [stage] {spec.fig_id}: propose FAILED\n{blob.strip()}")
+    return "error"
+
+
+def _generate_one(spec, stage_history: bool) -> dict:
+    """Generate one figure by spec. Returns a result dict (never raises)."""
+    produced = PROJECT_ROOT / spec.canonical_output_path
+    before_mtime = produced.stat().st_mtime if produced.exists() else -1.0
+    result = {"fig_id": spec.fig_id, "ok": False, "stage": "n/a", "detail": ""}
+
+    try:
+        if spec.figure_generators_key:
+            gen = FIGURE_GENERATORS.get(spec.figure_generators_key)
+            if gen is None:
+                result["detail"] = (
+                    f"registry figure_generators_key={spec.figure_generators_key!r} "
+                    f"not in FIGURE_GENERATORS"
+                )
+                logger.error(f"[{spec.fig_id}] {result['detail']}")
+                return result
+            logger.info(f"[{spec.fig_id}] native: {spec.figure_generators_key}()")
+            gen()
+        else:
+            logger.info(f"[{spec.fig_id}] subprocess: {spec.generator_command}")
+            r = subprocess.run(
+                spec.generator_command.split(),
+                cwd=str(PROJECT_ROOT), capture_output=True, text=True,
+            )
+            if r.returncode != 0:
+                result["detail"] = (
+                    f"generator_command exit {r.returncode}: "
+                    f"{(r.stderr or r.stdout or '').strip()[-500:]}"
+                )
+                logger.error(f"[{spec.fig_id}] {result['detail']}")
+                return result
+    except Exception as e:  # noqa: BLE001  (batch must not abort on one fig)
+        result["detail"] = f"generator raised: {type(e).__name__}: {e}"
+        logger.error(f"[{spec.fig_id}] {result['detail']}")
+        return result
+
+    # mtime guard: native generators swallow errors and `return` early without
+    # writing — detect "produced nothing" instead of staging a stale file.
+    if not produced.exists():
+        result["detail"] = f"expected output not found: {spec.canonical_output_path}"
+        logger.error(f"[{spec.fig_id}] {result['detail']}")
+        return result
+    if produced.stat().st_mtime <= before_mtime:
+        result["detail"] = (
+            f"generator did not write {spec.canonical_output_path} "
+            f"(mtime unchanged — likely insufficient data / early return)"
+        )
+        logger.error(f"[{spec.fig_id}] {result['detail']}")
+        return result
+
+    result["ok"] = True
+    logger.info(f"[{spec.fig_id}] OK -> {spec.canonical_output_path}")
+
+    if stage_history:
+        source_cmd = f"uv run python scripts/paper/generate_paper_figures.py --figure {spec.fig_id}"
+        result["stage"] = _stage_to_history(spec, produced, source_cmd)
+    return result
+
+
 def main():
-    parser = argparse.ArgumentParser(description='论文 v3 专属图表生成')
-    parser.add_argument('--figure', required=True,
-                        choices=list(FIGURE_GENERATORS.keys()) + ['all'],
-                        help='要生成的图表')
+    parser = argparse.ArgumentParser(
+        description="论文图表统一生成 (registry-driven; 单一入口)",
+    )
+    fig_ids = [s.fig_id for s in figure_registry.all_figures()]
+    # choices = registry fig_ids ∪ legacy FIGURE_GENERATORS keys ∪ 'all'
+    choices = list(dict.fromkeys(fig_ids + list(FIGURE_GENERATORS.keys()) + ["all"]))
+    parser.add_argument(
+        "--figure", required=True, choices=choices, metavar="FIG",
+        help="fig_id (fig1..fig_s2) | 'all' | 旧 FIGURE_GENERATORS key (向后兼容)",
+    )
+    parser.add_argument(
+        "--stage-history", action=argparse.BooleanOptionalAction, default=True,
+        help="生成后把结果 propose 进 figure-history staging (默认开; --no-stage-history 关闭)",
+    )
     args = parser.parse_args()
 
-    if args.figure == 'all':
-        for name, gen in FIGURE_GENERATORS.items():
-            logger.info(f'\n--- Generating: {name} ---')
-            gen()
-    else:
+    # Resolve --figure into an ordered list of FigureSpec.
+    if args.figure == "all":
+        specs = figure_registry.all_figures()
+    elif args.figure in figure_registry.FIGURES:
+        specs = [figure_registry.get(args.figure)]
+    elif args.figure in _LEGACY_KEY_TO_FIGID:
+        specs = [figure_registry.get(_LEGACY_KEY_TO_FIGID[args.figure])]
+    elif args.figure in FIGURE_GENERATORS:
+        # legacy-only key with no registry fig (figure5 / baseline_plots /
+        # dapt_v1_v5_heatmap) — call directly, unmanaged, no staging.
+        logger.warning(
+            f"[{args.figure}] legacy/unmanaged key (not in registry) — "
+            f"calling directly, NOT staged to history"
+        )
         FIGURE_GENERATORS[args.figure]()
+        return
+    else:  # unreachable (argparse choices), defensive
+        parser.error(f"unknown --figure {args.figure!r}")
+
+    results = []
+    for i, spec in enumerate(specs, 1):
+        logger.info(f"\n--- [{i}/{len(specs)}] {spec.fig_id} ({spec.paper_label}) ---")
+        results.append(_generate_one(spec, stage_history=args.stage_history))
+
+    # Summary
+    ok = [r for r in results if r["ok"]]
+    failed = [r for r in results if not r["ok"]]
+    staged = [r for r in ok if r["stage"] == "staged"]
+    deduped = [r for r in ok if r["stage"] == "deduped"]
+    logger.info(
+        f"\n=== Summary: {len(ok)}/{len(results)} generated"
+        f" | staged={len(staged)} deduped={len(deduped)}"
+        f" | failed={len(failed)} ==="
+    )
+    for r in failed:
+        logger.info(f"  FAIL {r['fig_id']}: {r['detail']}")
+    if staged:
+        logger.info(
+            "  Review staged candidates in the history UI: "
+            "uv run python .claude/skills/figure-snapshot-diff/scripts/history_server.py --port 8765"
+        )
+    sys.exit(1 if failed else 0)
 
 
 if __name__ == '__main__':

@@ -450,7 +450,7 @@ Quaternary 四分类（拇指 / 食指 / 中指 / 小指）作为辅助粒度报
 
 **图 7. Extra Sessions 二分类被试内 EEGNet vs CBraMod 对比（N = 16）。** Panel A：16 名被试在四个数据阶段（Baseline → +Sess03 → +Sess04 → +Sess05）的逐人 trajectory（淡线）+ 两模型 mean ± SE 粗实线（蓝 EEGNet / 红 CBraMod），CBraMod 全程在 EEGNet 上方且两模型均呈正向收益。Panel B：每被试 Δ (Sess05 − Baseline) 配对 boxplot，灰线连接同一被试在两模型间的 Δ；EEGNet Δ = +7.34 pp、CBraMod Δ = +6.13 pp（与 Tables 12a / 12b 一致）。生成命令：`uv run python scripts/paper/generate_extra_sessions_comparison.py --task binary`。
 
-![图 7. Extra Sessions 二分类对比](../../paper/figures/extra_sessions_binary.png)
+![图 7. Extra Sessions 二分类对比](../figures/extra_sessions_binary.png)
 
 **低基线与高基线被试的差异化收益**：
 
@@ -497,7 +497,7 @@ CBraMod 三分类增益（+8.55 pp，p = 0.012）达到显著水平，而 EEGNet
 
 **图 8. Extra Sessions 三分类被试内 EEGNet vs CBraMod 对比（N = 16；S07 缺 sess03 故 trajectory 单线为 N=15）。** Layout 与图 7 相同。Panel A 的 mean ± SE 折线使用 per-stage 全量数据（baseline/sess04/sess05 各 N=16，sess03 N=15）；Panel B 的 paired Δ 使用同时有 baseline + sess05 的 16 名被试。EEGNet Δ = +4.60 pp、CBraMod Δ = +8.55 pp（与 Tables 13a / 13b 一致）。生成命令：`uv run python scripts/paper/generate_extra_sessions_comparison.py --task ternary`。
 
-![图 8. Extra Sessions 三分类对比](../../paper/figures/extra_sessions_ternary.png)
+![图 8. Extra Sessions 三分类对比](../figures/extra_sessions_ternary.png)
 
 > **数据来源**: `results/20260331_0827_extra_sessions_cache_imagery_ternary.json`
 
@@ -540,7 +540,7 @@ fixed_combined 策略显示单调递增趋势（消除了测试集难度变化�
 
 **图 9. Extra Sessions 在三种训练范式下的总览（CBraMod 二分类，N = 16）。** 左图展示四个 step 的均值 ± 标准差轨迹；右图展示 Baseline → +Sess05 的净增益，强调“高 baseline”与“高增益”并不等价。
 
-![图 9. Extra Sessions 三范式总览](../../paper/figures/extra_sessions_paradigm_binary.png)
+![图 9. Extra Sessions 三范式总览](../figures/extra_sessions_paradigm_binary.png)
 
 > **数据来源**: within-subject `20260324_2131`: `results/20260324_2131_extra_sessions_cache_imagery_binary.json`; cross-subject `20260326_1409`: `results/20260326_1409_cross_subject_extra_sessions_cache_imagery_binary.json`; XSI-FT `20260329_1357`: `results/20260329_1357_extra_sessions_cache_imagery_binary.json`（由 `run_extra_sessions.py --pretrained-run` 生成，缓存 schema 仍为 `extra_sessions_cache`）
 > 生成命令: 图 9 由 `uv run python scripts/paper/generate_paper_figures.py --figure extra_sessions_paradigm` 生成
@@ -578,7 +578,7 @@ fixed_combined 策略显示单调递增趋势（消除了测试集难度变化�
 
 **图 3b. 32 通道五种配置双模型对比（跨被试二分类，N = 21）。** 虚线为各模型 128ch 参考性能。
 
-![图 3b. 32ch 五种配置对比](../../paper/figures/32ch_comparison.png)
+![图 3b. 32ch 五种配置对比](../figures/32ch_comparison.png)
 
 **表 8. 32 通道配置对比（跨被试二分类，N = 21）。** 128ch baseline：CBraMod 90.68%，EEGNet 76.67%。
 
@@ -650,7 +650,7 @@ FDR 以 87.71% 领先，保留了 128 通道性能的 **96.7%**（87.71% vs 90.6
 
 **图 4. 通道缩放曲线：CBraMod 跨被试二分类准确率随通道数的变化。** 红色实线为各通道数下最优配置的包络线；虚线追踪各通道选择方法在不同通道数下的表现。绿色区域标示 32 通道部署区间。× 标记为 4 通道负控制。误差线为被试间标准差。
 
-![图 4. 通道缩放曲线](../../paper/figures/channel_scaling_curve.png)
+![图 4. 通道缩放曲线](../figures/channel_scaling_curve.png)
 
 图 4 的关键观察是**通道选择方法的最优排序随通道数发生翻转，且该翻转在 binary / ternary 上的具体形式不同**。Binary：32ch 级别 FDR 以 87.71% 领先（五种方法差距仅 2.77 pp）；但到 8ch 级别，**Band Power 以 84.05% 大幅反超 FDR 的 76.43%**（+7.62 pp），CSP (81.73%) 亦优于 FDR；推进到 4ch 时翻转进一步极化——Band Power 仍保持 78.75%（远高于负控制 67.65%），而 FDR/CSP/Attention 均跌至负控制水平或以下。Ternary：32ch / 64ch 上 leading method 不再是 FDR——32ch ternary 上 Band Power 72.20% 居 4 数据驱动方法之首（与 negative_control 72.38% 在 ±0.18 pp 内 indistinguishable），64ch ternary 上 FDR 75.12% 居首（与 negative_control 75.44% 在 ±0.32 pp 内 indistinguishable）；8ch / 4ch ternary 上 Band Power 重新成为唯一 method（8ch BP 66.33% > FDR 64.88% > CSP 61.77%；4ch BP 60.67% 单独超越 negative_control 53.37% 达 +7.30 pp）。**Band Power 在 4 个通道档 × 2 task = 8 cell 上从不是 4 数据驱动方法的最差者**——这是本数据集下最稳健的横向观察。图 4b 以 slope chart 形式直观呈现 binary 翻转。本研究在四个通道档（64 / 32 / 8 / 4ch）× 双 task 的同向观察支撑了"低通道下方法选择敏感度上升"这一现象，但我们刻意避免把它升级为"FDR 与 BP 的相对排序应外推到其他数据集 / 其他任务"这种跨数据集方法论命题——单一 21 人 cohort、单一 MI 任务粒度的样本不足以支持这一升级。
 
@@ -835,11 +835,11 @@ Ternary 维度的 4ch 控制实验**与 binary 同向复现**：Band Power top-4
 
 **图 10a. DAPT V1-V5 30-cell paradigm × task 小矩阵图（含 V1/V2/V3 transfer 2026-05-11 补完）。** 6 个 panel 排成 2 行 × 3 列：**列 = paradigm**（A/D within-subject、B/E cross-subject、C/F transfer）、**行 = task**（A-C binary 上、D-F ternary 下）。每 panel 内 5 根柱表示 V1-V5 的 mean Δ (pp)，黑色 error bar 为 95% CI；柱色按 CI 是否过 0 三分：**红 = CI 全负**（cell-level 方向证据强）、**灰 = CI 跨 0**（方向不定）、绿 = CI 全正（30 cell 中无）。Row 1 三 panel（Within/Cross/Transfer · Binary）一致红色 + Stouffer Z ***：DAPT 在 binary 任务上跨 3 paradigm 系统性失败；Row 2 三 panel（Within/Cross/Transfer · Ternary）以灰色为主：任务不对称（cross/transfer-ternary 弱正 Z=+0.58/+0.18，within-ternary 弱负 Z=−2.16*）。每 panel 右下角嵌 paradigm-level Stouffer Z 与 p 值（cross-bin Z=−5.33 / cross-ter Z=+0.58 / within-bin Z=−4.42 / within-ter Z=−2.16 / **transfer-bin Z=−3.39**（V1-V5 5-cell，从 V4/V5 only Z=−2.79 加强）/ **transfer-ter Z=+0.18**（V1-V5 5-cell，**从 V4/V5 only Z=−1.60 方向翻转**））。Panel F 右下 **V3 transfer-ternary 金色边框 bar + ★（Δ=+1.09 pp, p=0.111）= 全矩阵最正 Δ**。BH-FDR 在新 30-cell DAPT family 内重算后 0/30 cell survive q<0.05；V2 within-bin 24-family q=0.048 → 30-family q=0.060 退出。
 
-![图 10a. DAPT V1-V5 paradigm × task small-multiples](../../paper/figures/dapt_v1_v5_smallmultiples.png)
+![图 10a. DAPT V1-V5 paradigm × task small-multiples](../figures/dapt_v1_v5_smallmultiples.png)
 
 **图 10b. Further Pre-training 下游评估（V1-V5 + reverse-gradient，post Step 1d 30-cell expansion）。** 左图：5 V × 6 paradigm-task 柱状（transfer 列升级为完整 5V；thick border = BH-FDR 显著，新 30-cell family 下 0/30 cell survive）；右图：(effective sample size, Δ) 反向梯度散点 — 全 30 cell 含 transfer 标记（★/♦ 表示 transfer-bin/ternary，x-jittered 至 ~94/142 trials 与 within markers 区分）；每被试 ~80 trial 的 within / transfer 范式上 Δ 更深负向（binary）或方向翻转（ternary 3/5 正），cross 21× pooled 上 4/5 ternary 弱正、5/5 binary 一致负——task asymmetry 在 (sample size, Δ) 反向梯度图上视觉化为 binary 全负 / ternary 在 transfer 与 cross 两个 paradigm 上接近 0 或弱正。
 
-![图 10b. Further Pre-training 下游评估](../../paper/figures/further_pretraining.png)
+![图 10b. Further Pre-training 下游评估](../figures/further_pretraining.png)
 
 #### 3.6.1 V4 / V5 surgical fix 与机制收紧
 
@@ -1016,7 +1016,7 @@ V1/V2/V3 已评估被试内、跨被试两种范式各两 task（共 12 cell）�
 
 **图 11. 推理延迟与模型规模对比。** 左图：不同 batch size 下两种模型的延迟（对数坐标），红色虚线为 100ms 实时阈值。右图：CBraMod/EEGNet 的参数量、FLOPs、模型大小、延迟倍率。
 
-![图 11. 推理延迟对比](../../paper/figures/inference_latency.png)
+![图 11. 推理延迟对比](../figures/inference_latency.png)
 
 **单用户场景**：batch=1 下 CBraMod 单样本延迟 12.9 ms，远低于实时 BCI 的 100 ms 阈值（~7.7× 余量）；EEGNet 以 0.375 ms 实现极致实时性。两种模型均满足单用户实时部署。
 
