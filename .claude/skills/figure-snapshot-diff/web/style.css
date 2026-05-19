@@ -1,0 +1,837 @@
+/* Paper Figure History — Staging UI styles. */
+
+* { box-sizing: border-box; }
+
+/* rem-anchored stylesheet: nearly every size below is in `rem`, which keys off
+   <html> (browser default 16px), NOT body. So the single lever for a global
+   "shrink text by ~2 points" is the root font-size. 16 → 14 ≈ -2pt uniformly. */
+html { font-size: 14px; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, system-ui, "Segoe UI", sans-serif;
+  background: #fafafa;
+  color: #222;
+  font-size: 13px;  /* inherited baseline for the few non-rem elements (-2pt) */
+  line-height: 1.55;
+}
+
+/* Header row removed (reclaims a full sticky bar of vertical space). The two
+   elements app.js hard-depends on — #status-text (setStatus, no null guard)
+   and #reload-btn — are relocated into a compact corner cluster pinned to the
+   top-right of the viewport. Fixed (not flow) so it consumes zero layout row;
+   faint backdrop keeps it legible over content it overlays. */
+.corner-controls {
+  position: fixed;
+  top: 6px;
+  right: 10px;
+  z-index: 150;            /* above sticky sidebar (100); below toast/modal */
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(250, 250, 250, 0.85);
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+#status-text { color: #666; font-size: 0.78rem; }   /* recolored for light bg */
+#status-text.ok { color: #2e7d32; }
+#status-text.err { color: #c62828; }
+.reload-mini {
+  padding: 0.25em 0.6em;
+  font-size: 0.75rem;
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);  /* high-contrast pop over content */
+}
+
+.btn {
+  background: #ff6b35;
+  color: white;
+  border: 0;
+  padding: 0.4em 0.9em;
+  border-radius: 4px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn:hover { background: #e85a25; }
+.btn-secondary { background: #888; }
+.btn-secondary:hover { background: #666; }
+.btn-danger { background: #c62828; }
+.btn-danger:hover { background: #a71f1f; }
+.btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+
+.layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  height: 100vh;  /* header row removed → layout owns the full viewport */
+  overflow: hidden;
+}
+
+.sidebar {
+  background: white;
+  border-right: 1px solid #ddd;
+  padding: 0.5rem 0;
+  overflow-y: auto;
+  height: 100%;
+}
+.sidebar ul { list-style: none; padding: 0; margin: 0; }
+.sidebar li {
+  padding: 0.55rem 0.9rem;
+  border-bottom: 1px solid #f0f0f0;
+  cursor: pointer;
+  font-size: 0.92rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  transition: background 0.1s;
+}
+.sidebar li:hover { background: #f5f5f5; }
+.sidebar li.active { background: #fff4ee; border-left: 4px solid #ff6b35; padding-left: 0.6rem; }
+.sidebar .label { font-weight: 600; color: #333; }
+.sidebar .caption { color: #777; font-size: 0.82rem; margin-top: 0.15rem; }
+.sidebar .li-text { min-width: 0; flex: 1; }
+.sidebar .li-badges {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+.sidebar .badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.05em 0.4em;
+  border-radius: 8px;
+  min-width: 1.4em;
+  text-align: center;
+  white-space: nowrap;
+}
+.sidebar .stage-badge { background: #ff6b35; color: white; }
+.sidebar .stage-badge.zero { background: #e0e0e0; color: #999; }
+.sidebar .comment-badge { background: #1976d2; color: white; }
+.sidebar .comment-badge.zero { background: transparent; color: #ccc; font-weight: 400; }
+
+.main-area {
+  padding: 0.8rem 1rem;
+  height: 100%;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(360px, 0.45fr) minmax(0, 1fr);
+  gap: 1rem;
+}
+.empty-state {
+  padding: 4rem 1rem;
+  color: #999;
+  text-align: center;
+  font-style: italic;
+  grid-column: 1 / -1;
+}
+
+.col-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  min-height: 0;
+  overflow: hidden;  /* children manage their own scroll */
+}
+.col-compare {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 0.5rem;
+}
+
+.fig-header {
+  border-bottom: 2px solid #eee;
+  padding-bottom: 0.5rem;
+  flex-shrink: 0;
+}
+.fig-header h2 { margin: 0 0 0.2rem; font-size: 1.1rem; font-weight: 700; }
+.fig-header .meta {
+  color: #666;
+  font-size: 0.78rem;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fig-header .caption { color: #555; font-size: 0.88rem; }
+.fig-header details { margin-top: 0.3rem; font-size: 0.82rem; }
+
+.compare-controls {
+  display: flex;
+  gap: 0.8rem;
+  flex-shrink: 0;
+}
+.compare-controls > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.compare-controls label { font-weight: 600; font-size: 0.78rem; color: #555; }
+.compare-controls select {
+  padding: 0.35em 0.5em;
+  font: inherit;
+  font-size: 0.85rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: white;
+  width: 100%;
+}
+.compare-controls select.before-select { border-left: 4px solid #999; }
+.compare-controls select.after-select { border-left: 4px solid #ff6b35; }
+
+#slider-host {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;       /* center wrap vertically in available area */
+  justify-content: center;   /* center wrap horizontally */
+}
+.slider-wrap {
+  position: relative;
+  /* aspect-ratio is set inline via JS once images load (renderSlider in app.js);
+     before that, the 4/3 fallback prevents the wrap from collapsing to 0×0. The
+     `max-*: 100%` + `width/height: auto` combo lets the wrap shrink-to-fit
+     whichever dimension is the binding constraint, preserving the aspect. */
+  aspect-ratio: 4 / 3;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  background: #f3f3f3;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  overflow: hidden;
+}
+img-comparison-slider {
+  display: block;
+  width: 100%;
+  height: 100%;
+  --divider-color: #ff6b35;
+  --divider-width: 4px;
+  --default-handle-color: #ff6b35;
+  --default-handle-opacity: 1.0;
+  --default-handle-width: 56px;
+}
+img-comparison-slider img {
+  /* The library's shadow DOM sets `width:100%; height:auto;` on slotted images,
+     which lets the natural aspect ratio drive height. When the after image is
+     taller than the host (which happens whenever two trunk versions have
+     slightly different aspect ratios, e.g. matplotlib dpi/figsize drift), it
+     overflows the bottom AND top-aligns because the library positions absolute
+     from top. !important + explicit object-position forces BOTH images into
+     identical centered-contain geometry so the slider mask reveals matched
+     content regions. */
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important;
+  object-position: center center !important;
+  background: #fafafa;
+}
+.badge-overlay {
+  position: absolute;
+  top: 10px;
+  padding: 4px 10px;
+  font-weight: 700;
+  font-size: 0.8rem;
+  border-radius: 4px;
+  z-index: 5;
+  pointer-events: none;
+  letter-spacing: 0.05em;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+}
+.badge-overlay.before { left: 10px; background: white; color: #333; border: 1px solid #ccc; }
+.badge-overlay.after  { right: 10px; background: #ff6b35; color: white; }
+
+.identical-warning {
+  background: #fff8e1;
+  border: 1px solid #f9a825;
+  border-left: 6px solid #f9a825;
+  color: #5d4037;
+  padding: 1rem 1.25rem;
+  border-radius: 6px;
+  margin: 0.75rem 0;
+}
+
+/* Lighter blue informational banner shown above the comparison area when
+   pickDefaultChoices() had to skip byte-identical predecessors to pick a
+   meaningful Before. Informational only — never blocks rendering. */
+.auto-skip-warning {
+  background: #e3f2fd;
+  border: 1px solid #1976d2;
+  border-left: 6px solid #1976d2;
+  color: #0d47a1;
+  padding: 0.6rem 1rem;
+  border-radius: 6px;
+  margin: 0.5rem 0 0.75rem 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.auto-skip-warning code {
+  background: rgba(13, 71, 161, 0.08);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 0.85em;
+}
+
+/* Single-image fallback container used when Before and After have the same
+   SHA-256 (byte-identical). Mirrors .slider-wrap geometry so the comparison
+   area doesn't visually jump when switching between slider and single-image
+   modes. aspect-ratio fallback overridden by JS once the image loads. */
+.single-image-wrap {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  background: #f3f3f3;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.single-image-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center center;
+  background: #fafafa;
+  display: block;
+}
+
+.staging-section {
+  background: white;
+  border: 1px solid #ddd;
+  border-left: 4px solid #ff6b35;
+  border-radius: 4px;
+  padding: 0.6rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 0 1 auto;
+  max-height: 26%;
+  overflow-y: auto;
+}
+.staging-section h3 { margin: 0 0 0.4rem; font-size: 0.95rem; }
+.staging-empty { color: #999; font-style: italic; font-size: 0.85rem; }
+.staging-entry {
+  border-top: 1px solid #f0f0f0;
+  padding: 0.45rem 0;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+  align-items: start;
+}
+.staging-entry:first-of-type { border-top: 0; padding-top: 0; }
+.staging-entry .info { font-size: 0.78rem; color: #444; line-height: 1.4; }
+.staging-entry .info strong { color: #111; }
+.staging-entry .actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  flex-shrink: 0;
+}
+.staging-entry .actions .btn { padding: 0.3em 0.7em; font-size: 0.8rem; }
+.staging-entry code {
+  background: #f3f3f3;
+  padding: 0.05rem 0.25rem;
+  border-radius: 3px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  word-break: break-all;
+}
+
+.trunk-section {
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 0.6rem 0.8rem;
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.trunk-section h3 { margin: 0 0 0.4rem; font-size: 0.95rem; flex-shrink: 0; }
+.trunk-scroll { overflow-y: auto; flex: 1 1 0; min-height: 0; }
+.trunk-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+.trunk-table th, .trunk-table td {
+  text-align: left;
+  padding: 0.3em 0.5em;
+  border-bottom: 1px solid #f0f0f0;
+  vertical-align: top;
+}
+.trunk-table th {
+  background: #fafafa;
+  font-weight: 600;
+  color: #555;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.trunk-table tr.tip { background: #fff4ee; }
+.trunk-table code { font-size: 0.72rem; }
+
+/* Comments area — sits in col-info between staging and trunk. */
+.comments-area {
+  flex: 0 1 auto;
+  max-height: 40%;
+  overflow-y: auto;
+  background: white;
+  border: 1px solid #ddd;
+  border-left: 4px solid #1976d2;
+  border-radius: 4px;
+  padding: 0.6rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.comments-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+.comments-header h3 { margin: 0; font-size: 0.95rem; }
+.comments-header .pair-ref {
+  font-size: 0.75rem;
+  color: #777;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.comments-header .pair-ref code {
+  background: #f3f3f3;
+  padding: 0 0.3em;
+  border-radius: 3px;
+  font-size: 0.75rem;
+}
+
+.comments-list { display: flex; flex-direction: column; gap: 0.35rem; }
+.empty-state-mini { color: #999; font-style: italic; font-size: 0.82rem; padding: 0.2rem 0; }
+
+.comment-entry {
+  background: #fafafa;
+  border-left: 3px solid #999;
+  padding: 0.4rem 0.55rem;
+  border-radius: 3px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+.comment-entry.status-open    { border-left-color: #1976d2; }
+.comment-entry.status-claimed { border-left-color: #f9a825; background: #fffdf5; }
+.comment-entry.status-resolved { border-left-color: #43a047; background: #f1f8f1; opacity: 0.85; }
+.comment-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  color: #666;
+  margin-bottom: 0.18rem;
+  flex-wrap: wrap;
+}
+.comment-header strong { color: #111; font-size: 0.82rem; }
+.status-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 0.1em 0.45em;
+  border-radius: 8px;
+  letter-spacing: 0.04em;
+}
+.status-badge.status-open    { background: #e3f2fd; color: #0d47a1; }
+.status-badge.status-claimed { background: #fff8e1; color: #ef6c00; }
+.status-badge.status-resolved { background: #e8f5e9; color: #1b5e20; }
+.comment-header .author { color: #777; }
+.comment-header .when { color: #888; margin-left: auto; font-family: ui-monospace, monospace; font-size: 0.72rem; }
+.comment-text {
+  color: #222;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.pair-ref-inline {
+  font-size: 0.72rem;
+  color: #777;
+  margin: 0.15rem 0;
+}
+.pair-ref-inline code { font-size: 0.72rem; background: transparent; }
+.resolution {
+  font-size: 0.74rem;
+  color: #2e7d32;
+  margin-top: 0.2rem;
+  font-style: italic;
+}
+.comment-entry.status-claimed .resolution { color: #ef6c00; }
+
+.comment-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  flex-shrink: 0;
+}
+.comment-form textarea {
+  width: 100%;
+  min-height: 120px;   /* larger default; still user-resizable (resize: vertical) */
+  max-height: 220px;
+  padding: 0.4rem 0.55rem;
+  font: inherit;
+  font-size: 0.82rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  resize: vertical;
+  background: white;
+}
+.comment-form textarea:focus { outline: 2px solid #1976d2; outline-offset: -1px; border-color: #1976d2; }
+.comment-form-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+.form-hint { font-size: 0.72rem; color: #888; }
+.comment-form .btn { padding: 0.3em 0.9em; font-size: 0.82rem; }
+
+.other-comments {
+  border-top: 1px dashed #ddd;
+  padding-top: 0.4rem;
+  font-size: 0.82rem;
+}
+.other-comments summary { cursor: pointer; color: #1976d2; font-weight: 600; }
+.other-comments .other-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+}
+
+.toast {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  background: #1a1a2e;
+  color: white;
+  padding: 0.7em 1.2em;
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+  z-index: 200;
+  font-size: 0.92rem;
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+}
+.toast.show { opacity: 1; }
+.toast.error { background: #b71c1c; }
+
+/* ----------------------------------------------------------------------- */
+/* Supersedes chain — small annotation under the comment text. */
+.comment-supersedes {
+  margin-top: 0.2rem;
+  font-size: 0.74rem;
+  color: #6a1b9a;
+  font-style: italic;
+}
+.comment-supersedes code {
+  background: #ede7f6;
+  color: #4527a0;
+  padding: 0 0.3em;
+  border-radius: 3px;
+  font-size: 0.72rem;
+}
+
+/* Superseded resolution (distinct from staged-resolved). */
+.resolution.superseded {
+  color: #6a1b9a;
+}
+.resolution.superseded code {
+  background: #ede7f6;
+  color: #4527a0;
+  padding: 0 0.3em;
+  border-radius: 3px;
+  font-size: 0.72rem;
+}
+
+/* Comments subsection grouping (active-requests / matching / etc.). */
+.comments-subsection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.subsection-label {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: #555;
+  letter-spacing: 0.02em;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 0.15rem;
+}
+
+/* Supersedes picker (a <details> with multi-select checkboxes). */
+.supersedes-picker {
+  font-size: 0.78rem;
+  background: #fafafa;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  padding: 0.3rem 0.5rem;
+}
+.supersedes-picker summary {
+  cursor: pointer;
+  color: #6a1b9a;
+  font-weight: 600;
+  font-size: 0.78rem;
+}
+.supersedes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 0.35rem;
+}
+.supersedes-option {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.76rem;
+  color: #444;
+  cursor: pointer;
+  padding: 0.15rem 0.2rem;
+  border-radius: 3px;
+}
+.supersedes-option:hover { background: #f0e9f7; }
+.supersedes-option input { margin: 0; }
+.supersedes-option code {
+  background: #ede7f6;
+  color: #4527a0;
+  padding: 0 0.3em;
+  border-radius: 3px;
+  font-size: 0.7rem;
+}
+.supersedes-option .supersedes-text {
+  color: #666;
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+/* History (resolved+superseded) variant of other-comments — slightly muted. */
+.other-comments.history summary { color: #888; }
+.other-comments.history .comment-entry { opacity: 0.7; }
+
+/* ----------------------------------------------------------------------- */
+/* Version-history table status tags (accepted vs rejected) and rejected-row
+   styling. Rejected versions are greyed but still visible/selectable —
+   they form the audit trail of "things we tried and ruled out". */
+.version-tag {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.08em 0.45em;
+  border-radius: 8px;
+}
+.version-tag.tag-accepted { background: #e8f5e9; color: #1b5e20; }
+.version-tag.tag-rejected { background: #ffebee; color: #b71c1c; }
+
+.trunk-table tr.rejected-row {
+  background: #fafafa;
+  color: #8a8a8a;
+}
+.trunk-table tr.rejected-row td { font-style: italic; }
+.trunk-table tr.rejected-row strong { color: #999; font-weight: 600; }
+.trunk-table tr.rejected-row code { background: #f0f0f0; color: #888; }
+
+/* Rejected option in the compare dropdown — greyed but still selectable.
+   :disabled would be the standard look but we don't actually disable; we just
+   style the same way so users see "this is a soft-deleted option". */
+.rejected-optgroup { color: #999; font-style: italic; }
+.rejected-option { color: #888; font-style: italic; background: #fafafa; }
+.rejected-option:checked { background: #fafafa; color: #555; }
+
+/* When the compare slider currently shows a rejected version on either side,
+   it's still a valid comparison — but mark it visually so users know it's
+   "the rejected attempt, not a candidate going forward". */
+.slider-wrap.has-rejected { box-shadow: 0 0 0 2px #ffcdd2; }
+
+/* ----------------------------------------------------------------------- */
+/* Comment-form left-side action buttons (Copy ref + History) — render in
+   the same row as Ctrl+Enter hint and submit, but visually grouped left. */
+.comment-form-actions .left-actions {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+.comment-form-actions .left-actions .btn {
+  padding: 0.3em 0.7em;
+  font-size: 0.78rem;
+}
+
+/* ----------------------------------------------------------------------- */
+/* Modal (History panel). Renders into #modal-host with backdrop + dialog. */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 20, 30, 0.55);
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.5rem;
+}
+.modal-dialog {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  /* Explicit dimensions: without these, flex-direction:column dialog collapses
+     to children's natural height (header ~3rem + empty body → modal looks like
+     a single-line strip). 720×... gives a comfortable default; the cap keeps
+     it from overflowing the viewport. */
+  width: min(960px, 100%);
+  height: min(720px, calc(100vh - 4rem));
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.7rem 1rem;
+  background: #1a1a2e;
+  color: white;
+  border-bottom: 3px solid #ff6b35;
+  flex-shrink: 0;
+}
+.modal-header h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.modal-header .modal-close {
+  background: transparent;
+  border: 0;
+  color: white;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.4rem;
+  font-weight: 600;
+}
+.modal-header .modal-close:hover { color: #ff6b35; }
+
+.modal-body {
+  padding: 0.8rem 1rem;
+  overflow-y: auto;
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.history-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-bottom: 0.8rem;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 0.5rem;
+  position: sticky;
+  top: 0;
+  background: white;
+  z-index: 2;
+}
+.history-filter-bar .filter-btn {
+  background: #f3f3f3;
+  border: 1px solid #ddd;
+  padding: 0.3em 0.7em;
+  font-size: 0.8rem;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #444;
+  font: inherit;
+  font-size: 0.8rem;
+}
+.history-filter-bar .filter-btn:hover { background: #e9e9e9; }
+.history-filter-bar .filter-btn.active {
+  background: #1976d2;
+  border-color: #1976d2;
+  color: white;
+  font-weight: 600;
+}
+
+.history-pair-group {
+  margin-bottom: 1rem;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  padding: 0.5rem 0.6rem;
+  background: #fafafa;
+}
+.history-pair-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px dashed #ddd;
+  font-size: 0.82rem;
+}
+.history-pair-header .pair-label {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  color: #555;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.history-pair-header .pair-label code {
+  background: #ede7f6;
+  color: #4527a0;
+  padding: 0 0.3em;
+  border-radius: 3px;
+}
+.history-pair-header .pair-label.current-pair {
+  color: #1976d2;
+  font-weight: 600;
+}
+.history-pair-group .pair-comments {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.jump-btn {
+  background: #1976d2;
+  color: white;
+  border: 0;
+  padding: 0.2em 0.6em;
+  font-size: 0.72rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.jump-btn:hover { background: #1565c0; }
+.jump-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+.jump-btn[disabled] { opacity: 0.55; }
+
+.modal-empty {
+  color: #999;
+  font-style: italic;
+  text-align: center;
+  padding: 2rem 0;
+}
