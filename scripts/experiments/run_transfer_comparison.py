@@ -274,6 +274,11 @@ Examples:
                         help='How to choose historical reference runs for plots (default: baseline)')
     parser.add_argument('--baseline', action='store_true',
                         help='Mark this run as a designated baseline in ExperimentDB')
+    parser.add_argument('--merge-cache', type=str, default=None, metavar='RUN_TAG',
+                        help='Replot 模式专用：把另一个 run 的 results_by_model 合并进来再画图。'
+                             '用于把单模型 cache 拼成多模型对比图（例如 fig6 把 cbramod cache 与 '
+                             'eegnet XSI-FT baseline 合并）。两份 cache 的 model key 不可重叠，'
+                             '且 task/paradigm 必须一致。')
 
     # Override --task choices: transfer does NOT support 'unified'
     for action in parser._actions:
@@ -292,6 +297,40 @@ Examples:
             args.replot, 'transfer',
             results_dir_override=output_dir if output_dir != 'results' else None,
         )
+
+        if args.merge_cache:
+            merge_ctx = load_replot_context(
+                args.merge_cache, 'transfer',
+                results_dir_override=output_dir if output_dir != 'results' else None,
+            )
+            if merge_ctx['task'] != ctx['task'] or merge_ctx['paradigm'] != ctx['paradigm']:
+                log_main.error(
+                    f"--merge-cache task/paradigm mismatch: "
+                    f"{merge_ctx['paradigm']}/{merge_ctx['task']} vs "
+                    f"{ctx['paradigm']}/{ctx['task']}"
+                )
+                merge_ctx['db'].close()
+                ctx['db'].close()
+                return 1
+            for model_type, model_results in merge_ctx['results_by_model'].items():
+                if model_type in ctx['results_by_model']:
+                    log_main.error(
+                        f"--merge-cache conflict: model '{model_type}' present in both "
+                        f"{args.replot} and {args.merge_cache}"
+                    )
+                    merge_ctx['db'].close()
+                    ctx['db'].close()
+                    return 1
+                ctx['results_by_model'][model_type] = model_results
+            ctx['models'] = sorted(ctx['results_by_model'].keys())
+            ctx['subjects'] = sorted(set(ctx['subjects']) | set(merge_ctx['subjects']))
+            log_io.info(
+                f"Merged {args.merge_cache} into replot context: "
+                f"models={list(merge_ctx['results_by_model'].keys())}, "
+                f"combined models={ctx['models']}"
+            )
+            merge_ctx['db'].close()
+
         _generate_plots(
             results_by_model=ctx['results_by_model'],
             task=ctx['task'],

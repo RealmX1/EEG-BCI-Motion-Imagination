@@ -185,7 +185,7 @@ _FIGS: list[FigureSpec] = [
         canonical_filename="20260329_0507_transfer_combined_imagery_binary.png",
         output_dir="results",
         generator_script="scripts/experiments/run_transfer_comparison.py",
-        generator_command="uv run python scripts/experiments/run_transfer_comparison.py --replot 20260329_0507 --cache-only",
+        generator_command="uv run python scripts/experiments/run_transfer_comparison.py --replot 20260329_0507 --merge-cache 20260507_1835 --cache-only",
     ),
     FigureSpec(
         fig_id="fig6b",
@@ -194,7 +194,7 @@ _FIGS: list[FigureSpec] = [
         canonical_filename="20260329_0448_transfer_combined_imagery_ternary.png",
         output_dir="results",
         generator_script="scripts/experiments/run_transfer_comparison.py",
-        generator_command="uv run python scripts/experiments/run_transfer_comparison.py --replot 20260329_0448 --cache-only",
+        generator_command="uv run python scripts/experiments/run_transfer_comparison.py --replot 20260329_0448 --merge-cache 20260507_1913 --cache-only",
     ),
     FigureSpec(
         fig_id="fig7",

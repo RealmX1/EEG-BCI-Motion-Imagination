@@ -391,30 +391,30 @@ XSI-FT 与 §3.2 cross-subject 的区别在于（3）每名被试拿到独立模
 | CBraMod | 三分类 | 跨被试 | 74.88 ± 14.03% | — |
 | CBraMod | 三分类 | XSI-FT | 75.04 ± 13.97% | **+0.16 pp** |
 | EEGNet | 二分类 | 跨被试 | 76.67 ± 11.95% | — |
-| EEGNet | 二分类 | XSI-FT | **80.77 ± 11.19%** | **+4.10 pp** |
+| EEGNet | 二分类 | XSI-FT | **82.05 ± 11.28%** | **+5.38 pp** |
 | EEGNet | 三分类 | 跨被试 | 61.23 ± 11.28% | — |
-| EEGNet | 三分类 | XSI-FT | **66.23 ± 12.61%** | **+5.00 pp** |
+| EEGNet | 三分类 | XSI-FT | **66.33 ± 12.96%** | **+5.10 pp** |
 
-在 128 通道条件下，CBraMod 的 XSI-FT 在两种任务上均未产生统计显著的收益（二分类 Δ = −0.56 pp，配对 t 检验 p = 0.189；三分类 Δ = +0.20 pp，p = 0.261）。EEGNet 的反应方向相反：XSI-FT 在二分类与三分类上分别提供 **+4.10 pp** 和 **+5.00 pp** 的方向性正增益。两种模型在同一 XSI-FT 协议下方向不同，是一个值得专门讨论的非对称（见下方解读）。图 6 和图 6b 分别展示了二分类和三分类的 XSI-FT 逐被试对比。
+在 128 通道条件下，CBraMod 的 XSI-FT 在两种任务上均未产生统计显著的收益（二分类 Δ = −0.56 pp，配对 t 检验 p = 0.189；三分类 Δ = +0.20 pp，p = 0.261）。EEGNet 的反应方向相反：XSI-FT 在二分类与三分类上分别提供 **+5.38 pp**（配对 t 检验 p = 0.004）和 **+5.10 pp**（p = 0.001）的统计显著正增益。两种模型在同一 XSI-FT 协议下方向不同（CBraMod 非显著、EEGNet 双 task 均 p < 0.01），是一个值得专门讨论的非对称（见下方解读）。图 6 和图 6b 分别展示了二分类和三分类的 XSI-FT 逐被试对比。
 
-**图 6. 128 通道 XSI-FT 对比（二分类，5-way）。** 同时展示被试内（EEGNet + CBraMod）、跨被试（EEGNet + CBraMod）和 XSI-FT（CBraMod）的逐被试结果。EEGNet 128ch XSI-FT 数据已于 2026-05-06（`20260506_2039`）补全，本图为 2026-03-29 生成版本；EEGNet XSI-FT 数字以表 11 与下方文字为准，绘图未来更新需重生成。
+**图 6. 128 通道 XSI-FT 对比（二分类，6-way）。** 同时展示被试内（EEGNet + CBraMod）、跨被试（EEGNet + CBraMod）和 XSI-FT（EEGNet + CBraMod）的逐被试结果，覆盖表 11 全部 6 行。
 
 ![图 6. XSI-FT 对比（二分类）](../../results/20260329_0507_transfer_combined_imagery_binary.png)
 
-**图 6b. 128 通道 XSI-FT 对比（三分类，4-way）。** 当前图仅含被试内 EEGNet/CBraMod、跨被试 CBraMod 与 XSI-FT CBraMod。EEGNet 跨被试三分类（`20260330_0735`）与 EEGNet XSI-FT 三分类（`20260506_2112`）数字已在表 11 / 表 7 中补齐；图 6b 为 2026-03-29 渲染版本，未来更新需重新生成绘图脚本。
+**图 6b. 128 通道 XSI-FT 对比（三分类，6-way）。** 同时展示被试内（EEGNet + CBraMod）、跨被试（EEGNet + CBraMod）和 XSI-FT（EEGNet + CBraMod）的逐被试结果，覆盖表 11 全部 6 行。
 
 ![图 6b. XSI-FT 对比（三分类）](../../results/20260329_0448_transfer_combined_imagery_ternary.png)
 
-CBraMod 在 128 通道条件下 XSI-FT 两个任务上均无统计显著收益，表明其跨被试模型已在表征层面饱和。然而 EEGNet 的方向相反——它在跨被试 pooling 下方向性受损（§3.2 二分类 −1.43 pp），但在 XSI-FT 下反而获得 +4.10/+5.00 pp 的正增益。这种非对称指向一个具体机制：EEGNet 容量太小（~16K 参数）无法吸收 21 名被试的异质 cross-subject 分布，被迫学习"被试均值附近"的折衷表征；当 XSI-FT 阶段把模型暴露给单被试数据后，少数已有的 weights 被重新校准到该被试，反而恢复了被试-特异性 spatial filter。CBraMod 的 ~30M 参数则在 cross-subject 阶段已成功容纳了多被试变异，单被试 fine-tune 没有进一步信息可学。换言之，**XSI-FT 是不是必要，由 cross-subject 是否对该模型容量"过载"决定，而不是由模型大小本身决定**。
+CBraMod 在 128 通道条件下 XSI-FT 两个任务上均无统计显著收益，表明其跨被试模型已在表征层面饱和。然而 EEGNet 的方向相反——它在跨被试 pooling 下方向性受损（§3.2 二分类 −1.43 pp），但在 XSI-FT 下反而获得 +5.38/+5.10 pp 的统计显著正增益（两 task 均 p < 0.01）。这种非对称指向一个具体机制：EEGNet 容量太小（~16K 参数）无法吸收 21 名被试的异质 cross-subject 分布，被迫学习"被试均值附近"的折衷表征；当 XSI-FT 阶段把模型暴露给单被试数据后，少数已有的 weights 被重新校准到该被试，反而恢复了被试-特异性 spatial filter。CBraMod 的 ~30M 参数则在 cross-subject 阶段已成功容纳了多被试变异，单被试 fine-tune 没有进一步信息可学。换言之，**XSI-FT 是不是必要，由 cross-subject 是否对该模型容量"过载"决定，而不是由模型大小本身决定**。
 
-需要指出的是，EEGNet XSI-FT 的效应量（+4.10/+5.00 pp）虽然方向稳定，但仍小于其被试内训练（§3.1，binary 78.10%）相对于 cross-subject pooling 的差距（~+1.4 pp 内），且 EEGNet 二分类被试内 78.10% 仍未追上 EEGNet XSI-FT 的 80.77%——XSI-FT 提供的"全群体先验"对 EEGNet 仍是有用的初始化，但 cross-subject pooling 本身对 EEGNet 是次优策略。
+需要指出的是，EEGNet XSI-FT 的效应量（+5.38/+5.10 pp，两 task 均 p < 0.01）虽统计显著，但仍小于其被试内训练（§3.1，binary 78.10%）相对于 cross-subject pooling 的差距（~+1.4 pp 内），且 EEGNet 二分类被试内 78.10% 仍未追上 EEGNet XSI-FT 的 82.05%——XSI-FT 提供的"全群体先验"对 EEGNet 仍是有用的初始化，但 cross-subject pooling 本身对 EEGNet 是次优策略。
 
 CBraMod 的非显著结果还指向一个更宽的假设：XSI-FT 在缩减通道配置下（跨被试模型因空间信息受限而性能下降时）可能提供更大收益。§3.5.4 报告了一项 32ch FDR 对照实验给出方向性支持，但**8ch Band Power 档位下方向反转**（详见 §3.5.4），表明该假设并非简单的"通道越少收益越大"，需要 cross-subject baseline 饱和度的额外条件。
 
 为验证 128ch CBraMod XSI-FT ceiling 不是 TUEG 预训练 backbone 的副作用，§3.7 random-init CBraMod 消融在两种任务上均显示同方向 ceiling：random-init cross→XSI-FT 二分类 Δ = −0.12 pp（86.34% → 86.22%）、三分类 Δ = +0.37 pp（73.06% → 73.43%），与本节 −0.56 / +0.20 pp 模式一致。两条独立证据（pretrained vs from-scratch）共同表明，128ch 下 CBraMod 的 XSI-FT ceiling 由（任务 × cohort × 通道密度）共同决定，而非 TUEG backbone 的过度正则化。
 
-> **数据来源**: 跨被试二分类 `20260324_0023`: `results/20260324_0023_cross_subject_cache_imagery_binary.json`; XSI-FT 二分类 CBraMod `20260329_0507`: `results/20260329_0507_transfer_cache_imagery_binary.json`; 跨被试三分类 `20260324_0109`: `results/20260324_0109_cross_subject_cache_imagery_ternary.json`; XSI-FT 三分类 CBraMod `20260329_0448`: `results/20260329_0448_transfer_cache_imagery_ternary.json`; EEGNet 跨被试三分类 `20260330_0735`: `results/20260330_0735_cross_subject_cache_imagery_ternary.json`; EEGNet XSI-FT 二分类 `20260506_2039`: `results/20260506_2039_transfer_cache_imagery_binary.json`; EEGNet XSI-FT 三分类 `20260506_2112`: `results/20260506_2112_transfer_cache_imagery_ternary.json`
-> 生成命令: 图 6 由 `uv run python scripts/experiments/run_transfer_comparison.py --replot 20260329_0507` 重绘；图 6b 由 `uv run python scripts/experiments/run_transfer_comparison.py --replot 20260329_0448` 重绘
+> **数据来源**: 跨被试二分类 `20260324_0023`: `results/20260324_0023_cross_subject_cache_imagery_binary.json`; XSI-FT 二分类 CBraMod `20260329_0507`: `results/20260329_0507_transfer_cache_imagery_binary.json`; 跨被试三分类 `20260324_0109`: `results/20260324_0109_cross_subject_cache_imagery_ternary.json`; XSI-FT 三分类 CBraMod `20260329_0448`: `results/20260329_0448_transfer_cache_imagery_ternary.json`; EEGNet 跨被试三分类 `20260330_0735`: `results/20260330_0735_cross_subject_cache_imagery_ternary.json`; EEGNet XSI-FT 二分类 `20260507_1835`: `results/20260507_1835_transfer_cache_imagery_binary.json`（与 `20260506_2039` 同 recipe 的 N=21 replication，`db.find_baseline_run()` 默认返回的 baseline 候选，详见 §3.7.2 footnote）; EEGNet XSI-FT 三分类 `20260507_1913`: `results/20260507_1913_transfer_cache_imagery_ternary.json`（同上）
+> 生成命令: 图 6 / 图 6b 由 `uv run python scripts/paper/generate_paper_figures.py --figure fig6` / `--figure fig6b` 重绘（内部走 `run_transfer_comparison.py --replot 20260329_0507 --merge-cache 20260507_1835 --cache-only` 和 `--replot 20260329_0448 --merge-cache 20260507_1913 --cache-only`，把单模型 cache 合并为 6-way 对比）
 
 #### 3.3.1 Quaternary（仅在补充材料中报告）
 
@@ -945,7 +945,7 @@ V1/V2/V3 已评估被试内、跨被试两种范式各两 task（共 12 cell）�
 
 **Cross-subject 准确率沿当前扩参轴随容量单调下降**：从 76.67% (16K) → 57.65% (1.90M) → 51.37% (5.84M) → 50.00% (~20–30M) 一路下降，~30M 已落入 chance。**在共享默认 HP、受限 HPO 预算（≤ 2 trial 人工调试）以及 baseline → Mid 双轴扩参（conv stem + MLP 头同时改变）这三项约束下**，本观察方向性支持 "EEGNet 架构内沿当前扩参轴扩参对 cross-subject 准确率不利"，但并不支持更强的 "EEG decoding 瓶颈不在容量" 论断——后者需要在 EEGNet-Huge v1/v2 各跑 ≥ 25 trial 独立 HPO 并仍观察到不可训才能成立（详见 §6 #8）。这一现象方向上与 Ding et al. [3] 的 deepEEGNet 实验（"+1.21% binary 微弱提升"，规模估计 ~100K–1M）一致——后者也未能通过扩参显著改善——但本研究规模扩张幅度（5.84M / ~30M，2 个数量级）尚不足以独立排除"扩参 + 严格 HPO"组合下能否反转该单调趋势。
 
-**Within / XSI-FT 范式下容量损失更温和**：被试内从 78.10% 降至 ~67%（~−11 pp），但 v3 与 Mid 之间已饱和；XSI-FT 仅从 82.05% 降至 80.45–80.62%（~−1.5 pp），对容量基本不敏感。XSI-FT 对扩参 EEGNet 的鲁棒性与 §3.3 的 EEGNet XSI-FT 增益（+4.10 / +5.00 pp）一致——单被试 fine-tune 阶段把过参数化的分类头校准回单被试分布。
+**Within / XSI-FT 范式下容量损失更温和**：被试内从 78.10% 降至 ~67%（~−11 pp），但 v3 与 Mid 之间已饱和；XSI-FT 仅从 82.05% 降至 80.45–80.62%（~−1.5 pp），对容量基本不敏感。XSI-FT 对扩参 EEGNet 的鲁棒性与 §3.3 的 EEGNet XSI-FT 增益（+5.38 / +5.10 pp，两 task 均 p < 0.01）一致——单被试 fine-tune 阶段把过参数化的分类头校准回单被试分布。
 
 **与同规模 random-init CBraMod (§3.7.2) 的探索性对照**：在 ~30M 参数 + 无预训练的同等条件下，EEGNet-Huge v2 (30.22M) cross 50.07%（chance）vs CBraMod random-init (30.48M) cross 86.34%——观察到 ~+36 pp 差距；即便取可训练的 EEGNet-Huge v3 (5.84M) cross 51.37% 作对照，与 random-init CBraMod 的差距仍达 ~+35 pp，与容量量级差距非线性脱钩。**在 EEGNet-Huge v1/v2/v3 与 CBraMod random-init 均未做专属 HPO 的对照下**，这一差距是 "架构差异 + EEGNet 优化栈不稳定 + random-init CBraMod HP 错配" 三者的复合估计；其中可归因到 backbone 架构（transformer + ACPE vs 扩参 CNN）的下界尚不能从本节单独给出。本节的探索性观察支持 "在受限 HPO 预算下，扩参 EEGNet 远不及 random-init CBraMod" 这一较弱主张；将该差距精准归因到 "架构归纳偏置" 需要 §6 #8 描述的双侧独立 HPO sweep 完成后才能成立。
 
@@ -1067,7 +1067,7 @@ within-subject 范式下方向反转：random-init CBraMod 在被试内二分类
 
 引用本节数字时，**摘要 / §1.4 / §7 Finding 1 显式列出 binary +23.10 / ternary +30.79 pp 双值**，不再使用 ~+27 pp 平均值（该平均会模糊任务难度差异）；cross-subject 与 XSI-FT 范式下 TUEG 预训练贡献为 +1.6 ~ +4.3 pp（双任务双范式区间）。三向分解（架构 / 预训练 / 容量）的精确归因强度需要 §6 #8（EEGNet-Huge + random-init CBraMod 双侧 ≥ 25 trial 独立 HPO sweep）的算力开支后才能闭合；当前章节支持的较弱主张是 "TUEG 预训练在被试内贡献巨大、在 cross-subject 与 XSI-FT 仅 +2 ~ +4 pp" + "transformer + ACPE 架构在不依赖 TUEG 预训练时仍能在 cross-subject 21 × pooled 数据上学到有效表征"，更强的独立可归因分解超出本研究证据范围。
 
-值得注意的是，EEGNet 未从跨被试数据池化中显著获益（78.10% 被试内 vs 76.67% 跨被试，−1.43 pp, p = 0.456），而 CBraMod 增益 +5.53 pp。这提示基座模型的预训练表征使其能够更有效地整合异质跨被试数据。EEGNet 反而是从 XSI-FT 中获益的那一方（128ch XSI-FT +4.10/+5.00 pp, §3.3）：cross-subject pooling 的 21 名被试异质分布让 EEGNet 学不动，但 XSI-FT 的单被试 fine-tune 阶段给它一个具体的目标分布去对齐。这一非对称（CBraMod 偏好 cross-subject、EEGNet 偏好 XSI-FT）从模型容量角度可统一解释——大容量基座能直接吸收异质群体分布，小容量 CNN 必须在 cross-subject 阶段先抽出"群体共享 spatial filter"作为初始化、再在 fine-tune 阶段重新校准到单被试。
+值得注意的是，EEGNet 未从跨被试数据池化中显著获益（78.10% 被试内 vs 76.67% 跨被试，−1.43 pp, p = 0.456），而 CBraMod 增益 +5.53 pp。这提示基座模型的预训练表征使其能够更有效地整合异质跨被试数据。EEGNet 反而是从 XSI-FT 中获益的那一方（128ch XSI-FT +5.38/+5.10 pp, p < 0.01, §3.3）：cross-subject pooling 的 21 名被试异质分布让 EEGNet 学不动，但 XSI-FT 的单被试 fine-tune 阶段给它一个具体的目标分布去对齐。这一非对称（CBraMod 偏好 cross-subject、EEGNet 偏好 XSI-FT）从模型容量角度可统一解释——大容量基座能直接吸收异质群体分布，小容量 CNN 必须在 cross-subject 阶段先抽出"群体共享 spatial filter"作为初始化、再在 fine-tune 阶段重新校准到单被试。
 
 ### 4.2 最优通道配置与部署
 
@@ -1136,9 +1136,9 @@ within-subject 范式下方向反转：random-init CBraMod 在被试内二分类
 
 将通道缩减、纵向数据扩展、DAPT 三条线整合，可以在"数据可得性"坐标轴上勾勒一条决策路径：
 
-1. **零额外数据 + 高密度通道**：CBraMod 跨被试 pooled 模型（binary 90.68%）是最佳起点；EEGNet 在该范式下边际收益为负（−1.43 pp, p = 0.456），不适合 cohort-pooled 训练；但 EEGNet 在 XSI-FT 范式下反而获得 +4.10/+5.00 pp（§3.3），构成"小模型必须借助 XSI-FT 才能从群体数据中获益"的证据。
+1. **零额外数据 + 高密度通道**：CBraMod 跨被试 pooled 模型（binary 90.68%）是最佳起点；EEGNet 在该范式下边际收益为负（−1.43 pp, p = 0.456），不适合 cohort-pooled 训练；但 EEGNet 在 XSI-FT 范式下反而获得 +5.38/+5.10 pp（§3.3，p < 0.01），构成"小模型必须借助 XSI-FT 才能从群体数据中获益"的证据。
 2. **零额外数据 + 低密度通道（<32ch）**：32ch FDR 保留 96.7%、64ch FDR 保留 98.7%、8ch Band Power 保留 92.7%、**4ch Band Power 仍保留 86.8%**——可部署谱系比初版 v2 草稿（4ch 全失效）显著放宽。32ch FDR 配置下 XSI-FT 提供 +0.74 pp 方向性增益；但 8ch BP 配置下 XSI-FT 反而损失 −2.03 pp——这说明 **XSI-FT 收益取决于 cross-subject baseline 离 (channel, method) 容量上限的距离，而非通道数本身**：32ch FDR 距上限远（XSI-FT 有空间），8ch BP 接近上限（XSI-FT 反而引入过拟合）。低密度部署应先评估 cross-subject baseline 是否已饱和，再决定是否使用 XSI-FT。
-3. **少量同被试新数据 (~1 session)**：XSI-FT (+5.70 pp) 与被试内重训练 (+6.13 pp) 终点接近，但 XSI-FT 起点更高，更适合冷启动用户；EEGNet 在 XSI-FT 下也获得 +4.10/+5.00 pp（小但稳定），适合极低算力部署。
+3. **少量同被试新数据 (~1 session)**：XSI-FT (+5.70 pp) 与被试内重训练 (+6.13 pp) 终点接近，但 XSI-FT 起点更高，更适合冷启动用户；EEGNet 在 XSI-FT 下也获得 +5.38/+5.10 pp（p < 0.01，小但统计显著），适合极低算力部署。
 4. **多 session 同被试 (3-5 sessions)**：被试内重训练达到 93.36% 全文最高终点；标准差从 10.81% 压缩至 5.98%——临床部署的"最差用户"承诺。
 5. **外部域外数据 (~870h, 以 grasp/wrist MI 为主)**：DAPT 5 个独立配置（V1–V5）评估呈 **task-asymmetric 负迁移**——cross-subject binary 5/5 一致负向（mean Δ=−1.79 pp，Stouffer Z=−5.32, p<0.001），cross-subject ternary 4/5 弱正、仅 V5 弱负（mean Δ=+0.18 pp，Stouffer p=0.564）。V4 (3-set 域对齐 + strict filter) 与 V5 (Stieger 单源 60ch) 两次 surgical fix 把候选机制收紧到 **MI 粒度错配** 唯一存活假设，并反方向证伪"通道数异质"假设。本研究的负面结果不构成对 DAPT 范式本身的否定，但提示在 finger MI 任务上**source domain 的信号粒度对齐比任务语义类别更关键**——只在存在类型更接近的 source MI 数据集（如手指级、手部精细动作 MI）时才值得再尝试 DAPT；以粗运动 MI 为主的当前外部数据池在 CBraMod backbone 设置下不推荐（详见 §4.5 / §3.6）。
 
