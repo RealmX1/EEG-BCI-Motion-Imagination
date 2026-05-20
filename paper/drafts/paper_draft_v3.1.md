@@ -7,7 +7,8 @@
 > - 新增多 session 纵向扩展实验结果（原 TODO 6.2，现 Section 3.4）
 > - 新增领域自适应 further pre-training 负面结果（Section 2.7 + 3.6）
 > - 新增推理性能基准测试（Section 3.8）
-> - 新增容量与预训练消融（Section 3.7）：EEGNet 容量阶梯（16K → 30M，§3.7.1）+ random-init CBraMod（§3.7.2）+ 架构 / 预训练 / 容量三向分解（§3.7.3）
+> - 新增**容量与预训练探索性消融**（附录 §A.1，定位为方向性诊断而非头条贡献）：EEGNet 容量阶梯（§A.1.1）+ random-init CBraMod（§A.1.2）+ 架构 / 预训练 / 容量贡献的方向性观察（§A.1.3）
+> - **v3.1+ 编辑修订**：abstract 重写为 4 段标准结构、§1.4 贡献清单精简为 4 条（合并原通道矩阵 + method-dependence 两条；删除独立部署延迟条目，相关延迟数字融入 abstract 段 4 与 §4.6）、原 §3.7 整段搬迁至附录 §A.1，原 §3.8 / §3.9 顺移为 §3.7 / §3.8
 > - HPO 方法论纳入 Methods（Section 2.5.1）
 > - "Ongoing Experiments" 改为 "Future Work"
 
@@ -15,17 +16,13 @@
 
 ## 摘要
 
-脑机接口（Brain-Computer Interface, BCI）通过脑电图（EEG）解码单指运动意图，在精细运动康复领域具有重要应用前景，但高密度电极阵列的部署限制了其临床推广。本研究系统对比了大规模 EEG 基座模型 CBraMod（30.48M 参数含分类头；~4M backbone + ~26M MLP 头，ICLR 2025）与轻量级卷积神经网络 EEGNet-16,4（~16K 参数）在单指运动想象（Motor Imagery, MI）分类中的性能，覆盖 21 名健康被试、128 通道 BioSemi 系统、被试内/跨被试/XSI-FT（Cross-Subject-Initialized Per-Subject Fine-Tuning）三种训练范式。
+**背景与研究设置。** 脑机接口（Brain-Computer Interface, BCI）通过脑电图（EEG）解码单指运动意图，在精细运动康复领域应用前景广阔，但高密度电极阵列限制了其临床推广。本研究系统对比 EEG 基座模型 CBraMod（30.48M 参数）与轻量级 CNN EEGNet-16,4（~16K 参数）在手指级运动想象（Motor Imagery, MI）分类中的性能，覆盖 21 名 responder 被试（继承自 [3] 的 49 → 21 离线筛选 cohort）、128 通道 BioSemi 系统、被试内 / 跨被试 / 跨被试初始化的逐被试微调（XSI-FT）三种训练范式。
 
-在三种训练范式下（128 通道），CBraMod 一致优于 EEGNet——被试内二分类 **+7.05 pp**（85.15% vs 78.10%）、跨被试二分类 **+14.01 pp**（90.68% vs 76.67%；21 名 responder 被试，原数据集 [3] 49 名招募者中筛选后 cohort，详见 §2.1）、跨被试三分类 **+13.65 pp**（74.88% vs 61.23%）——其中跨被试范式下双位数 pp 的差距是本研究最稳健的 backbone 改进。为更好理解该差距来源，§3.7 进行了两项探索性消融。(a) **EEGNet 容量阶梯（16K → 1.90M → 5.84M → 30M）** 显示扩参 EEGNet 在固定优化栈下严重退化，cross-subject 准确率从 76.67% 单调下降到 51.37% / 50%（chance），方向性提示沿当前扩参轴对 EEGNet 扩参不利；(b) **random-init CBraMod 消融**显示在 ~30M 参数 + 无预训练同等条件下，CBraMod 仍领先扩参 EEGNet ~+35 pp（cross-subject），加 TUEG 预训练再追加 +4.34 pp（cross）至 binary +23.10 pp / ternary +30.79 pp（被试内）。然而 EEGNet-Huge 与 CBraMod random-init 均未做专属 HPO，且 baseline → Mid 跳跃同时改变 conv stem 与 MLP 头，因此这些消融**不构成对架构、预训练、容量三因子的独立可归因分解**，应被理解为方向性观察。within-subject 严重 collapse 的现象与 NLP 文献中 transformer 在小样本下的已知微调脆弱性方向一致；严格独立 HPO 验证留待后续工作。**头条 robustness 验证**：跨被试 binary 90.68% 头条经标签置换控制（n=2 seeds, pooled 49.58%, Δ=−41.1 pp 相对真实标签）通过验证，结果不依赖于标签级泄露或被试身份混淆——与 §3.5.3 的 4ch 负控制（67.65% 远高于 chance）+ §3.9 的 leave-3-out（重度伪影被试去除 |Δ| ≤ 0.13 pp）共同构成三重 robustness 证据链（详见 §3.9）。
+**方法。** 两种模型经独立贝叶斯超参数优化（HPO，CBraMod 11 维 / EEGNet 7 维，trial 数按 d^1 校准）以确保公平比较；通道缩减覆盖 128 / 64 / 61 / 32 / 16 / 8 / 4 通道七档，对四种数据驱动方法（Fisher 判别比 FDR、共空间模式、梯度注意力、频带功率）与一种商用布局构建 **{4, 8, 16, 32, 64}ch × 5 method × {binary, ternary} = 50 cell** cross-subject 矩阵；同时在外部 MI 数据上对 CBraMod 进行 5 个独立配置（V1–V5）的领域自适应 further pre-training（DAPT），共 24 个 paired comparison cell 评估。
 
-在通道缩减方面，我们评估了 128、64、61、32、16、8、4 通道配置及四种数据驱动选择方法（Fisher 判别比、共空间模式、梯度注意力、频带功率）和一种商用布局，构建覆盖 **{4, 8, 16, 32, 64}ch × 5 method × {binary, ternary} = 50 cell** 的完整 cross-subject 矩阵。Fisher 判别比（FDR）选取的 32 通道配置保留了 128 通道 CBraMod 性能的 96.7%（87.71% vs 90.68%），64 通道 FDR 进一步达到 98.7%（89.46%），而 EEGNet 在 32 通道相同条件下降至 74.70%。通道选择方法间差异随通道数递减而扩大，且在 binary / ternary 两 task 上同向复现：**binary** 64/32/16/8/4 通道分别 3.24 / 2.77 / **8.69** / 15.63 / 24.05 pp，**ternary** 1.77 / 2.08 / **7.64** / 6.83 / 19.12 pp（4 数据驱动方法 max−min）——其中 **32 → 16ch 之间方法依赖 spread 跃升 3–4 倍**，即"method-agnostic 区间在 ≥ 32ch 成立、16ch 起崩溃"。在 32ch+ 档位（含新增的 64ch 全 5 method 行），数据驱动方法之间以及与负控制之间的差异均在 ±0.32 pp 内，表明此区间方法选择对性能影响在 run-to-run noise 量级；在 4 通道极端约束下，mu/beta 频带 Band Power 方法在 binary (78.75%) 与 ternary (60.67%) 上均显著超越负控制（+11.10 / +7.30 pp）并稳居所有数据驱动方法之首，而 FDR/Attention/CSP 在两 task 上全部跌至负控制水平或以下——本研究将其解读为"基于全模型的条件重要性排序在极低通道数下因失去上下文而崩溃"的具体表现，而非"频域方法在通道选择中具有普适优势"的方法论断。
+**主要结果。** (i) **Backbone 优势在三范式下一致**：CBraMod 优于 EEGNet 被试内 **+7.05 pp**（85.15% vs 78.10%）、跨被试二分类 **+14.01 pp**（90.68% vs 76.67%）、跨被试三分类 **+13.65 pp**（74.88% vs 61.23%）。(ii) **通道缩减**：FDR 32 通道保留 128 通道 CBraMod 性能的 **96.7%**（87.71% vs 90.68%），同条件 EEGNet 仅 74.70%；method-agnostic 区间在 ≥ 32 ch 成立，4 数据驱动方法 max−min spread 在 32→16 ch 之间跃升 3–4 倍（binary 2.77 → 8.69 pp、ternary 2.08 → 7.64 pp），定位 16 ch 为方法依赖崩溃入口。(iii) **多 session 纵向扩展**：被试内 CBraMod **+6.13 pp 至 93.36%**（p = 0.007），XSI-FT **+5.70 pp 至 92.93%**（p = 0.015），而 pooled cross-subject 仅 +0.86 pp（p = 0.662）——同被试新数据主要在个体化更新中发挥作用，pooled 阶段已饱和。(iv) **DAPT 呈 task-asymmetric 负迁移且跨三 paradigm 复现**：binary 上 cross / within / transfer 三范式 5/5 一致负向（Stouffer Z=−5.32 / −4.42 / −2.79，全部 p ≤ 0.005），ternary 温和（cross 4/5 弱正、mean Δ=+0.18 pp）；V4 / V5 两次 surgical fix 把候选机制收紧到唯一存活假设——**MI 粒度错配**（粗 hand/leg/upper-limb MI 的 pretext 学到的低频空间包络不足以支撑下游 finger-level binary 的细粒度判别；ternary 的 rest 类可用粗粒度识别因而受损温和）。
 
-在纵向数据扩展方面，对 16 名拥有 3–5 个额外在线 session 的被试进行分析表明，额外同被试数据的价值强烈依赖训练范式。被试内二分类中，EEGNet 从 80.51% 提升至 87.85%（+7.34 pp，p = 0.009），CBraMod 从 87.23% 提升至 93.36%（+6.13 pp，p = 0.007）；而 21 名被试联合训练的跨被试 pooled model 仅从 92.38% 小幅升至 93.24%（+0.86 pp，p = 0.662）。使用对应 cross-subject checkpoint 作为初始权重再做单被试 fine-tune 的 XSI-FT（Cross-Subject-Initialized Per-Subject Fine-Tuning，详见 §3.3）达到 92.93%（+5.70 pp，p = 0.015），与被试内重训练相近但未进一步突破其终点。三分类中，被试内 CBraMod 仍显示显著改善（74.51% → 83.06%，+8.55 pp，p = 0.012），而跨被试 ternary 增益更温和（+3.73 pp，p = 0.090）。
-
-在领域自适应预训练方面，我们评估了 5 个独立训练配置（V1–V3：10-dataset 系列；V4：3-set 域对齐 + strict filter；V5：Stieger 单源 60ch），共 24 个 paired comparison cell（V1–V3 × within+cross × bin+ter = 12；V4–V5 × within+cross+transfer × bin+ter = 12；V4/V5 within+transfer 8 cell 于 2026-05-10 补完）。结果呈现 **task-asymmetric 负迁移且跨范式复现**：cross-subject **binary** 5/5 一致负向（平均 Δ=**−1.79 pp**，Stouffer Z=−5.32, p<0.001）、within-subject **binary** 5/5 一致负向（Stouffer Z=−4.42, p<0.0001）、transfer **binary** V4/V5 双双负向（Stouffer Z=−2.79, p=0.005）——**binary 任务上 DAPT 失败不是 cross-subject 特有现象，而是跨三种 paradigm 的稳健模式**。Ternary 任务相对温和：cross 4/5 弱正（mean Δ=+0.18 pp，Stouffer p=0.564）、within 5/5 负但弱（mean Δ=−0.92 pp，Stouffer Z=−2.16, p=0.031）、transfer V4/V5 均弱负（mean Δ=−0.90 pp，p=0.110）。V4/V5 12-cell 全矩阵下**0/12 正向显著**且 V5 在 5/6 cell 上比 V4 更差（−1.15 至 −1.82 pp 量级），把候选机制收紧到唯一存活假设——**MI 粒度错配（pretext-task granularity mismatch）**：粗 hand/leg/upper-limb MI 学到的是低频空间包络，下游 finger-level binary 需要 DAPT 未学到的细粒度区别；ternary 的 rest 类可用粗粒度识别，因此不那么受损。V5 单源 60ch 反方向证伪了"通道数异质性是混淆"假设——通道多样性在 DAPT 中是**保护因子**而非 bug。BH-FDR 在新 24-cell DAPT family 内重做后，仅 V2_within_binary (q=0.048) 单一显著存活（v3.1 16-cell family 下原 3 个 survivors 在更严苛的多重比较惩罚下退到 q ≈ 0.07–0.09，但 Stouffer 聚合的 paradigm-level 集体证据全部仍稳健）。
-
-上述结果共同支持了一条实用的 BCI 部署路径：采用 CBraMod + FDR 32 通道配置作为起步方案，通过收集少量额外 session 数据即可达到 90% 以上准确率，推理延迟 <13 ms 满足实时要求。
+**结论。** 上述结果支持一条实用 BCI 部署路径：CBraMod + FDR 32 通道作为起步方案，通过收集少量额外 session 数据即可达到 90% 以上准确率，推理延迟 <13 ms 满足实时要求；DAPT 在粗运动 MI source 上对 finger MI 下游不推荐，应在更高 task-corpus 粒度对齐的 source 上重新评估。
 
 **关键词**：脑机接口、脑电图、运动想象、基座模型、CBraMod、EEGNet、通道缩减、迁移学习、Fisher 判别比、纵向 BCI、领域自适应预训练、负迁移
 
@@ -74,17 +71,13 @@ CBraMod（Criss-Cross Brain Foundation Model）[4]，被 ICLR 2025 接收，是�
 
 本文做出以下贡献：
 
-> 1. **系统性基座模型评估 + 探索性消融初步检验差距来源**。首次在手指级运动想象分类任务上，对 EEG 基座模型（CBraMod）与传统 CNN（EEGNet-16,4）进行全面对比，覆盖被试内、跨被试、跨被试初始化的逐被试微调（XSI-FT，§3.3）三种范式，使用 21 名被试数据（21 名 responder cohort，继承自 [3] 的 49 → 21 离线筛选），并采用贝叶斯超参数优化（HPO，CBraMod 11 维 / EEGNet 7 维，trial 数按 d^1 校准；详见 §2.5.1）确保公平比较。在三种范式下 CBraMod 一致优于 EEGNet（被试内 +7.05 pp、跨被试二分类 +14.01 pp、跨被试三分类 +13.65 pp）。作为补充，§3.7 进行了两项探索性消融以理解架构 / 预训练 / 容量的相对贡献：(a) **EEGNet 容量阶梯（16K → 1.90M → 5.84M → 30M）** 显示 cross-subject 准确率沿当前扩参轴单调下降至 51.37% / 50%（chance），方向性提示沿该轴扩参 EEGNet 不利，但 v1/v2 (~20-30M) 不可训根据作者本人交接诊断更可能是 BF16 下深 MLP 头优化栈兼容性问题（v3 加 LayerNorm 立即 trainable）而非容量饱和；(b) **random-init CBraMod 消融** 显示在 ~30M 参数 + 无预训练条件下，CBraMod 仍领先扩参 EEGNet ~+35 pp（cross-subject），加 TUEG 预训练再追加 +4.34 pp（cross-subject）至 binary +23.10 / ternary +30.79 pp（被试内）。**因 EEGNet-Huge 与 CBraMod random-init 均未做专属 HPO，且 baseline → Mid 跳跃同时改变 conv stem 与 MLP 头**，这些消融在本研究范围内不构成独立可归因的三向分解，应被理解为方向性观察；严格的独立 HPO 验证留待后续工作（§6 #8）。详见 §3.7 caveats。
+> 1. **系统性 EEG 基座模型 vs 轻量 CNN 评估**。首次在手指级运动想象分类任务上，对 EEG 基座模型 CBraMod 与传统 CNN EEGNet-16,4 进行全面对比，覆盖被试内、跨被试、跨被试初始化的逐被试微调（XSI-FT，§3.3）三种范式，使用 21 名 responder cohort（继承自 [3] 的 49 → 21 离线筛选），并采用独立贝叶斯超参数优化（HPO，CBraMod 11 维 / EEGNet 7 维，trial 数按 d^1 校准；详见 §2.5.1）确保公平比较。三种范式下 CBraMod 一致优于 EEGNet：被试内二分类 **+7.05 pp**、跨被试二分类 **+14.01 pp**、跨被试三分类 **+13.65 pp**。架构 / 预训练 / 容量贡献的辅助探索性分析见附录 §A.1（caveats：方向性观察，受限于未做独立 HPO 与 baseline → Mid 双轴跳跃，不构成独立可归因分解）。
 >
-> 2. **全面通道缩减分析与完整 {channel × method × task} 矩阵**。建立 **{4, 8, 16, 32, 64}ch × {FDR, Attention, Band Power, CSP, negative_control} × {binary, ternary} = 50 cell** 的 cross-subject CBraMod 矩阵（含 5 种 32 通道配置中的 4 数据驱动 + 1 商用布局，以及 61 / 16 / 8 / 4 通道方案；16ch 行 2026-05-13 transition-point sweep 新增）。FDR 选取的 32 通道保留 128 通道性能的 **96.7%**（在 21 名 responder cohort × cross-subject binary 上；通道选择 ranking 使用了所有 session 数据，可能轻微高估 retention，详见 Limitation #1）。
+> 2. **全面通道缩减分析与方法依赖区间定位**。建立 **{4, 8, 16, 32, 64}ch × {FDR, Attention, Band Power, CSP, negative_control} × {binary, ternary} = 50 cell** 的 cross-subject CBraMod 完整矩阵（含 5 种 32 通道配置 + 61 / 16 / 8 / 4 通道方案；16 ch 行 2026-05-13 transition-point sweep 新增）。Fisher 判别比（FDR）选取的 32 通道保留 128 通道性能的 **96.7%**（在 21 名 responder cohort × cross-subject binary 上）。4 数据驱动方法 max−min spread 在 32→16 ch 之间跃升 3–4 倍（binary 2.77 → 8.69 pp、ternary 2.08 → 7.64 pp，binary / ternary 双 task 同向复现），定位"method-agnostic 区间 ≥ 32 ch、16 ch 起进入崩溃"的边界；负控制与 4 ch Band Power 例外的具体行为详见 §3.5。
 >
-> 3. **通道选择方法间差异随通道数减少而扩大；binary / ternary 双 task 同向复现**。在本数据集上，4 数据驱动方法（FDR / Attention / Band Power / CSP）的 max−min spread 随通道数递减而单调扩张：**binary** 在 64 / 32 / 16 / 8 / 4 通道分别为 3.24 / 2.77 / **8.69** / 15.63 / 24.05 pp，**ternary** 分别为 1.77 / 2.08 / **7.64** / 6.83 / 19.12 pp（数据来源：[docs/handoffs/2026-05-11_reduced_channel_matrix_closure.md](../../docs/handoffs/2026-05-11_reduced_channel_matrix_closure.md) §40-cell 矩阵 + [docs/handoffs/2026-05-14_16ch_transition_point.md](../../docs/handoffs/2026-05-14_16ch_transition_point.md) 16ch 补齐）。**32 → 16ch 之间方法依赖 spread 跃升 3–4 倍**精确锁定了 "method-agnostic 区间 ≥ 32ch、16ch 即崩溃入口" 的边界；在 32ch+ 档位，数据驱动方法之间以及与负控制之间在 ternary 上的差异均在 ±0.32 pp 内（即被试间 std ≈ 13 pp 的 noise 量级），支持"32ch+ 方法选择对性能影响在统计上不可区分"的论断。通过负控制实验确认体积传导冗余而非数据泄露；并在 4 通道下识别 mu/beta Band Power 在双 task 上均保持判别力（binary 78.75% +11.10 pp、ternary 60.67% +7.30 pp 超过负控制）——其评分机制不依赖全模型上下文，因而免疫"条件重要性外推失效"陷阱（本研究观察的具体机制，未声称跨数据集普适）。
+> 3. **多 session 纵向数据扩展与范式差异**。系统比较额外 session 数据在被试内、跨被试 pooling、XSI-FT（机制：以 cross-subject checkpoint 作为单被试 fine-tune 的初始权重；正式定义见 §3.3）三种训练范式中的作用。CBraMod 在被试内重训练中获得最大净增益（+6.13 pp 至 93.36%），XSI-FT 达到相近终点（+5.70 pp 至 92.93%），而 pooled cross-subject 模型仅小幅改善（+0.86 pp 至 93.24%）——表明随同被试数据累积，cross-subject 训练所带来的额外优势随之减弱。
 >
-> 4. **多 session 纵向数据扩展与范式差异**。系统比较额外 session 数据在被试内、跨被试 pooling、以及 **XSI-FT**（**Cross-Subject-Initialized Per-Subject Fine-Tuning**，跨被试初始化的逐被试微调；机制：以 cross-subject checkpoint 作为单被试 fine-tune 的初始权重；正式定义见 §3.3）三种训练范式中的作用。CBraMod 在被试内重训练中获得最大净增益（+6.13 pp 至 93.36%），XSI-FT 达到相近终点（92.93%，+5.70 pp），而 pooled cross-subject 模型仅小幅改善（+0.86 pp 至 93.24%）——这一对照表明，随同被试数据的累积，cross-subject 训练所带来的额外优势随之减弱。
->
-> 5. **领域自适应预训练的 task-asymmetric 负面结果与机制收紧；跨 paradigm 复现稳健**。系统评估在外部 MI 数据上对 CBraMod 进行 further pre-training，覆盖 5 个独立训练配置（V1/V2/V3：10-dataset 系列；V4：3-set 域对齐 + strict filter；V5：Stieger 单源 60ch）共 24 个 paired comparison cell（V1–V3 within+cross + V4/V5 within+cross+transfer，于 2026-05-10 补完 V4/V5 within+transfer 8 cell）。结果呈 **task-asymmetric 负迁移且跨 paradigm 复现**：binary 任务上三种 paradigm 全部一致负向——cross-subject 5/5（mean Δ=−1.79 pp，Stouffer Z=−5.32, p<0.001），within-subject 5/5（Stouffer Z=−4.42, p<0.0001），transfer V4/V5（Stouffer Z=−2.79, p=0.005）；ternary 任务相对温和——cross 4/5 弱正、mean Δ=+0.18 pp、Stouffer p=0.564；within 5/5 弱负但 mean Δ 仅−0.92 pp（Stouffer Z=−2.16, p=0.031）；transfer V4/V5 均弱负 mean Δ=−0.90 pp（p=0.110）。**ternary 上的方向性负迁移声明不被支持**，但 binary 失败的稳健性现已得到三种 paradigm 的独立复现——DAPT 失败不是 cross-subject 特有现象。V4/V5 12-cell 全矩阵下 **0/12 正向显著**，V5 在 5/6 cell 上比 V4 更差 1.15–1.82 pp。BH-FDR 在新 24-cell DAPT family 下重做后仅 V2_within_binary (q=0.048) 单一显著存活（v3.1 16-cell family 下原 V1_cross_binary / V4_cross_binary 在更严苛的多重比较惩罚下退到 q≈0.07–0.09，但 paradigm-level Stouffer 集体证据全部仍稳健）。V4/V5 两次 surgical fix 把"域错配 / Stieger 占主导 / 通道数异质"三个候选机制收紧到唯一存活假设——**MI 粒度错配（pretext-task granularity mismatch）**：粗 hand/leg/upper-limb MI 的 MAE pretext loss 学到的是"哪个肢体在动"的低频空间包络，下游 finger-level binary 需要 DAPT 没学到的细粒度区别；ternary 的 rest 类则可用粗粒度空间包络识别。V5 单源 60-ch 反方向证伪"通道数异质是混淆"——通道多样性在 DAPT 中是**保护因子**，不是 bug。
->
-> 6. **实际部署特性**。推理延迟基准测试确认 CBraMod 单样本延迟 <13 ms，满足实时 BCI 要求。
+> 4. **领域自适应 further pre-training 呈 task-asymmetric 负迁移；跨 paradigm 复现，机制收紧到 MI 粒度错配**。在外部 MI 数据上系统评估 CBraMod 的 5 个独立 DAPT 配置（V1–V5）共 24 个 paired comparison cell。binary 上 cross / within / transfer 三 paradigm 一致负向（Stouffer 全部 p ≤ 0.005），ternary 温和（cross 4/5 弱正）；V4 / V5 两次 surgical fix 把候选机制收紧到唯一存活假设——**MI 粒度错配（pretext-task granularity mismatch）**：粗 hand/leg/upper-limb MI 的 MAE pretext 学到的是低频空间包络，下游 finger-level binary 需要 DAPT 未学到的细粒度判别；ternary 的 rest 类可用粗粒度空间包络识别因而受损温和。详细统计与机制论证见 §3.6 / §4.5。
 
 ---
 
@@ -411,9 +404,9 @@ CBraMod 在 128 通道条件下 XSI-FT 两个任务上均无统计显著收益�
 
 CBraMod 的非显著结果还指向一个更宽的假设：XSI-FT 在缩减通道配置下（跨被试模型因空间信息受限而性能下降时）可能提供更大收益。§3.5.4 报告了一项 32ch FDR 对照实验给出方向性支持，但**8ch Band Power 档位下方向反转**（详见 §3.5.4），表明该假设并非简单的"通道越少收益越大"，需要 cross-subject baseline 饱和度的额外条件。
 
-为验证 128ch CBraMod XSI-FT ceiling 不是 TUEG 预训练 backbone 的副作用，§3.7 random-init CBraMod 消融在两种任务上均显示同方向 ceiling：random-init cross→XSI-FT 二分类 Δ = −0.12 pp（86.34% → 86.22%）、三分类 Δ = +0.37 pp（73.06% → 73.43%），与本节 −0.56 / +0.20 pp 模式一致。两条独立证据（pretrained vs from-scratch）共同表明，128ch 下 CBraMod 的 XSI-FT ceiling 由（任务 × cohort × 通道密度）共同决定，而非 TUEG backbone 的过度正则化。
+为验证 128ch CBraMod XSI-FT ceiling 不是 TUEG 预训练 backbone 的副作用，§A.1 random-init CBraMod 消融在两种任务上均显示同方向 ceiling：random-init cross→XSI-FT 二分类 Δ = −0.12 pp（86.34% → 86.22%）、三分类 Δ = +0.37 pp（73.06% → 73.43%），与本节 −0.56 / +0.20 pp 模式一致。两条独立证据（pretrained vs from-scratch）共同表明，128ch 下 CBraMod 的 XSI-FT ceiling 由（任务 × cohort × 通道密度）共同决定，而非 TUEG backbone 的过度正则化。
 
-> **数据来源**: 跨被试二分类 `20260324_0023`: `results/20260324_0023_cross_subject_cache_imagery_binary.json`; XSI-FT 二分类 CBraMod `20260329_0507`: `results/20260329_0507_transfer_cache_imagery_binary.json`; 跨被试三分类 `20260324_0109`: `results/20260324_0109_cross_subject_cache_imagery_ternary.json`; XSI-FT 三分类 CBraMod `20260329_0448`: `results/20260329_0448_transfer_cache_imagery_ternary.json`; EEGNet 跨被试三分类 `20260330_0735`: `results/20260330_0735_cross_subject_cache_imagery_ternary.json`; EEGNet XSI-FT 二分类 `20260507_1835`: `results/20260507_1835_transfer_cache_imagery_binary.json`（与 `20260506_2039` 同 recipe 的 N=21 replication，`db.find_baseline_run()` 默认返回的 baseline 候选，详见 §3.7.2 footnote）; EEGNet XSI-FT 三分类 `20260507_1913`: `results/20260507_1913_transfer_cache_imagery_ternary.json`（同上）
+> **数据来源**: 跨被试二分类 `20260324_0023`: `results/20260324_0023_cross_subject_cache_imagery_binary.json`; XSI-FT 二分类 CBraMod `20260329_0507`: `results/20260329_0507_transfer_cache_imagery_binary.json`; 跨被试三分类 `20260324_0109`: `results/20260324_0109_cross_subject_cache_imagery_ternary.json`; XSI-FT 三分类 CBraMod `20260329_0448`: `results/20260329_0448_transfer_cache_imagery_ternary.json`; EEGNet 跨被试三分类 `20260330_0735`: `results/20260330_0735_cross_subject_cache_imagery_ternary.json`; EEGNet XSI-FT 二分类 `20260507_1835`: `results/20260507_1835_transfer_cache_imagery_binary.json`（与 `20260506_2039` 同 recipe 的 N=21 replication，`db.find_baseline_run()` 默认返回的 baseline 候选，详见 §A.1.2 footnote）; EEGNet XSI-FT 三分类 `20260507_1913`: `results/20260507_1913_transfer_cache_imagery_ternary.json`（同上）
 > 生成命令: 图 6 / 图 6b 由 `uv run python scripts/paper/generate_paper_figures.py --figure fig6` / `--figure fig6b` 重绘（内部走 `run_transfer_comparison.py --replot 20260329_0507 --merge-cache 20260507_1835 --cache-only` 和 `--replot 20260329_0448 --merge-cache 20260507_1913 --cache-only`，把单模型 cache 合并为 6-way 对比）
 
 #### 3.3.1 Quaternary（仅在补充材料中报告）
@@ -659,12 +652,6 @@ FDR 以 87.71% 领先，保留 128 通道性能的 **96.7%**（87.71% vs 90.68%�
 
 修订后的"标准方法在 4ch 是否失效"图景较此前更细致：（1）**模型驱动方法（Attention top-4）和全局判别方法（FDR top-4）确实失效**——均显著低于负控制；（2）**空间滤波方法（CSP top-4）几乎与负控制持平**（−0.66 pp）——意味着 CSP 选出的"最重要"通道与"未被任何方法选中"的通道在 4ch 极端约束下信息量等价；（3）**频域物理动机方法（Band Power top-4）显著超越负控制**（+11.10 pp）——保留了显著的判别能力。这与原"4ch 标准方法均失效"的笼统结论不同：4ch 失效的是 conditional importance 类方法（在全模型上下文中重要 ≠ 独立携带信息），但物理动机直接锚定的频域方法（mu/beta ERD 是手指 MI 的标志）仍然有效。
 
-图 5 展示了 4ch 四种关键配置的逐被试对比：FDR∩Attention outlier、负控制、Band Power top-4 (`20260505_2308`)、CSP top-4 (`20260505_2246`)。
-
-**图 5. 4 通道控制实验：四种配置逐被试对比。** 四个子图分别为 FDR∩Att outlier、负控制、Band Power top-4、CSP top-4；共享 y 轴，叠加 128ch 跨被试 baseline 横虚线（EEGNet + CBraMod），并显示各配置的逐被试柱与组均值横线。BP/CSP top-4 仅有 CBraMod 跑次，相应子图无 EEGNet 柱与均值线。
-
-![图 5. 4ch 最优配置 vs 负控制](../figures/fig5_4ch_optimal_vs_neg_control.png)
-
 **4 通道结果的深层解读**：Attention top-4（54.70%）不仅远低于 8ch Band Power（84.05%），甚至**低于负控制**（67.65%）；FDR top-4 (62.08%) 与 CSP top-4 (66.99%) 同样跌至负控制附近——即随机选取未被任何方法选中的通道反而与这些方法持平或略优。这揭示了一个重要的方法论陷阱：**在 128ch 全模型上计算的通道重要性排序不能线性外推到极低通道配置**。CBraMod 在 128ch 上的梯度注意力反映的是通道在*有其他 124 个通道辅助*时的重要性（即条件重要性），而非通道*独立携带*的信息量。当仅保留 top-4 时，这些通道失去了它们在全局空间模式中赖以发挥作用的上下文通道，导致性能崩溃。
 
 唯一的例外是 Band Power top-4 (78.75%)：它依赖的不是"在全模型中的重要性排序"而是"在 mu/beta 频带上独立计算的 ANOVA F 统计量"，本质上是一个**模型无关的频域指标**——其选点机制不需要"还有哪些通道在场"作为上下文，因此天然免疫上述外推失效陷阱。
@@ -715,7 +702,7 @@ Ternary 维度的 4ch 控制实验**与 binary 同向复现**：Band Power top-4
 这一结果揭示了一个具体的方法论提醒（见 §3.5.2 讨论）：基于 128ch 全模型计算的通道重要性排序在极低通道数下不仅失效，甚至产生反效果——FDR/Attention/CSP 选出的"最重要"通道空间分布过于集中，反而丢失了负控制中随机通道的分散空间覆盖带来的信息多样性。Band Power 在 4ch / 8ch 档保持判别力的事实与这一观察兼容（其评分机制不依赖全模型上下文，因此天然免疫"条件重要性外推"问题），但本研究**不主张** Band Power 与其他方法之间存在普适性的优劣排序——以下任意一项条件改变都可能让该排序翻转：被试群体（更大 cohort、不同年龄段）、任务粒度（粗运动 MI、四分类、ME）、模型 backbone（非 CBraMod 基座）、预处理流水线（不同滤波带、采样率）。本研究的结论限于"在该 (cohort, 任务, 模型, 预处理) 组合下，4ch / 8ch 部署应至少考虑 Band Power 作为候选方法"这一具体配置层级。
 
 > **数据来源**: FDR∩Attention `20260330_1417`: `results/4_channel/fdr_attention_overlap/20260330_1417_cross_subject_cache_imagery_binary.json`; 负控制 `20260330_1442`: `results/4_channel/negative_control/20260330_1442_cross_subject_cache_imagery_binary.json`; FDR top-4 / Attention top-4: 见 §3.5.2 数据来源行；Band Power top-4 `20260505_2308`: `results/4_channel/band_power/20260505_2308_cross_subject_cache_imagery_binary.json`; CSP top-4 `20260505_2246`: `results/4_channel/csp/20260505_2246_cross_subject_cache_imagery_binary.json`
-> 生成命令: 图 5 由 `uv run python scripts/paper/generate_paper_figures.py --figure fig5_merged` 生成；图 4c 由 `uv run python scripts/paper/generate_paper_figures.py --figure sensitivity_scaling` 生成
+> 生成命令: 图 4c 由 `uv run python scripts/paper/generate_paper_figures.py --figure sensitivity_scaling` 生成
 
 为了把上文表格中"通道数减少 → 方法选择敏感度上升"的趋势直观化，图 4c 把 **64ch / 32ch / 16ch / 8ch / 4ch 五档**的方法间 spread (max−min, pp) 与最优方法的绝对准确率合并到一张双轴图：左轴红色折线为方法间 spread（binary：3.24 / 2.77 / **8.69** / 15.63 / 24.05 pp；ternary 同向：1.77 / 2.08 / **7.64** / 6.83 / 19.12 pp，其中 **32 → 16ch 之间的 3–4 倍跃迁** 是图的视觉头条），右轴蓝色折线为最优方法的绝对准确率（binary：FDR 64ch 89.46 → FDR 32ch 87.71 → BP 16ch 85.24 → BP 8ch 84.05 → BP 4ch 78.75%）。两条曲线方向相反——通道越少时方法选择越关键，但最优方法的绝对天花板降幅有限。
 
@@ -873,101 +860,7 @@ V1/V2/V3 已评估被试内、跨被试两种范式各两 task（共 12 cell）�
 > - 完整统计与 Reproducibility: `paper/reviews/stage4_step1b_stat_recompute_v4v5.md` (V1-V3 + V4/V5 cross, 16 cells) → `stage4_step1c_v4v5_within_transfer.md` (+8 V4/V5 within+transfer = 24 cells) → `stage4_step1d_v1v2v3_transfer.md` (+6 V1/V2/V3 transfer = 30 cells, BH 重做 + 6 个 5V Stouffer)；历史背景与 V1/V2 详细比较：`paper/analysis/further_pretraining_analysis.md`；V4/V5 实验交接：`docs/handoffs/2026-05-10_dapt_v4_v5.md` 含 "追加 (2026-05-11)" 段记录 V1/V2/V3 transfer。
 > 生成命令: 图 10a 由 `uv run python scripts/paper/generate_paper_figures.py --figure dapt_v1_v5_smallmultiples` 生成；图 10b 由 `uv run python scripts/paper/generate_paper_figures.py --figure further_pretraining` 生成；30-cell 统计重算由 `uv run python scripts/internal/recompute_v1v2v3_transfer.py` 生成。
 
-### 3.7 探索性消融：架构 / 预训练 / 容量贡献的初步检验
-
-为更好理解 CBraMod 相对 EEGNet 在 §3.1–§3.3 中观察到的优势源自何处，本节报告两项探索性消融：(a) §3.7.1 将 EEGNet 的参数规模从 16K 阶梯式扩展到 30M（与 CBraMod backbone 同量级），探查"参数容量本身是否是 EEGNet 表现不及 CBraMod 的根本原因"；(b) §3.7.2 完全切除 CBraMod 的 TUEG 预训练权重（random-init），探查"架构本身在不依赖预训练的情况下是否仍提供独立价值"。两项消融在 {EEGNet, CBraMod} × {random init, TUEG pretrained} 矩阵上覆盖三个角点（"EEGNet pretrained"无对应 EEG 基座模型故空缺）。
-
-**重要 caveat（贯穿本章）**：本节两项消融在 HPO 预算与扩参轴上均存在已知非对称性，使其结论不具备"独立可归因分解"的力度，应被理解为方向性观察而非定量分解。具体地：(i) **EEGNet-Huge v1 / v2 / v3 / Mid 四档与 EEGNet baseline 共享原始 32-trial HPO 范围内的 architecture defaults，但其本身的优化栈（LR、weight_decay、dropout、LayerNorm 是否启用）由 ≤ 2 trial 的人工调试得到**——并非独立 Optuna 搜索；(ii) **CBraMod random-init 直接复用 original-weights baseline 的 HP（`get_default_config()`）**，没有跑专属 HPO；(iii) **EEGNet baseline → Mid 的首跳同时改变 conv stem (F1: 16→32, F2: 64→256) 与 MLP 头（单 Linear → 双层 [1024,1024] + LayerNorm）**，未隔离 conv stem 单轴 vs MLP 头单轴的贡献。在这三项约束下，§3.7.1 / §3.7.2 / §3.7.3 报告的所有 Δ 值应被理解为"在共享默认 HP、受限 HPO 预算、双轴 baseline → Mid 跳跃下观察到的复合估计"，而非各因子（架构 / 预训练 / 容量）的独立可归因分解。严格的独立 HPO 验证（EEGNet-Huge v1/v2 ≥ 25 trial Optuna；CBraMod random-init ≥ 25 trial Optuna）留待后续工作（详见 §6 #8）。
-
-图 12 把本章的探索性观察压缩到一张"参数量 × cross-binary 准确率"双轴图上，便于读者一眼看到 EEGNet 容量阶梯（蓝色实线，16K → 30M）的下行趋势、random-init CBraMod (橙色菱形, 30.48M) 与 TUEG-pretrained CBraMod (红色五角星, 30.48M) 两个单点的相对位置，以及三条主要相邻 **composite-estimate Δ 注释（复合估计；详见 §3.7.3 footnotes）**：capacity ladder ~−25.30 pp / 跨架构 ~+34.97 pp / TUEG 预训练 ~+4.34 pp。**所有数值在共享默认 HP + 受限 HPO 预算 + baseline → Mid 双轴跳跃三项约束下观察**，因此各 Δ 不可被解读为架构、预训练、容量任一因子的独立可归因贡献，建议与 §3.7.1–§3.7.3 的细分章节及 §3.7.3 三个脚注一并阅读。
-
-**图 12. §3.7 探索性消融总览（cross-subject binary 为主轴, N=21, 128ch）。** **A.** 参数量–准确率散点，含本研究多 regime 锚点 + Ding 外部参考。**本研究**：蓝色实心方块连线 = EEGNet 容量阶梯 **cross-subject**（baseline 16K 76.67% → Mid 1.90M 57.65% → Huge v3 5.84M 51.37% → Huge v1/v2 ~20–30M ≈50%），来源 `results/20260330_0709_cross_subject_cache_imagery_binary.json` (baseline) + §3.7.1 Table 18a (Mid/Huge)；蓝色**空心方块** = EEGNet baseline **within-subject** 78.10%（同 16K 参数、同 EEGNet-16,4 架构，ExperimentDB run_tag `20260316_1411`）— 之所以仅 baseline 一档显示 within，是因为 within-subject 训练在 Mid/Huge v3 下虽能跑但下降到 66.88% / 67.71%（baseline within 78.10% 之下 ~10 pp），Huge v1/v2 下完全失败（v1 state_dict bug、v2 数据 orphan），因此 within regime 无法支撑跨 config 可比的 ladder，本图改用 cross-subject 作为 cross-config 比较 regime（详见 §3.7.1 Table 18a 与 [docs/handoffs/2026-05-09_eegnet_huge.md](../../docs/handoffs/2026-05-09_eegnet_huge.md)）。红色空心菱形 = random-init CBraMod (~30.5M, cross 86.34%)；红色五角星 = TUEG-pretrained CBraMod (~30.5M, cross 90.68%)。**Ding et al. 2025 (online regime)**：两点灰色虚线连接的 ladder — 上三角 (`Ding base`, EEGNet-8,2, ~3.4K params, 80.56%) + 下三角 + 横向 err bar (`Ding deep`, deepEEGNet ~25K params, 81.77% = 80.56 + +1.21 pp)。deepEEGNet 参数量根据其 "wider + 2 extra separable conv layers" 描述 + Lawhern EEGNet-16,4 模板逐层估算（central ~25K, err bar [6K, 150K] 涵盖 "wider" 解读不确定性）；Y 均置于 Ding **自身**绝对准确率（不重锚定到本研究）。**关于 Ding 数据点的 regime 警示**：Ding 的 setting 为 **online + session-自适应**，本研究为 **offline + cross-subject held-out**，**两 regime 的绝对 Y 不可直接比较**——Ding 两点的相对落差（+1.21 pp 在 7× 扩参下）与本研究 EEGNet 阶梯的相对落差（−25.30 pp 在 360× 扩参下）在方向上一致（两个独立研究都没观察到 EEGNet 扩参的显著正向收益），但绝对值与量级不可直接对比。红色虚线 = chance level 50%。**B.** Δ 横柱分解。条形长度编码 |Δ|，方向编码符号：EEGNet 内扩参 −25.30 pp（红）、跨架构 +34.97 pp（绿）、TUEG 预训练 +4.34 pp（绿）；外部参考 Ding EEGNet → deepEEGNet Δ = +1.21 pp（灰，半透明）。**Caveat：** 所有本研究 Δ 为共享默认 HP + 受限 HPO 预算（EEGNet-Huge ≤ 2 trial 人工调试；CBraMod random-init 复用 baseline HP）+ baseline → Mid 双轴跳跃 三项约束下的复合估计，不可独立归因到架构、预训练或容量任一因子；严格独立 HPO（≥ 25-trial Optuna）留待后续工作（§6 #8）。详见 §3.7.1–§3.7.3。
-
-![图 12. §3.7 探索性消融总览](../figures/exploratory_ablation_overview.png)
-
-> 生成命令: 图 12 由 `uv run python scripts/paper/generate_paper_figures.py --figure exploratory_ablation_overview` 生成（数据合并自 §3.7.1 EEGNet ladder runs + §3.7.2 random-init CBraMod runs，原始 run_tag 见后续 §3.7.1 / §3.7.2 数据来源行）。
-
-#### 3.7.1 EEGNet 容量阶梯（16K → 30M，128 通道）
-
-为检验 EEGNet 相对 CBraMod 的差距是否仅源自参数容量限制（~16K vs ~30M，~1900× 差距），我们沿 (conv stem, MLP 头) 双轴扩展 EEGNet，构建四档容量阶梯：EEGNet baseline (16K, **F1=16, D=4, F2=64**, 单 Linear 头，沿用 §3.1–§3.3 的 EEGNet-16,4 配置)、EEGNet-Mid (1.90M, **F1=32, D=4, F2=256**, [1024, 1024] + LayerNorm + ELU)、EEGNet-Huge v3 (5.84M, [2048, 2048] + LayerNorm)、以及两个 ~20–30M 量级版本 EEGNet-Huge v1 (19.99M, [4096, 4096], 无 LN) / v2 (30.22M, [5120, 5120], 无 LN)。**Mid / Huge 系列均共享扩展后的 conv stem (F1=32, D=4, F2=256, kernel_length=64)，与 baseline 的 F1=16/F2=64 不同**——因此 baseline → Mid 的首跳同时改变 conv stem (F1: 16→32, F2: 64→256) 与 MLP 头（单 Linear → 双层 [1024,1024]），严格意义上未隔离 conv stem 单轴 vs MLP 头单轴的贡献；Mid → v3 → v1/v2 三档则沿 MLP 头单轴扩参（conv stem 完全相同）。HP 在两阶段调试中找到稳定配置（v3 / Mid 共用 lr = 8e-4 至 1.5e-3、wd = 0.03–0.05、CAWD scheduler；详见 `docs/handoffs/2026-05-09_eegnet_huge.md`）。
-
-**表 18a. EEGNet 容量阶梯准确率（N = 21，128 通道二分类）。**
-
-| 模型 | 参数量 | 被试内 | 跨被试 | XSI-FT |
-|------|--------|--------|--------|--------|
-| EEGNet baseline | 16K | **78.10%** | **76.67%** | **82.05%** |
-| EEGNet-Mid | 1.90M | 66.88% | 57.65% | 80.45% |
-| EEGNet-Huge v3 | 5.84M | 67.71% | 51.37% | 80.62% |
-| EEGNet-Huge v2 | 30.22M | (orphan) | 50.07% (chance) | — |
-| EEGNet-Huge v1 | 19.99M | — | 50.00% (chance) | (state_dict bug) |
-| CBraMod random-init | 30.48M | 62.05% | 86.34% | 86.22% |
-| CBraMod baseline | 30.48M | **85.15%** | **90.68%** | **90.12%** |
-
-> EEGNet-Huge v1 / v2 在 ~20–30M 量级两套独立人工调试 HP（lr 相差 10×：5e-5 vs 5e-4，wd / dropout / LayerNorm on/off 等亦不同；详见 `docs/handoffs/2026-05-09_eegnet_huge.md` L154-170）下均出现 train loss 死锁在 0.693（chance entropy）、val acc 50%、所有 21 名被试 test 50% 的不可训练状态，因而仅列 cross 一栏（其余范式的 v1 因 state_dict 加载 bug 未跑、v2 within 数据 orphan 未入库）。在两套手调 HP 下 v1/v2 不可训；**v3 通过加 LayerNorm + 缩小 MLP 至 [2048, 2048] 后立即 trainable，提示 v1/v2 的失败更可能是 BF16 数值精度下深 MLP 头优化栈兼容性问题（vanishing gradient / dying ELU），而非容量本身的根本饱和**——见交接文档 `docs/handoffs/2026-05-09_eegnet_huge.md` L156、L195-197、L249-260 的工程诊断。是否在严格独立 HPO 预算（≥ 25 trial Optuna，覆盖 LR、warmup、LayerNorm on/off、init scheme、dropout）下 30M 量级 EEGNet 仍不可训，**留待后续工作**（§6 #8）；在补全此独立 HPO 之前，"30M EEGNet 不可训" 的结论应被理解为"在受限 HPO 预算下的观察"。
-
-**Cross-subject 准确率沿当前扩参轴随容量单调下降**：从 76.67% (16K) → 57.65% (1.90M) → 51.37% (5.84M) → 50.00% (~20–30M) 一路下降，~30M 已落入 chance。**在共享默认 HP、受限 HPO 预算（≤ 2 trial 人工调试）以及 baseline → Mid 双轴扩参（conv stem + MLP 头同时改变）这三项约束下**，本观察方向性支持 "EEGNet 架构内沿当前扩参轴扩参对 cross-subject 准确率不利"，但并不支持更强的 "EEG decoding 瓶颈不在容量" 论断——后者需要在 EEGNet-Huge v1/v2 各跑 ≥ 25 trial 独立 HPO 并仍观察到不可训才能成立（详见 §6 #8）。这一现象方向上与 Ding et al. [3] 的 deepEEGNet 实验（"+1.21% binary 微弱提升"，规模估计 ~100K–1M）一致——后者也未能通过扩参显著改善——但本研究规模扩张幅度（5.84M / ~30M，2 个数量级）尚不足以独立排除"扩参 + 严格 HPO"组合下能否反转该单调趋势。
-
-**Within / XSI-FT 范式下容量损失更温和**：被试内从 78.10% 降至 ~67%（~−11 pp），但 v3 与 Mid 之间已饱和；XSI-FT 仅从 82.05% 降至 80.45–80.62%（~−1.5 pp），对容量基本不敏感。XSI-FT 对扩参 EEGNet 的鲁棒性与 §3.3 的 EEGNet XSI-FT 增益（+5.38 / +5.10 pp，两 task 均 p < 0.01）一致——单被试 fine-tune 阶段把过参数化的分类头校准回单被试分布。
-
-**与同规模 random-init CBraMod (§3.7.2) 的探索性对照**：在 ~30M 参数 + 无预训练的同等条件下，EEGNet-Huge v2 (30.22M) cross 50.07%（chance）vs CBraMod random-init (30.48M) cross 86.34%——观察到 ~+36 pp 差距；即便取可训练的 EEGNet-Huge v3 (5.84M) cross 51.37% 作对照，与 random-init CBraMod 的差距仍达 ~+35 pp，与容量量级差距非线性脱钩。**在 EEGNet-Huge v1/v2/v3 与 CBraMod random-init 均未做专属 HPO 的对照下**，这一差距是 "架构差异 + EEGNet 优化栈不稳定 + random-init CBraMod HP 错配" 三者的复合估计；其中可归因到 backbone 架构（transformer + ACPE vs 扩参 CNN）的下界尚不能从本节单独给出。本节的探索性观察支持 "在受限 HPO 预算下，扩参 EEGNet 远不及 random-init CBraMod" 这一较弱主张；将该差距精准归因到 "架构归纳偏置" 需要 §6 #8 描述的双侧独立 HPO sweep 完成后才能成立。
-
-> **数据来源**: EEGNet-Mid runs `20260509_1419` (within), `20260509_1310` (cross), `20260509_1444` (XSI-FT)；EEGNet-Huge v3 runs `20260509_0928` (within), `20260509_0847` (cross), `20260509_1030` (XSI-FT)；EEGNet-Huge v1 / v2 runs `20260509_0201` (cross v1), `20260509_0735` (cross v2)。完整 HP / 架构规格 / 失败 HP 调试细节见 `docs/handoffs/2026-05-09_eegnet_huge.md`。EEGNet baseline 与 CBraMod baseline 来源见 §3.1–§3.3 / §3.7.2。
-
-#### 3.7.2 Random-init CBraMod 消融（128 通道）
-
-为剥离 CBraMod 在三种范式下相对 EEGNet 的优势中、来自 TUEG 预训练的部分与来自架构本身的部分，我们以完全随机初始化的 CBraMod 重跑 §3.1–§3.3 的 6 个核心 condition（被试内 / 跨被试 / XSI-FT × 二分类 / 三分类，N = 21，128 通道）。除 backbone 初始化以外（`--no-pretrained`），所有超参数与 §3.1–§3.3 baseline 完全相同（沿用 `get_default_config()`，含 cross-subject HPO 后默认）；XSI-FT 阶段使用本节产出的 random-init cross-subject checkpoint 作为初始权重，确保整条 transfer 链是 end-to-end from-scratch（不混入原始 TUEG 权重）。本消融与 §3.6 further pre-training 形成对极方向——后者朝"更多预训练"扰动，本节朝"零预训练"扰动，两端共同界定原始 CBraMod recipe 在本任务上的位置。
-
-**表 18. Random-init vs Original-weights CBraMod vs EEGNet 三方对比（N = 21，128 通道）。**
-
-| 范式 | 任务 | random-init CBraMod | original-weights CBraMod | EEGNet | Δ (random − orig) |
-|------|------|---------------------|--------------------------|--------|-------------------|
-| 被试内 | 二分类 | 62.05 ± 17.68% | **85.15 ± 11.00%** | 78.10 ± 12.61% | **−23.10 pp** |
-| 被试内 | 三分类 | 38.65 ± 14.07% | **69.44 ± 15.42%** | 66.81 ± 14.50% | **−30.79 pp** |
-| 跨被试 | 二分类 | 86.34 ± 9.41% | **90.68 ± 9.31%** | 76.67 ± 11.95% | −4.34 pp |
-| 跨被试 | 三分类 | 73.06 ± 12.49% | **74.88 ± 14.03%** | 61.23 ± 11.28% | −1.82 pp |
-| XSI-FT | 二分类 | 86.22 ± 9.46% | **90.12 ± 8.98%** | 82.05 ± 11.00% † | −3.90 pp |
-| XSI-FT | 三分类 | 73.43 ± 12.91% | **75.04 ± 13.97%** | 66.33 ± 12.65% † | −1.61 pp |
-
-> † EEGNet XSI-FT 无 `is_baseline=1` 标记，引用最近的 N = 21 XSI-FT 运行 `20260507_1835`（二分类）和 `20260507_1913`（三分类）作为参考值。
-
-**预训练贡献按数据规模呈两段式分布**：被试内（每名被试 ~70 trial，单被试训练）下随机初始化下降 −23 至 −31 pp；跨被试与 XSI-FT（~21× 训练数据，1.5K+ trial）下仅下降 −1.6 至 −4.3 pp，前者跨度约为后者的 7×。具体到 within ternary 极端例：random-init 下 21 名被试中 **18 名**测试准确率落在 chance ± 2 pp 区间（≈ 33.33%）——三分类 from-scratch CBraMod 在被试内基本无法学到任何信号；唯三例外为 S07（61.67%）、S09（59.58%）、S19（90.42%）。
-
-**Seed 复现性检查**：为排除 18 / 21 collapse 是 seed = 42 的运气特例，重跑 within / ternary random-init 仅替换为 seed = 1234（其余 HP 与 `20260509_0102` 完全一致），得到 39.25% ± 13.90%（vs seed = 42 的 38.65% ± 14.07%）和 17 / 21 chance-collapse（vs 18 / 21）。两次 above-chance 被试交集为 {S09, S19}（两个 seed 下都逃出 chance），仅 S07（seed 42 only）和 {S13, S14}（seed 1234 only）为 seed 特异。两次 mean 差 0.6 pp、collapse 计数差 1 名——within ternary 的 chance collapse 是 from-scratch CBraMod 在该范式下的稳健行为而非 seed 噪声（seed = 1234 cache: `results/20260509_1838_within_subject_cache_imagery_ternary.json`）。
-
-**架构本身的独立价值在 cross-subject 与 XSI-FT 下被验证**：random-init CBraMod 即便完全切除 TUEG 预训练，在跨被试二分类仍达 86.34%（vs EEGNet 76.67%，**+9.67 pp**）、跨被试三分类 73.06%（vs 61.23%，**+11.83 pp**）；XSI-FT 二分类 86.22%（vs EEGNet 82.05%，+4.17 pp）、三分类 73.43%（vs 66.33%，+7.10 pp）。这说明 transformer + ACPE 架构在 21× pooled 数据下具备独立学习能力，与"差距全部来自 TUEG 预训练"的最弱归因相反。
-
-**Within-subject 范式下 from-scratch CBraMod 在当前 HP 下输给 EEGNet**：random-init CBraMod 被试内二分类 62.05% 低于 EEGNet 78.10% 约 −16 pp，三分类 38.65% 低于 EEGNet 66.81% 约 −28 pp。该差距方向性提示 transformer 在 ~70 trial 单被试样本下、**沿用 cross-subject HPO 选出的 backbone_lr = 1.3e-4 的固定优化栈**时，没有预训练先验的随机初始化难以收敛到具备判别力的解；~16K 参数的 EEGNet 凭借更小的搜索空间在被试内训练上仍能稳定收敛。**关于 within ternary 18 / 21 chance-collapse 的成因**，作者本人在 [`docs/handoffs/2026-05-09_random_init_ablation.md`](../../docs/handoffs/2026-05-09_random_init_ablation.md) L186-210 中基于 train_loss 轨迹分析给出的概率估计为：**(i) 数据量 / 过参数化导致 saddle-lock（结构性、与 LR 量级关系弱）70–80%；(ii) LR + patience + warmup 调优可救回 ≥ 5 个塌陷被试 15–25%；(iii) LR 是主因、提高 LR 可让 ≥ 10 / 18 塌陷被试学到 < 5%**。本研究的论证依赖 (i) 主导这一假设，但 within ternary 高 LR + 长 patience 的 retry 实验（~25 min GPU；handoff L212-227 描述方法）尚未执行，因此 "from-scratch transformer 在 ~70 trial 上结构性失败" 与 "当前 HP 配置下表现远低于其潜在能力" 在本研究中无法被严格区分。该现象与 NLP 文献中 transformer 在小样本上的已知微调脆弱性（Mosbach et al. 2021 [21] ICLR 在 RTE ~2K 样本上 BERT-base ~1/3 random seed 落入 chance）方向一致；此处的更深文献定位由相邻评审章节处理。基于这一综合判断，预训练表征**在本研究 HP 下方向性扮演**数据稀缺时的归纳偏置补偿角色，但精准量化"无 HP 错配下 TUEG 预训练在被试内的真实贡献"仍需 §6 #8 描述的 random-init 专属 HPO 完成后才能给出。
-
-**XSI-FT ceiling 在两种 init 下独立成立**：random-init cross→XSI-FT 的 Δ 为二分类 −0.12 pp（86.34% → 86.22%）、三分类 +0.37 pp（73.06% → 73.43%），与 §3.3 原始 weights 条件下的 −0.56 / +0.20 pp 模式一致——两条独立路径（pretrained vs from-scratch）均未能让 XSI-FT 超越对应的 cross-subject baseline。这一双重独立证据支持 §3.3 的 ceiling 解释（任务 × cohort × 通道密度共同决定上限），并排除"ceiling 是 TUEG 预训练 backbone 过度正则化的副作用"这一替代假设。
-
-需要明确的是，本消融**仅切换 backbone init，没有做 random-init 专属 HPO**；HP 与 original-weights baseline 完全共享（`get_default_config()`），故 random-init 的两段式差距（within ~−27 pp、cross/transfer ~−3 pp）严格而言应被理解为"**在 original-weights HP 下的 random-init 观察结果**"，而非"random-init 经独立 HPO 调优后的最优表现"。该 HP 错配在 within-subject 范式下可能尤为显著——`get_default_config()` 选出的 backbone_lr = 1.3e-4 来自 cross-subject 21 × 训练数据规模上的 HPO 全局最优（Table S5b cross-subject 行），用到 ~70 trial 单被试 + from-scratch transformer 上时的次优程度无独立度量。cross-subject 与 XSI-FT 的 random-init 缺口已小到 −1.6 至 −4.3 pp，**独立 HPO 即便能进一步弥合该缺口也难以翻转 within / cross 的两段式差异结构**这一定性观察仍可成立，但 within −23 至 −31 pp 内"HP 错配 vs 数据稀缺 saddle"的相对贡献无法在本节闭合；闭合需要 §6 #8 描述的 random-init 专属 HPO（≥ 25 trial Optuna，覆盖 backbone_lr 1e-4 ~ 5e-3 对数均匀、warmup、patience、layer-wise LR）。此外，random-init 训练实际比 original-weights 更早 early-stop（wrapper 总时长 2h 13m vs 估计 9–13h），训练集快速过拟合（train acc 升至 0.95+ 时 val 已高位震荡），与"更小搜索空间下更易过拟合"的预期一致。
-
-> **数据来源**: random-init runs `20260508_2338` (cross binary), `20260509_0014` (cross ternary), `20260509_0047` (within binary), `20260509_0102` (within ternary), `20260509_0124` (XSI-FT binary), `20260509_0135` (XSI-FT ternary)；JSON cache 路径与单被试明细见 `docs/handoffs/2026-05-09_random_init_ablation.md`。
-> Original-weights baseline: ExperimentDB run_tag `20260323_2237` (within binary), `20260323_2320` (within ternary), `20260324_0023` (cross binary), `20260324_0109` (cross ternary), `20260329_0507` (XSI-FT binary), `20260329_0521` (XSI-FT ternary)。
-> EEGNet baseline: ExperimentDB run_tag `20260316_1411` (within binary), `20260329_0056` (within ternary), `20260330_0709` (cross binary), `20260330_0735` (cross ternary), `20260507_1835` (XSI-FT binary, 无 baseline 标记), `20260507_1913` (XSI-FT ternary, 无 baseline 标记)。
-
-#### 3.7.3 综合：架构 / 预训练 / 容量复合贡献的探索性观察
-
-合并 §3.7.1 与 §3.7.2 在 cross-subject binary 上的四个锚点，可观察到 CBraMod 相对 EEGNet baseline 的 +14.01 pp 优势沿以下相邻 Δ 跨越（**所有 Δ 在共享默认 HP 与受限 HPO 预算下的复合估计；严格独立 HPO 留待 §6 #8**；本节观察到的 EEGNet 内扩参单调退化方向上与 LLM 领域 Hoffmann et al. 2022 [22] compute-optimal 假说提示的 "over-parameterization 在固定算力 / 数据预算下退化训练效率" 一致，但 EEG decoding 尺度下的 scaling laws 在本研究规模 (≤ 30M, ≤ 21 被试) 之外尚未系统建立）：
-
-| 锚点 | 参数量 | 预训练 | Cross binary | 至下一锚点的 Δ（复合估计） |
-|------|--------|--------|--------------|---------------------------|
-| EEGNet baseline | 16K | 否 | 76.67% | EEGNet 内扩参 → −25.30 pp ¹ |
-| EEGNet-Huge v3 | 5.84M | 否 | 51.37% | 换为 transformer + ACPE 架构 → +34.97 pp ² |
-| CBraMod random-init | 30.48M | 否 | 86.34% | 加 TUEG 预训练 → +4.34 pp ³ |
-| CBraMod baseline | 30.48M | TUEG | 90.68% | — |
-
-> ¹ EEGNet 内扩参的 Δ 为 baseline (16K, F1=16/F2=64, 单 Linear 头) → Huge v3 (5.84M, F1=32/F2=256, [2048,2048] + LayerNorm 头) 的双轴跳跃，conv stem 与 MLP 头同时改变；该 −25.30 pp 中可归因到 "MLP 头 over-parameterization" vs "conv stem 改动" vs "EEGNet HPO 受限 (≤ 2 trial 人工调试)" 的拆分超出本节范围（详见 §6 #6）。
-> ² 跨架构 Δ 为 EEGNet-Huge v3 (受限 HPO 下 cross 51.37%) → CBraMod random-init (复用 original-weights HP, cross 86.34%) 的对照；该 +34.97 pp 中包含 (a) backbone 架构差异 (transformer + ACPE vs 扩参 CNN)、(b) EEGNet 优化栈在 BF16 + 深 MLP 头下的不稳定性、(c) random-init CBraMod 复用 original-weights HP 的可能错配 三种贡献的复合，且尚不能给出可归因到 (a) 的下界。
-> ³ TUEG 预训练 Δ 为 random-init CBraMod (cross 86.34%) → original-weights CBraMod (cross 90.68%) 的对照，HP 完全共享 `get_default_config()`；这一 +4.34 pp 是同规模、同 HP 下唯一只随 backbone init 变动的 Δ，因此**是本表中归因强度最高的一个 Δ**——但仍受限于 random-init 在该 HP 下可能并非最优表现这一前提（§3.7.2 caveat）。
-
-被试内任务上对应的相邻 Δ 序列方向相反：以 binary 为例，EEGNet baseline 78.10% → EEGNet-Huge v3 67.71% (−10 pp) → CBraMod random-init 62.05% (−5.66 pp，仍低于 EEGNet baseline) → CBraMod baseline 85.15%（TUEG 预训练 Δ = +23.10 pp，binary）；ternary 对应 TUEG 预训练 Δ = +30.79 pp。下文及摘要 / §7 Finding 1 / §4.1 在被试内引用 TUEG 预训练贡献时**显式列出 binary +23.10 / ternary +30.79 pp 双值**，不再使用 ~+27 pp 平均值（该平均会模糊任务难度差异）。
-
-**关于本节观察的解读边界**：CBraMod 与扩参 EEGNet 之间的 cross-subject gap 至少包含架构、预训练、容量三种贡献，本研究在受限 HPO 预算 + baseline → Mid 双轴扩参 + random-init 共享 HP 的三项约束下**无法独立分离**这三种贡献的各自贡献值。可被本节探索性观察方向性支持的较弱主张是：(a) **TUEG 预训练在被试内贡献巨大（binary +23.10 / ternary +30.79 pp），在 cross-subject 与 XSI-FT 仅贡献 +1.6 ~ +4.3 pp**——这是本节归因强度最高的一组 Δ；(b) **沿当前扩参轴扩参 EEGNet 在 cross-subject 范式下方向性有害**（baseline → Huge v3 沿双轴下降 −25.30 pp）——但 "EEGNet 内扩参普遍有害" 与 "EEG decoding 瓶颈不在容量" 等更强主张需要 §6 #8 + §6 #6 的独立 HPO 与单轴隔离实验完成后才能确立；(c) **transformer + ACPE 架构在不依赖 TUEG 预训练时仍能在 cross-subject 21 × pooled 数据上学到有效表征**（random-init CBraMod cross 86.34% vs EEGNet baseline 76.67%, +9.67 pp）——但与 EEGNet-Huge v3 的 +34.97 pp 差距是复合估计，不可独立归因到 "架构"。
-
-这一**范式依赖的复合贡献结构**与 §4.1 "基座模型价值随数据约束放大" 的叙事方向一致：在 cross-subject 范式（21 × 训练数据）信号充足时，random-init CBraMod 仍领先扩参 EEGNet；在 within-subject 范式（每被试 ~70 trial）信号稀缺时，TUEG 预训练贡献急剧扩大、random-init CBraMod 反而输给 EEGNet baseline。但因前述三项 HPO / 扩参非对称性，该结构的**精确归因强度**应被理解为方向性而非独立可定量分解的；详细归因需要 §6 #8（EEGNet-Huge ≥ 25 trial 独立 HPO + CBraMod random-init ≥ 25 trial 独立 HPO）的算力开支后才能闭合。
-
-### 3.8 推理性能
+### 3.7 推理性能
 
 实时 BCI 部署存在两种典型场景：(i) **单用户场景**（个人 BCI 设备）下用户独占模型，相关指标是 batch=1 端到端延迟；(ii) **多用户共享服务场景**（服务器侧 BCI 推理服务）下一个 GPU 通过 batching 同时服务 N 个用户，相关指标是 batch=N 的端到端延迟（即每个用户从发请求到拿结果的最坏延迟，受同 batch 内其他用户拖累）以及每用户的平均 GPU 占用时间。表 17 同时报告这两个视角。需要强调的是，多用户共享服务**只对 CBraMod 适用**——§3.2 已显示 EEGNet 在跨被试 pooling 下方向性受损（−1.43 pp, p = 0.456），不存在合理的"21 名被试共享一个 EEGNet 服务"用例；EEGNet 列在表中仅作单用户延迟对照。
 
@@ -1001,15 +894,15 @@ V1/V2/V3 已评估被试内、跨被试两种范式各两 task（共 12 cell）�
 > **数据来源**: `docs/dev_log/experiments/inference_benchmark_analysis.md`（数据采集 2026-03-23）
 > 生成命令: 图 11 由 `uv run python scripts/paper/generate_paper_figures.py --figure inference_latency` 生成
 
-### 3.9 数据质量与被试异质性
+### 3.8 数据质量与被试异质性
 
 三名重度伪影被试（S04, S10, S14）的振幅超过群体最大值的 3–8 倍（126K–307K µV vs. 正常 ≤ 38K µV），时间漂移值高出群体均值数个数量级（S04: 2,717 vs. 群体均值 ~30）。这三人在跨被试 binary 任务上的表现差异极大：S04=98.12%、S14=87.50%、S10=66.25%——同样"重度伪影"标签下相差 32 pp，提示"重度伪影"并非单一类别。S04 的 1024 Hz 原始振幅显示为 episodic 大幅 spike（疑似 EMG 串扰）+ 低频漂移，trial 级 ±500 µV 阈值剔除后剩余信号可能仍承载有效手指 MI 模式；S10 主导的是持续性高方差噪声，全程被噪声淹没。机制层面，跨被试模型从 18 名干净/轻度被试身上学到的群体表征仍能 generalize 到 S04 的偶发性高质量片段，但对 S10 的持续性噪声无能为力。
 
-**Sensitivity check（leave-S04/S10/S14-out, N = 18）**：去除三名重度伪影被试后重新训练 cross-subject CBraMod，binary 测得 90.62% ± 8.18%（vs N=21 90.68%，Δ = −0.06 pp），ternary 测得 74.75% ± 13.74%（vs N=21 74.88%，Δ = −0.13 pp）——两者 |Δ| 均远小于 1 pp。结论：三名重度伪影被试在跨被试群体均值上的影响处于统计噪声范围内，**主要 finding 不依赖于其包含与否**。这一结果与 §3.8 关于"S04 高准确率主要源自偶发性高质量片段而非伪影模式"的解释一致——若模型真的在系统性利用伪影，去除三人本应让群体均值显著下降。
+**Sensitivity check（leave-S04/S10/S14-out, N = 18）**：去除三名重度伪影被试后重新训练 cross-subject CBraMod，binary 测得 90.62% ± 8.18%（vs N=21 90.68%，Δ = −0.06 pp），ternary 测得 74.75% ± 13.74%（vs N=21 74.88%，Δ = −0.13 pp）——两者 |Δ| 均远小于 1 pp。结论：三名重度伪影被试在跨被试群体均值上的影响处于统计噪声范围内，**主要 finding 不依赖于其包含与否**。这一结果与 §3.7 关于"S04 高准确率主要源自偶发性高质量片段而非伪影模式"的解释一致——若模型真的在系统性利用伪影，去除三人本应让群体均值显著下降。
 
 > **数据来源**: leave-3-out binary `20260505_0116`: `results/sensitivity_leave3out/20260505_0116_cross_subject_cache_imagery_binary.json`; leave-3-out ternary `20260505_0145`: `results/sensitivity_leave3out/20260505_0145_cross_subject_cache_imagery_ternary.json`
 
-**Label-shuffle control (P0.3)**：作为 cross-subject 90.68% headline 数字的第三重 robustness 防线，我们对 21 名被试 cross-subject CBraMod binary 做 within-subject trial-level 随机重排 label（保持 input EEG 不变、保留每被试类别平衡）重新训练 n=2 seeds。**结果**：seed=42 测得 49.17% ± 4.08%（best epoch=23, 33 epoch 早停），seed=123 测得 50.00% ± 0.00%（majority-class collapse, best epoch=1, patience 耗尽即停）；pooled 均值 **49.58%** 落在 Scenario A 接受带 [48%, 52%] 中央。相对真实 label 的 90.68% headline，**Δ = −41.1 pp**——远超 ±5 pp Scenario A 接受阈，强证据排除三类潜在 shortcut leakage：(i) train/test split 残留泄露（任何残留泄露应在 permutation 后存活）；(ii) subject-identity 混淆（within-subject shuffle 保留被试身份但销毁 label 语义）；(iii) trivial label 统计 prior 蒙混。两个 seed 通过不同失败模式（seed=42 训练 33 epoch 后 patience 耗尽、seed=123 epoch 1 即 majority-class collapse）独立落到 chance level，进一步证实 shuffled labels 不存在可被泛化的信号。本控制与 §3.5.3（4ch 负控制 67.65% vs chance 50%，方向性反证通道选择独立 leakage）+ §3.9 leave-3-out（重度伪影被试去除对群体均值仅 −0.06 / −0.13 pp 影响）共同构成 cross-subject headline 的三重 robustness 证据链。
+**Label-shuffle control (P0.3)**：作为 cross-subject 90.68% headline 数字的第三重 robustness 防线，我们对 21 名被试 cross-subject CBraMod binary 做 within-subject trial-level 随机重排 label（保持 input EEG 不变、保留每被试类别平衡）重新训练 n=2 seeds。**结果**：seed=42 测得 49.17% ± 4.08%（best epoch=23, 33 epoch 早停），seed=123 测得 50.00% ± 0.00%（majority-class collapse, best epoch=1, patience 耗尽即停）；pooled 均值 **49.58%** 落在 Scenario A 接受带 [48%, 52%] 中央。相对真实 label 的 90.68% headline，**Δ = −41.1 pp**——远超 ±5 pp Scenario A 接受阈，强证据排除三类潜在 shortcut leakage：(i) train/test split 残留泄露（任何残留泄露应在 permutation 后存活）；(ii) subject-identity 混淆（within-subject shuffle 保留被试身份但销毁 label 语义）；(iii) trivial label 统计 prior 蒙混。两个 seed 通过不同失败模式（seed=42 训练 33 epoch 后 patience 耗尽、seed=123 epoch 1 即 majority-class collapse）独立落到 chance level，进一步证实 shuffled labels 不存在可被泛化的信号。本控制与 §3.5.3（4ch 负控制 67.65% vs chance 50%，方向性反证通道选择独立 leakage）+ §3.8 leave-3-out（重度伪影被试去除对群体均值仅 −0.06 / −0.13 pp 影响）共同构成 cross-subject headline 的三重 robustness 证据链。
 
 > **数据来源**: seed=42 `results/20260510_1847_labelshuffle_seed42_cross_subject_cache_imagery_binary.json`（ExperimentDB run_tag `20260510_1847_labelshuffle_seed42`）；seed=123 `results/20260510_1914_labelshuffle_seed123_cross_subject_cache_imagery_binary.json`（ExperimentDB run_tag `20260510_1914_labelshuffle_seed123`）；handoff [`docs/handoffs/2026-05-10_p03_label_shuffle_results.md`](../../docs/handoffs/2026-05-10_p03_label_shuffle_results.md)
 
@@ -1021,11 +914,11 @@ V1/V2/V3 已评估被试内、跨被试两种范式各两 task（共 12 cell）�
 
 从方法学定位看，本文不是 [3] 的在线机器人控制复现，也不是 [4] 的通用 benchmark 复刻，而是将 [3] 的 finger-level dataset/session design 与 [4] 的 pretrained foundation model 结合到统一的离线、held-out-session 评估框架中。因而，下述模型差异更适合被解读为“在同一数据与相同 split 约束下，预训练基座模型相对 compact CNN 的收益”，而不是对在线 robotic control 或 [4] 全任务基准的直接替代。
 
-CBraMod 在所有实验条件下一致优于 EEGNet——被试内 **+7.05 pp**、跨被试 **+14.01 pp**（128ch）、32 通道 **+10–13 pp**——这反映了大规模预训练对 EEG 解码的价值。~400 倍的参数量差异本身不能完全解释该差距，§3.7 报告的两项探索性消融（EEGNet 容量阶梯 + random-init CBraMod）对该差距的来源做了初步检验。一个朴素担忧——"差距是否仅源自 ~16K vs 30.48M 的容量量级差异"——由 §3.7.1 在受限 HPO 预算下方向性回答：把 EEGNet 沿 (conv stem, MLP 头) 双轴扩展到 1.90M / 5.84M / 19.99M / 30.22M 四档，**cross-subject 准确率从 76.67% 单调下降到 50%（chance）**，30M 量级在两套人工调试 HP（≤ 2 trial）下均落入 train loss 死锁。**在本研究 HPO 协议下** ，沿当前扩参轴对 EEGNet 扩参对 cross-subject 准确率不利；但 "EEGNet 内扩参普遍有害" 或 "EEG decoding 的瓶颈不在容量" 等更强主张需要 EEGNet-Huge v1/v2 的独立 ≥ 25 trial Optuna sweep（详见 §6 #8）确认仍不可训之后才能成立。值得注意的是，作者在交接文档 [`docs/handoffs/2026-05-09_eegnet_huge.md`](../../docs/handoffs/2026-05-09_eegnet_huge.md) L156、L195-197、L249-260 中明确诊断 v1/v2 的不可训为 "BF16 + 深 MLP 头需 LayerNorm" 的优化栈兼容性问题——v3 加 LayerNorm + 缩 MLP 后立即 trainable 是直接证据；因此 v1/v2 的失败更可能是工程层面的 trainability 问题，而非参数容量本身的根本饱和。
+CBraMod 在所有实验条件下一致优于 EEGNet——被试内 **+7.05 pp**、跨被试 **+14.01 pp**（128ch）、32 通道 **+10–13 pp**——这反映了大规模预训练对 EEG 解码的价值。~400 倍的参数量差异本身不能完全解释该差距：**作为对该差距来源的诊断性补充**（而非头条贡献，见 §1.4），附录 §A.1 报告的两项探索性消融（EEGNet 容量阶梯 + random-init CBraMod）对架构 / 预训练 / 容量的相对贡献做了方向性检验。一个朴素担忧——"差距是否仅源自 ~16K vs 30.48M 的容量量级差异"——由 §A.1.1 在受限 HPO 预算下方向性回答：把 EEGNet 沿 (conv stem, MLP 头) 双轴扩展到 1.90M / 5.84M / 19.99M / 30.22M 四档，**cross-subject 准确率从 76.67% 单调下降到 50%（chance）**，30M 量级在两套人工调试 HP（≤ 2 trial）下均落入 train loss 死锁。**在本研究 HPO 协议下** ，沿当前扩参轴对 EEGNet 扩参对 cross-subject 准确率不利；但 "EEGNet 内扩参普遍有害" 或 "EEG decoding 的瓶颈不在容量" 等更强主张需要 EEGNet-Huge v1/v2 的独立 ≥ 25 trial Optuna sweep（详见 §6 #8）确认仍不可训之后才能成立。值得注意的是，作者在交接文档 [`docs/handoffs/2026-05-09_eegnet_huge.md`](../../docs/handoffs/2026-05-09_eegnet_huge.md) L156、L195-197、L249-260 中明确诊断 v1/v2 的不可训为 "BF16 + 深 MLP 头需 LayerNorm" 的优化栈兼容性问题——v3 加 LayerNorm + 缩 MLP 后立即 trainable 是直接证据；因此 v1/v2 的失败更可能是工程层面的 trainability 问题，而非参数容量本身的根本饱和。
 
 **同规模 random-init 对照的探索性观察**：在 ~30M 参数 + 无预训练的同等条件下，EEGNet-Huge v2 (30.22M) cross 50.07%（chance）vs CBraMod random-init (30.48M) cross 86.34%——观察 ~+36 pp 差距；EEGNet-Huge v3 (5.84M) cross 51.37% 对 random-init CBraMod 时差距为 ~+35 pp。**在 EEGNet-Huge v1/v2/v3 与 CBraMod random-init 均未做专属 HPO 的对照下**，该差距是 "backbone 架构差异 + EEGNet 优化栈不稳定 + random-init CBraMod HP 错配" 的复合估计；归因到 backbone 架构本身的下界尚不能从本节单独给出。其上 TUEG 预训练 Δ = +4.34 pp（86.34% → 90.68%）是本对照中归因强度最高的 Δ——因 random-init 与 baseline 共享同一 `get_default_config()`，唯一变量是 backbone init。
 
-within-subject 范式下方向反转：random-init CBraMod 在被试内二分类与三分类上分别落到 62.05% 和 38.65%，比 original-weights 分别低 **binary −23.10 pp、ternary −30.79 pp**（且 within ternary 21 名被试中 18 名测试准确率落在 chance ± 2 pp 区间，seed = 1234 重跑得 17 / 21，证实非 seed 特例）；不仅如此，random-init CBraMod 在该范式下反而输给 EEGNet baseline（binary 78.10%、ternary 66.81%）约 −16 至 −28 pp。然而 §3.7.2 caveat 已指出 random-init 复用 cross-subject HPO 选出的 backbone_lr = 1.3e-4，该 HP 在 ~70 trial single-subject from-scratch transformer 上的最优性未被独立验证；handoff 作者本人对 within ternary collapse 的概率归因为 70-80% saddle-lock / 15-25% LR-schedule、< 5% 纯 LR 主因。这一非对称方向性提示 TUEG 预训练**扮演数据稀缺时的归纳偏置补偿**角色：cross-subject pooling (~21× 训练数据) 信号充足时，random-init CBraMod 仍领先 EEGNet baseline +9.67 pp；within-subject (~70 trial) 信号稀缺时，TUEG 预训练贡献急剧扩大。
+within-subject 范式下方向反转：random-init CBraMod 在被试内二分类与三分类上分别落到 62.05% 和 38.65%，比 original-weights 分别低 **binary −23.10 pp、ternary −30.79 pp**（且 within ternary 21 名被试中 18 名测试准确率落在 chance ± 2 pp 区间，seed = 1234 重跑得 17 / 21，证实非 seed 特例）；不仅如此，random-init CBraMod 在该范式下反而输给 EEGNet baseline（binary 78.10%、ternary 66.81%）约 −16 至 −28 pp。然而 §A.1.2 caveat 已指出 random-init 复用 cross-subject HPO 选出的 backbone_lr = 1.3e-4，该 HP 在 ~70 trial single-subject from-scratch transformer 上的最优性未被独立验证；handoff 作者本人对 within ternary collapse 的概率归因为 70-80% saddle-lock / 15-25% LR-schedule、< 5% 纯 LR 主因。这一非对称方向性提示 TUEG 预训练**扮演数据稀缺时的归纳偏置补偿**角色：cross-subject pooling (~21× 训练数据) 信号充足时，random-init CBraMod 仍领先 EEGNet baseline +9.67 pp；within-subject (~70 trial) 信号稀缺时，TUEG 预训练贡献急剧扩大。
 
 引用本节数字时，**摘要 / §1.4 / §7 Finding 1 显式列出 binary +23.10 / ternary +30.79 pp 双值**，不再使用 ~+27 pp 平均值（该平均会模糊任务难度差异）；cross-subject 与 XSI-FT 范式下 TUEG 预训练贡献为 +1.6 ~ +4.3 pp（双任务双范式区间）。三向分解（架构 / 预训练 / 容量）的精确归因强度需要 §6 #8（EEGNet-Huge + random-init CBraMod 双侧 ≥ 25 trial 独立 HPO sweep）的算力开支后才能闭合；当前章节支持的较弱主张是 "TUEG 预训练在被试内贡献巨大、在 cross-subject 与 XSI-FT 仅 +2 ~ +4 pp" + "transformer + ACPE 架构在不依赖 TUEG 预训练时仍能在 cross-subject 21 × pooled 数据上学到有效表征"，更强的独立可归因分解超出本研究证据范围。
 
@@ -1094,7 +987,7 @@ within-subject 范式下方向反转：random-init CBraMod 在被试内二分类
 
 ### 4.7 伪影被试的影响
 
-§3.9 已通过 leave-S04/S10/S14-out sensitivity check 证实三名重度伪影被试对群体均值的影响处于统计噪声范围内（binary Δ = −0.06 pp、ternary Δ = −0.13 pp）。从机制层面看，三人呈现两种性质（episodic spike vs 持续高方差噪声），提示 BCI pipeline 中"伪影类型"而非"伪影量级"决定模型行为；在临床部署中，应增加伪影类型识别（而非单纯阈值剔除）作为前置 module。
+§3.8 已通过 leave-S04/S10/S14-out sensitivity check 证实三名重度伪影被试对群体均值的影响处于统计噪声范围内（binary Δ = −0.06 pp、ternary Δ = −0.13 pp）。从机制层面看，三人呈现两种性质（episodic spike vs 持续高方差噪声），提示 BCI pipeline 中"伪影类型"而非"伪影量级"决定模型行为；在临床部署中，应增加伪影类型识别（而非单纯阈值剔除）作为前置 module。
 
 ### 4.8 综合：数据稀缺梯度下的策略选择
 
@@ -1122,7 +1015,7 @@ within-subject 范式下方向反转：random-init CBraMod 在被试内二分类
 | 4 | **仅运动想象** — 运动执行数据尚未评估。 | 信号特征和最优通道可能不同（见 Section 6）。 |
 | 5 | **无数据增强** — 未应用时间偏移、噪声注入或 channel dropout。 | 低通道配置可能从增强中获益最大。 |
 | 6 | **Extra sessions 选择偏差** — 仅 16/21 被试拥有额外 session 数据，这些被试的 baseline 系统性偏高。 | 多 session 增益估计可能存在选择偏差。 |
-| 7 | **Foundation model 与预训练范围** — 主结果基于 CBraMod（masked autoencoding 预训练）。§3.7 通过 EEGNet 容量阶梯（16K → 30M）+ random-init CBraMod 双消融对架构 / 预训练 / 容量贡献做了**探索性初步检验**（在共享默认 HP、受限 HPO 预算、baseline → Mid 双轴扩参 三项约束下的方向性观察，不构成独立可归因的三向分解）。但其他基座模型架构（LaBraM 等）以及其他预训练目标（contrastive、predictive 等）尚未测试。 | "CBraMod + TUEG masked autoencoding"特定组合是否泛化到其他 backbone × objective 组合仍属开放问题；本研究的"基座模型价值随数据约束放大"方向性结论是否在其他 backbone 上重现需独立验证（§6 #7 / #8）。 |
+| 7 | **Foundation model 与预训练范围** — 主结果基于 CBraMod（masked autoencoding 预训练）。§A.1 通过 EEGNet 容量阶梯（16K → 30M）+ random-init CBraMod 双消融对架构 / 预训练 / 容量贡献做了**探索性初步检验**（在共享默认 HP、受限 HPO 预算、baseline → Mid 双轴扩参 三项约束下的方向性观察，不构成独立可归因的三向分解）。但其他基座模型架构（LaBraM 等）以及其他预训练目标（contrastive、predictive 等）尚未测试。 | "CBraMod + TUEG masked autoencoding"特定组合是否泛化到其他 backbone × objective 组合仍属开放问题；本研究的"基座模型价值随数据约束放大"方向性结论是否在其他 backbone 上重现需独立验证（§6 #7 / #8）。 |
 | 8 | **Further pre-training 评估覆盖（部分闭合）** — V4/V5 已于 2026-05-10 补完 within + transfer 评估（共 8 cell），与原 V1/V2/V3 within+cross 12 cell 合并共 24 cell；剩余 6 cell 未跑全部为 V1/V2/V3 × XSI-FT × {bin, ter}。V4/V5 跨三种 paradigm 全部方向负、Stouffer 集体证据稳健，先验上不期望 V1–V3 transfer 反转方向。V2 训练亦在 Epoch 13 因 Windows LMDB MapResizedError 中断而非自然 early-stop。 | V4/V5 三-paradigm 全矩阵负向的事实部分回答了"DAPT 是否仅在 cross-subject 失败"——失败是跨范式稳健现象（详见 §3.6.4 Caveat #6 闭合）；V1–V3 transfer 严格意义上未被回答；V2 是否在更长训练后达到不同结论缺乏直接证据。 |
 | 9 | **Stieger2021 主导效应通过 V3 实验部分验证，未做完整逐数据集消融** — V3（Stieger 占比 ~30%）相对 V2（~79%）平均改善 +0.68 pp，约恢复 V1→V2 阶段加剧负迁移的一半，但整体仍呈方向性负迁移（vs Baseline −0.70 pp 平均）。完整的 leave-one-out 数据集消融（逐数据集排除）尚未完成。 | 已能判断 Stieger 主导是 V2 阶段加剧负迁移的主因之一，但其余 9 个数据集的独立贡献仍未隔离；当前结论支持"两层归因"（Stieger 主导 + 整体粗运动 MI 域错配）。 |
 | 10 | **Ternary 任务 baseline 时间不齐** — 三分类 baseline 来自 pre-HPO 运行（2026-02），与 binary post-HPO baseline（2026-03）不在同一管线版本下，引入 confound。 | Ternary delta 的精度估计弱于 Binary，但定性方向（一致负迁移）不受影响。 |
@@ -1148,11 +1041,11 @@ within-subject 范式下方向反转：random-init CBraMod 在被试内二分类
 
 5. **4ch Band Power 的可复现性与跨范式稳健性**：4ch BP (78.75%) 是本批最大反例，但仅在 cross-subject binary 上观察到；其在三分类、XSI-FT、被试内、运动执行范式下是否同样保持优势需要独立验证。
 
-6. **EEGNet 容量扩展沿 conv stem 单轴的隔离**：§3.7.1 沿 (conv stem, MLP 头) 双轴扩展了 EEGNet——baseline → Mid 的首跳同时改了 conv stem (F1: 16→32, F2: 64→256) 与 MLP 头（单 Linear → 双层 [1024,1024]）；Mid → v3 → v1/v2 三档则沿 MLP 头单轴扩参（conv stem 不变）。三档 MLP 单轴的 cross-subject 单调下降（57.65% → 51.37% → 50%）已可成立"在 F1=32 conv stem 之上 MLP 扩参无益"，但 baseline → Mid 的 −19 pp 一跳无法归因到单一轴。一项最小隔离实验是固定 MLP 头为单 Linear，扫 F1 ∈ {16, 32, 64, 128}（D=4 不变），观察 cross-subject 是否仍呈反向 scaling；若是，则可把"容量在 EEGNet 架构内一律有害"从 (F1=32, MLP 头) 单轴扩展为 (F1, MLP 头) 二维容量平面的全域结论；若 conv stem 扩参反而有益，则现有 baseline → Mid 的 −19 pp 主要来自 MLP 头（双层取代单层）的过拟合而非容量本身。预算 ~6 hr GPU。
+6. **EEGNet 容量扩展沿 conv stem 单轴的隔离**：§A.1.1 沿 (conv stem, MLP 头) 双轴扩展了 EEGNet——baseline → Mid 的首跳同时改了 conv stem (F1: 16→32, F2: 64→256) 与 MLP 头（单 Linear → 双层 [1024,1024]）；Mid → v3 → v1/v2 三档则沿 MLP 头单轴扩参（conv stem 不变）。三档 MLP 单轴的 cross-subject 单调下降（57.65% → 51.37% → 50%）已可成立"在 F1=32 conv stem 之上 MLP 扩参无益"，但 baseline → Mid 的 −19 pp 一跳无法归因到单一轴。一项最小隔离实验是固定 MLP 头为单 Linear，扫 F1 ∈ {16, 32, 64, 128}（D=4 不变），观察 cross-subject 是否仍呈反向 scaling；若是，则可把"容量在 EEGNet 架构内一律有害"从 (F1=32, MLP 头) 单轴扩展为 (F1, MLP 头) 二维容量平面的全域结论；若 conv stem 扩参反而有益，则现有 baseline → Mid 的 −19 pp 主要来自 MLP 头（双层取代单层）的过拟合而非容量本身。预算 ~6 hr GPU。
 
-7. **其他基座模型与预训练目标的独立验证**：§3.7 random-init ablation 已就 CBraMod 特定情境下"架构 vs TUEG masked autoencoding 预训练"的贡献完成初步剥离，但本研究的"基座模型价值随数据约束放大"结论是否在其他 backbone（LaBraM、LaBraM-base 等）和其他预训练目标（contrastive、predictive 等）上重现仍属开放问题。一项最小验证可在同一 finger MI 数据集上跑 LaBraM × {original-weights, random-init} 同样 6 个 condition 的对照，看 within / cross 两段式差距结构是否再现；若再现，则该机制可被升格为"EEG 基座模型的通用属性"而非"CBraMod 特异属性"。
+7. **其他基座模型与预训练目标的独立验证**：§A.1 random-init ablation 已就 CBraMod 特定情境下"架构 vs TUEG masked autoencoding 预训练"的贡献完成初步剥离，但本研究的"基座模型价值随数据约束放大"结论是否在其他 backbone（LaBraM、LaBraM-base 等）和其他预训练目标（contrastive、predictive 等）上重现仍属开放问题。一项最小验证可在同一 finger MI 数据集上跑 LaBraM × {original-weights, random-init} 同样 6 个 condition 的对照，看 within / cross 两段式差距结构是否再现；若再现，则该机制可被升格为"EEG 基座模型的通用属性"而非"CBraMod 特异属性"。
 
-8. **§3.7 探索性消融的严格独立 HPO 验证**：§3.7.1 EEGNet-Huge v1 (19.99M) 与 v2 (30.22M) 的不可训判定基于两套人工调试 HP（lr 相差 10×：5e-5 vs 5e-4；wd / dropout / LayerNorm on/off 等亦不同），并非独立 Optuna 搜索；§3.7.2 random-init CBraMod 直接复用 original-weights baseline 的 `get_default_config()`，没有跑专属 HPO。要让 §3.7.3 的复合贡献观察升格为可独立归因的三向分解，需补做：(a) **EEGNet-Huge v1 / v2 各 ≥ 25 trial Optuna TPE HPO**，搜索空间覆盖 LR ∈ [5e-5, 5e-3] 对数均匀、warmup ratio ∈ [0, 0.2]、LayerNorm on/off (categorical)、init scheme ∈ {Kaiming, Xavier}、dropout ∈ [0.1, 0.6]、weight_decay ∈ [1e-3, 0.3] 对数均匀；(b) **CBraMod random-init ≥ 25 trial Optuna 专属 HPO**，覆盖 backbone_lr 1e-4 ~ 5e-3 对数均匀、warmup、patience、layer-wise LR；优先 within ternary（最严重的 18/21 chance-collapse case）。预算估计 ~80–120 GPU 小时（v1 25 trial × ~2h + v2 25 trial × ~2h + random-init within ternary 25 trial × ~25 min + cross-subject 25 trial × ~30 min + 复跑 baseline 对照）。**预期 readout**：若 (a) 100% trial 仍落入 train_loss = 0.693 chance entropy 死锁（即便加 LayerNorm 也不救），则 §3.7.1 "EEGNet 内扩参在受限 HPO 下不可训" 升级为 "经独立 HPO 验证后仍不可训"；若 (b) 在 random-init within ternary 上把 chance-collapse 比例从 18/21 降至 ≤ 8/21，则 §3.7.2 / §3.7.3 / §4.1 / §7 Finding 1 中 "TUEG 预训练在被试内贡献 binary +23.10 / ternary +30.79 pp" 需进一步弱化为更小区间（HP 错配占了相当比例）。
+8. **§A.1 探索性消融的严格独立 HPO 验证**：§A.1.1 EEGNet-Huge v1 (19.99M) 与 v2 (30.22M) 的不可训判定基于两套人工调试 HP（lr 相差 10×：5e-5 vs 5e-4；wd / dropout / LayerNorm on/off 等亦不同），并非独立 Optuna 搜索；§A.1.2 random-init CBraMod 直接复用 original-weights baseline 的 `get_default_config()`，没有跑专属 HPO。要让 §A.1.3 的复合贡献观察升格为可独立归因的三向分解，需补做：(a) **EEGNet-Huge v1 / v2 各 ≥ 25 trial Optuna TPE HPO**，搜索空间覆盖 LR ∈ [5e-5, 5e-3] 对数均匀、warmup ratio ∈ [0, 0.2]、LayerNorm on/off (categorical)、init scheme ∈ {Kaiming, Xavier}、dropout ∈ [0.1, 0.6]、weight_decay ∈ [1e-3, 0.3] 对数均匀；(b) **CBraMod random-init ≥ 25 trial Optuna 专属 HPO**，覆盖 backbone_lr 1e-4 ~ 5e-3 对数均匀、warmup、patience、layer-wise LR；优先 within ternary（最严重的 18/21 chance-collapse case）。预算估计 ~80–120 GPU 小时（v1 25 trial × ~2h + v2 25 trial × ~2h + random-init within ternary 25 trial × ~25 min + cross-subject 25 trial × ~30 min + 复跑 baseline 对照）。**预期 readout**：若 (a) 100% trial 仍落入 train_loss = 0.693 chance entropy 死锁（即便加 LayerNorm 也不救），则 §A.1.1 "EEGNet 内扩参在受限 HPO 下不可训" 升级为 "经独立 HPO 验证后仍不可训"；若 (b) 在 random-init within ternary 上把 chance-collapse 比例从 18/21 降至 ≤ 8/21，则 §A.1.2 / §A.1.3 / §4.1 / §7 Finding 1 中 "TUEG 预训练在被试内贡献 binary +23.10 / ternary +30.79 pp" 需进一步弱化为更小区间（HP 错配占了相当比例）。
 
 ---
 
@@ -1160,7 +1053,7 @@ within-subject 范式下方向反转：random-init CBraMod 在被试内二分类
 
 本研究系统评估了 EEG 基座模型（CBraMod）在手指级运动想象分类中的应用，通过通道缩减、纵向数据扩展和领域自适应预训练三个维度建立了完整的实验证据体系。五个核心发现如下：
 
-> **发现 1 — 基座模型在三种训练范式下一致优于 EEGNet；探索性消融初步检验差距来源。** CBraMod 对 EEGNet 的优势从 **+7.05 pp**（被试内）扩大至 **+14.01 pp**（跨被试 128 通道），在 32 通道下仍保持 **+10–13 pp** 差距。两项探索性消融（§3.7）对该差距的来源做了初步检验：(i) **沿当前扩参轴扩参 EEGNet 在受限 HPO 预算下方向性有害**——把 EEGNet 沿 (conv stem, MLP 头) 双轴扩参到 1.90M / 5.84M / 30M 三档，cross-subject 准确率从 76.67% 单调下降至 51.37% / 50%（chance），其中 v1/v2 (~30M) 不可训根据作者本人交接诊断更可能是 BF16 下深 MLP 头优化栈兼容性问题（v3 加 LayerNorm 立即 trainable）；(ii) **架构提供独立价值的方向性证据**——在 ~30M 参数 + 无预训练同等条件下，CBraMod random-init cross 86.34% vs EEGNet-Huge v3 (5.84M) cross 51.37% 差距 ~+35 pp，但因 EEGNet-Huge / random-init 均未做专属 HPO 且 baseline → Mid 跳跃同时改 conv stem 与 MLP 头，该差距不可独立归因到 backbone 架构；(iii) **TUEG 预训练贡献同规模、同 HP 下唯一干净的 Δ**——random-init → original-weights backbone 切换的 Δ 在被试内为 **binary +23.10 / ternary +30.79 pp**，在跨被试与 XSI-FT 为 +1.6 ~ +4.3 pp，这是本研究归因强度最高的一组 Δ。本研究在三种训练范式下系统量化了 CBraMod vs EEGNet 的性能差距；补充的探索性消融暗示该差距由架构归纳偏置 + 预训练先验 + 容量约束三因素叠加，但本研究的 HPO 预算与单轴扩参限制使我们**无法对各因素做独立定量归因**。"基座模型价值随数据约束放大" 的方向性结论在两项消融中均得到方向性支持。**该结论限于 CBraMod backbone × 本数据集（21 名 responder cohort）× 当前 HPO 预算；其他 EEG transformer backbone (LaBraM [6], NeuroLM [15], BIOT [16]) 是否复现该三向分解需独立验证（§6 #7）。** 这一限制由 §6 #8（EEGNet-Huge ≥ 25 trial 独立 HPO + random-init CBraMod ≥ 25 trial 独立 HPO，预算 ~80–120 GPU 小时）描述的后续工作处理。
+> **发现 1 — 基座模型在三种训练范式下一致优于 EEGNet；探索性消融初步检验差距来源。** CBraMod 对 EEGNet 的优势从 **+7.05 pp**（被试内）扩大至 **+14.01 pp**（跨被试 128 通道），在 32 通道下仍保持 **+10–13 pp** 差距。两项探索性消融（§A.1）对该差距的来源做了初步检验：(i) **沿当前扩参轴扩参 EEGNet 在受限 HPO 预算下方向性有害**——把 EEGNet 沿 (conv stem, MLP 头) 双轴扩参到 1.90M / 5.84M / 30M 三档，cross-subject 准确率从 76.67% 单调下降至 51.37% / 50%（chance），其中 v1/v2 (~30M) 不可训根据作者本人交接诊断更可能是 BF16 下深 MLP 头优化栈兼容性问题（v3 加 LayerNorm 立即 trainable）；(ii) **架构提供独立价值的方向性证据**——在 ~30M 参数 + 无预训练同等条件下，CBraMod random-init cross 86.34% vs EEGNet-Huge v3 (5.84M) cross 51.37% 差距 ~+35 pp，但因 EEGNet-Huge / random-init 均未做专属 HPO 且 baseline → Mid 跳跃同时改 conv stem 与 MLP 头，该差距不可独立归因到 backbone 架构；(iii) **TUEG 预训练贡献同规模、同 HP 下唯一干净的 Δ**——random-init → original-weights backbone 切换的 Δ 在被试内为 **binary +23.10 / ternary +30.79 pp**，在跨被试与 XSI-FT 为 +1.6 ~ +4.3 pp，这是本研究归因强度最高的一组 Δ。本研究在三种训练范式下系统量化了 CBraMod vs EEGNet 的性能差距；补充的探索性消融暗示该差距由架构归纳偏置 + 预训练先验 + 容量约束三因素叠加，但本研究的 HPO 预算与单轴扩参限制使我们**无法对各因素做独立定量归因**。"基座模型价值随数据约束放大" 的方向性结论在两项消融中均得到方向性支持。**该结论限于 CBraMod backbone × 本数据集（21 名 responder cohort）× 当前 HPO 预算；其他 EEG transformer backbone (LaBraM [6], NeuroLM [15], BIOT [16]) 是否复现该三向分解需独立验证（§6 #7）。** 这一限制由 §6 #8（EEGNet-Huge ≥ 25 trial 独立 HPO + random-init CBraMod ≥ 25 trial 独立 HPO，预算 ~80–120 GPU 小时）描述的后续工作处理。
 >
 > **发现 2 — 32 通道是部署起点；32ch+ 方法选择对最终准确率影响小（≤3 pp 量级）；16ch 起方法依赖开始 paired-significant 离开等价区间。** FDR 选取的 32 通道保留了 128 通道性能的 **96.7%**（87.71% vs 90.68%；paired *t*=2.87, *p*=0.009 仍达统计显著；在 21 名 responder cohort × cross-subject binary 上；通道选择 ranking 包含全 session 信息，可能轻微夸大 retention，详见 Limitation #1），兼容商用 32 通道 EEG 硬件；中端预算可上 64ch FDR (89.46% binary / 75.12% ternary，与 128ch baseline 在 run-to-run noise 内一致)；极简成本场景下 4ch Band Power 在双 task 上均可作为兜底（binary 78.75% / ternary 60.67%）——可部署谱系从初版草稿的 {128, 32, 8} 扩展到 {128, 64, 32, **16**, 8, 4}。2026-05-11 矩阵闭合 + 2026-05-13 16ch sweep 后 5 × 5 × 2 = 50 cell 完整数据上：**32ch+ 上 5 method 间 spread 落在 2.08–3.24 pp（约 1 paired-SEM），方法选择对部署性能的实际影响小**；16ch 上 spread 跃升到 8.69 / 7.64 pp（3–4×），且 16ch ternary FDR-vs-neg_ctrl paired Δ = 4.94 pp, *p* ≈ 0.001 是 single-cohort 内 paired-significant 的，作为"方法依赖在 32→16ch 之间扩张"的方向性证据（需独立 cohort 复制才能上升为普适规则）。**部署 takeaway**：32ch+ 选任一数据驱动方法（含商用 10-20）性能差异 ≤3 pp；≤16ch 时方法选择重新成为决策变量，binary 优先 BP（10 cell 从不最差）、ternary 优先 FDR；硬件选择在 32ch+ 区段以舒适度 / 成本 / 可用性为主。
 >
@@ -1171,6 +1064,106 @@ within-subject 范式下方向反转：random-init CBraMod 在被试内二分类
 > **发现 5 — 通道选择方法间差异在低密度档位放大，binary / ternary 双 task 同向复现；基于全模型的"条件重要性"排序在 4 通道下崩溃。** 4 数据驱动方法（FDR / Attention / Band Power / CSP）的 max−min spread 在 64 / 32 / 8 / 4 通道上单调扩张：**binary** 3.24 / 2.77 / 15.63 / 24.05 pp，**ternary** 1.77 / 2.08 / 6.83 / 19.12 pp（详见 §3.5.3 敏感度表）。基于全通道模型的条件重要性排序（FDR / Attention / CSP）在 4 通道极端约束下均跌至或低于负控制（binary 67.65% / ternary 53.37%）——这是因为 128ch 上算出的"该通道在有其他 124 个通道辅助时的重要性"在仅保留 top-4 时失去了上下文支撑。**mu/beta 频带 Band Power top-4 在双 task 上均保持判别力（binary 78.75% +11.10 pp、ternary 60.67% +7.30 pp 超过负控制）**，且在 8 个 (channel, task) cell 上从未是 4 数据驱动方法的最差者；其评分机制不依赖全模型上下文，因而免疫上述外推失效。这把"4ch 标准方法均失效"的初版结论修订为"条件重要性方法失效，频域指标在该 cohort/任务上保留判别力，且该结论在 binary / ternary 上独立复现"。我们不把"BP 优于其他方法"概括为通用规则——以下任意条件改变（cohort 规模、任务粒度、模型 backbone、预处理）都可能让该排序翻转——结论限于本研究 (cohort, 任务, 模型, 预处理) 组合。先前报告的 4ch FDR∩Attention 82.71% (binary) 仍为 favorable outlier（其本质是从 32+32 集合的相对小交集中"碰巧"落到的 4 个位置，详见 §3.5.2 / §3.5.3），不可作为系统化方法复制；ternary 维度下 FDR∩Attention 未跑。
 
 上述发现共同支持了 CBraMod + FDR 32 通道 BCI 系统在手指级运动想象分类中的实用化部署。本研究观察的 DAPT 负迁移与 NLP DAPT 文献中"低 task-corpus 对齐 + source corpus 不足"失败案例（Gururangan et al. 2020 [20]）在结构上一致；在 CBraMod backbone × masked autoencoding × 粗运动 MI source pool × finger MI target 的具体配置下，通道几何错位（target 128ch vs source 95% 低密度）与任务粒度差异均独立驱动负迁移。本研究**不主张**"EEG foundation model 的 transfer 路径与 NLP/CV 范式级不同"——单 backbone × 单 source pool × 单下游任务的样本不足以支持该普适命题；下游 BCI 实践应优先匹配通道几何与信号尺度，并在存在更高 task-corpus 对齐度（如手指级、手部精细动作 MI source）时再考虑 DAPT。判断 EEG 基座模型是否需要独立于 NLP/CV 的 transfer 设计原则，需要在多 backbone × 多 source corpus × 多预训练目标的矩阵下系统验证（§6 后续工作 #3, #7）。
+
+---
+
+## 附录 A
+
+### A.1 探索性消融：架构 / 预训练 / 容量贡献的初步检验
+
+> **范围说明**：本附录为探索性消融，方向性而非独立可归因。结果作为 §3.1–§3.3 主对比的诊断性补充，不进入头条贡献清单（见 §1.4）。严格的独立 HPO 验证留待后续工作（§6 #8）。
+
+为更好理解 CBraMod 相对 EEGNet 在 §3.1–§3.3 中观察到的优势源自何处，本附录报告两项探索性消融：(a) §A.1.1 将 EEGNet 的参数规模从 16K 阶梯式扩展到 30M（与 CBraMod backbone 同量级），探查"参数容量本身是否是 EEGNet 表现不及 CBraMod 的根本原因"；(b) §A.1.2 完全切除 CBraMod 的 TUEG 预训练权重（random-init），探查"架构本身在不依赖预训练的情况下是否仍提供独立价值"。两项消融在 {EEGNet, CBraMod} × {random init, TUEG pretrained} 矩阵上覆盖三个角点（"EEGNet pretrained"无对应 EEG 基座模型故空缺）。
+
+**重要 caveat（贯穿本附录）**：本节两项消融在 HPO 预算与扩参轴上均存在已知非对称性，使其结论不具备"独立可归因分解"的力度，应被理解为方向性观察而非定量分解。具体地：(i) **EEGNet-Huge v1 / v2 / v3 / Mid 四档与 EEGNet baseline 共享原始 32-trial HPO 范围内的 architecture defaults，但其本身的优化栈（LR、weight_decay、dropout、LayerNorm 是否启用）由 ≤ 2 trial 的人工调试得到**——并非独立 Optuna 搜索；(ii) **CBraMod random-init 直接复用 original-weights baseline 的 HP（`get_default_config()`）**，没有跑专属 HPO；(iii) **EEGNet baseline → Mid 的首跳同时改变 conv stem (F1: 16→32, F2: 64→256) 与 MLP 头（单 Linear → 双层 [1024,1024] + LayerNorm）**，未隔离 conv stem 单轴 vs MLP 头单轴的贡献。在这三项约束下，§A.1.1 / §A.1.2 / §A.1.3 报告的所有 Δ 值应被理解为"在共享默认 HP、受限 HPO 预算、双轴 baseline → Mid 跳跃下观察到的复合估计"，而非各因子（架构 / 预训练 / 容量）的独立可归因分解。严格的独立 HPO 验证（EEGNet-Huge v1/v2 ≥ 25 trial Optuna；CBraMod random-init ≥ 25 trial Optuna）留待后续工作（详见 §6 #8）。
+
+图 12 把本附录的探索性观察压缩到一张"参数量 × cross-binary 准确率"双轴图上，便于读者一眼看到 EEGNet 容量阶梯（蓝色实线，16K → 30M）的下行趋势、random-init CBraMod (橙色菱形, 30.48M) 与 TUEG-pretrained CBraMod (红色五角星, 30.48M) 两个单点的相对位置，以及三条主要相邻 **composite-estimate Δ 注释（复合估计；详见 §A.1.3 footnotes）**：capacity ladder ~−25.30 pp / 跨架构 ~+34.97 pp / TUEG 预训练 ~+4.34 pp。**所有数值在共享默认 HP + 受限 HPO 预算 + baseline → Mid 双轴跳跃三项约束下观察**，因此各 Δ 不可被解读为架构、预训练、容量任一因子的独立可归因贡献，建议与 §A.1.1–§A.1.3 的细分章节及 §A.1.3 三个脚注一并阅读。
+
+**图 12. §A.1 探索性消融总览（cross-subject binary 为主轴, N=21, 128ch）。** **A.** 参数量–准确率散点，含本研究多 regime 锚点 + Ding 外部参考。**本研究**：蓝色实心方块连线 = EEGNet 容量阶梯 **cross-subject**（baseline 16K 76.67% → Mid 1.90M 57.65% → Huge v3 5.84M 51.37% → Huge v1/v2 ~20–30M ≈50%），来源 `results/20260330_0709_cross_subject_cache_imagery_binary.json` (baseline) + §A.1.1 Table 18a (Mid/Huge)；蓝色**空心方块** = EEGNet baseline **within-subject** 78.10%（同 16K 参数、同 EEGNet-16,4 架构，ExperimentDB run_tag `20260316_1411`）— 之所以仅 baseline 一档显示 within，是因为 within-subject 训练在 Mid/Huge v3 下虽能跑但下降到 66.88% / 67.71%（baseline within 78.10% 之下 ~10 pp），Huge v1/v2 下完全失败（v1 state_dict bug、v2 数据 orphan），因此 within regime 无法支撑跨 config 可比的 ladder，本图改用 cross-subject 作为 cross-config 比较 regime（详见 §A.1.1 Table 18a 与 [docs/handoffs/2026-05-09_eegnet_huge.md](../../docs/handoffs/2026-05-09_eegnet_huge.md)）。红色空心菱形 = random-init CBraMod (~30.5M, cross 86.34%)；红色五角星 = TUEG-pretrained CBraMod (~30.5M, cross 90.68%)。**Ding et al. 2025 (online regime)**：两点灰色虚线连接的 ladder — 上三角 (`Ding base`, EEGNet-8,2, ~3.4K params, 80.56%) + 下三角 + 横向 err bar (`Ding deep`, deepEEGNet ~25K params, 81.77% = 80.56 + +1.21 pp)。deepEEGNet 参数量根据其 "wider + 2 extra separable conv layers" 描述 + Lawhern EEGNet-16,4 模板逐层估算（central ~25K, err bar [6K, 150K] 涵盖 "wider" 解读不确定性）；Y 均置于 Ding **自身**绝对准确率（不重锚定到本研究）。**关于 Ding 数据点的 regime 警示**：Ding 的 setting 为 **online + session-自适应**，本研究为 **offline + cross-subject held-out**，**两 regime 的绝对 Y 不可直接比较**——Ding 两点的相对落差（+1.21 pp 在 7× 扩参下）与本研究 EEGNet 阶梯的相对落差（−25.30 pp 在 360× 扩参下）在方向上一致（两个独立研究都没观察到 EEGNet 扩参的显著正向收益），但绝对值与量级不可直接对比。红色虚线 = chance level 50%。**B.** Δ 横柱分解。条形长度编码 |Δ|，方向编码符号：EEGNet 内扩参 −25.30 pp（红）、跨架构 +34.97 pp（绿）、TUEG 预训练 +4.34 pp（绿）；外部参考 Ding EEGNet → deepEEGNet Δ = +1.21 pp（灰，半透明）。**Caveat：** 所有本研究 Δ 为共享默认 HP + 受限 HPO 预算（EEGNet-Huge ≤ 2 trial 人工调试；CBraMod random-init 复用 baseline HP）+ baseline → Mid 双轴跳跃 三项约束下的复合估计，不可独立归因到架构、预训练或容量任一因子；严格独立 HPO（≥ 25-trial Optuna）留待后续工作（§6 #8）。详见 §A.1.1–§A.1.3。
+
+![图 12. §A.1 探索性消融总览](../figures/exploratory_ablation_overview.png)
+
+> 生成命令: 图 12 由 `uv run python scripts/paper/generate_paper_figures.py --figure exploratory_ablation_overview` 生成（数据合并自 §A.1.1 EEGNet ladder runs + §A.1.2 random-init CBraMod runs，原始 run_tag 见后续 §A.1.1 / §A.1.2 数据来源行）。
+
+#### A.1.1 EEGNet 容量阶梯（16K → 30M，128 通道）
+
+为检验 EEGNet 相对 CBraMod 的差距是否仅源自参数容量限制（~16K vs ~30M，~1900× 差距），我们沿 (conv stem, MLP 头) 双轴扩展 EEGNet，构建四档容量阶梯：EEGNet baseline (16K, **F1=16, D=4, F2=64**, 单 Linear 头，沿用 §3.1–§3.3 的 EEGNet-16,4 配置)、EEGNet-Mid (1.90M, **F1=32, D=4, F2=256**, [1024, 1024] + LayerNorm + ELU)、EEGNet-Huge v3 (5.84M, [2048, 2048] + LayerNorm)、以及两个 ~20–30M 量级版本 EEGNet-Huge v1 (19.99M, [4096, 4096], 无 LN) / v2 (30.22M, [5120, 5120], 无 LN)。**Mid / Huge 系列均共享扩展后的 conv stem (F1=32, D=4, F2=256, kernel_length=64)，与 baseline 的 F1=16/F2=64 不同**——因此 baseline → Mid 的首跳同时改变 conv stem (F1: 16→32, F2: 64→256) 与 MLP 头（单 Linear → 双层 [1024,1024]），严格意义上未隔离 conv stem 单轴 vs MLP 头单轴的贡献；Mid → v3 → v1/v2 三档则沿 MLP 头单轴扩参（conv stem 完全相同）。HP 在两阶段调试中找到稳定配置（v3 / Mid 共用 lr = 8e-4 至 1.5e-3、wd = 0.03–0.05、CAWD scheduler；详见 `docs/handoffs/2026-05-09_eegnet_huge.md`）。
+
+**表 18a. EEGNet 容量阶梯准确率（N = 21，128 通道二分类）。**
+
+| 模型 | 参数量 | 被试内 | 跨被试 | XSI-FT |
+|------|--------|--------|--------|--------|
+| EEGNet baseline | 16K | **78.10%** | **76.67%** | **82.05%** |
+| EEGNet-Mid | 1.90M | 66.88% | 57.65% | 80.45% |
+| EEGNet-Huge v3 | 5.84M | 67.71% | 51.37% | 80.62% |
+| EEGNet-Huge v2 | 30.22M | (orphan) | 50.07% (chance) | — |
+| EEGNet-Huge v1 | 19.99M | — | 50.00% (chance) | (state_dict bug) |
+| CBraMod random-init | 30.48M | 62.05% | 86.34% | 86.22% |
+| CBraMod baseline | 30.48M | **85.15%** | **90.68%** | **90.12%** |
+
+> EEGNet-Huge v1 / v2 在 ~20–30M 量级两套独立人工调试 HP（lr 相差 10×：5e-5 vs 5e-4，wd / dropout / LayerNorm on/off 等亦不同；详见 `docs/handoffs/2026-05-09_eegnet_huge.md` L154-170）下均出现 train loss 死锁在 0.693（chance entropy）、val acc 50%、所有 21 名被试 test 50% 的不可训练状态，因而仅列 cross 一栏（其余范式的 v1 因 state_dict 加载 bug 未跑、v2 within 数据 orphan 未入库）。在两套手调 HP 下 v1/v2 不可训；**v3 通过加 LayerNorm + 缩小 MLP 至 [2048, 2048] 后立即 trainable，提示 v1/v2 的失败更可能是 BF16 数值精度下深 MLP 头优化栈兼容性问题（vanishing gradient / dying ELU），而非容量本身的根本饱和**——见交接文档 `docs/handoffs/2026-05-09_eegnet_huge.md` L156、L195-197、L249-260 的工程诊断。是否在严格独立 HPO 预算（≥ 25 trial Optuna，覆盖 LR、warmup、LayerNorm on/off、init scheme、dropout）下 30M 量级 EEGNet 仍不可训，**留待后续工作**（§6 #8）；在补全此独立 HPO 之前，"30M EEGNet 不可训" 的结论应被理解为"在受限 HPO 预算下的观察"。
+
+**Cross-subject 准确率沿当前扩参轴随容量单调下降**：从 76.67% (16K) → 57.65% (1.90M) → 51.37% (5.84M) → 50.00% (~20–30M) 一路下降，~30M 已落入 chance。**在共享默认 HP、受限 HPO 预算（≤ 2 trial 人工调试）以及 baseline → Mid 双轴扩参（conv stem + MLP 头同时改变）这三项约束下**，本观察方向性支持 "EEGNet 架构内沿当前扩参轴扩参对 cross-subject 准确率不利"，但并不支持更强的 "EEG decoding 瓶颈不在容量" 论断——后者需要在 EEGNet-Huge v1/v2 各跑 ≥ 25 trial 独立 HPO 并仍观察到不可训才能成立（详见 §6 #8）。这一现象方向上与 Ding et al. [3] 的 deepEEGNet 实验（"+1.21% binary 微弱提升"，规模估计 ~100K–1M）一致——后者也未能通过扩参显著改善——但本研究规模扩张幅度（5.84M / ~30M，2 个数量级）尚不足以独立排除"扩参 + 严格 HPO"组合下能否反转该单调趋势。
+
+**Within / XSI-FT 范式下容量损失更温和**：被试内从 78.10% 降至 ~67%（~−11 pp），但 v3 与 Mid 之间已饱和；XSI-FT 仅从 82.05% 降至 80.45–80.62%（~−1.5 pp），对容量基本不敏感。XSI-FT 对扩参 EEGNet 的鲁棒性与 §3.3 的 EEGNet XSI-FT 增益（+5.38 / +5.10 pp，两 task 均 p < 0.01）一致——单被试 fine-tune 阶段把过参数化的分类头校准回单被试分布。
+
+**与同规模 random-init CBraMod (§A.1.2) 的探索性对照**：在 ~30M 参数 + 无预训练的同等条件下，EEGNet-Huge v2 (30.22M) cross 50.07%（chance）vs CBraMod random-init (30.48M) cross 86.34%——观察到 ~+36 pp 差距；即便取可训练的 EEGNet-Huge v3 (5.84M) cross 51.37% 作对照，与 random-init CBraMod 的差距仍达 ~+35 pp，与容量量级差距非线性脱钩。**在 EEGNet-Huge v1/v2/v3 与 CBraMod random-init 均未做专属 HPO 的对照下**，这一差距是 "架构差异 + EEGNet 优化栈不稳定 + random-init CBraMod HP 错配" 三者的复合估计；其中可归因到 backbone 架构（transformer + ACPE vs 扩参 CNN）的下界尚不能从本节单独给出。本节的探索性观察支持 "在受限 HPO 预算下，扩参 EEGNet 远不及 random-init CBraMod" 这一较弱主张；将该差距精准归因到 "架构归纳偏置" 需要 §6 #8 描述的双侧独立 HPO sweep 完成后才能成立。
+
+> **数据来源**: EEGNet-Mid runs `20260509_1419` (within), `20260509_1310` (cross), `20260509_1444` (XSI-FT)；EEGNet-Huge v3 runs `20260509_0928` (within), `20260509_0847` (cross), `20260509_1030` (XSI-FT)；EEGNet-Huge v1 / v2 runs `20260509_0201` (cross v1), `20260509_0735` (cross v2)。完整 HP / 架构规格 / 失败 HP 调试细节见 `docs/handoffs/2026-05-09_eegnet_huge.md`。EEGNet baseline 与 CBraMod baseline 来源见 §3.1–§3.3 / §A.1.2。
+
+#### A.1.2 Random-init CBraMod 消融（128 通道）
+
+为剥离 CBraMod 在三种范式下相对 EEGNet 的优势中、来自 TUEG 预训练的部分与来自架构本身的部分，我们以完全随机初始化的 CBraMod 重跑 §3.1–§3.3 的 6 个核心 condition（被试内 / 跨被试 / XSI-FT × 二分类 / 三分类，N = 21，128 通道）。除 backbone 初始化以外（`--no-pretrained`），所有超参数与 §3.1–§3.3 baseline 完全相同（沿用 `get_default_config()`，含 cross-subject HPO 后默认）；XSI-FT 阶段使用本节产出的 random-init cross-subject checkpoint 作为初始权重，确保整条 transfer 链是 end-to-end from-scratch（不混入原始 TUEG 权重）。本消融与 §3.6 further pre-training 形成对极方向——后者朝"更多预训练"扰动，本节朝"零预训练"扰动，两端共同界定原始 CBraMod recipe 在本任务上的位置。
+
+**表 18. Random-init vs Original-weights CBraMod vs EEGNet 三方对比（N = 21，128 通道）。**
+
+| 范式 | 任务 | random-init CBraMod | original-weights CBraMod | EEGNet | Δ (random − orig) |
+|------|------|---------------------|--------------------------|--------|-------------------|
+| 被试内 | 二分类 | 62.05 ± 17.68% | **85.15 ± 11.00%** | 78.10 ± 12.61% | **−23.10 pp** |
+| 被试内 | 三分类 | 38.65 ± 14.07% | **69.44 ± 15.42%** | 66.81 ± 14.50% | **−30.79 pp** |
+| 跨被试 | 二分类 | 86.34 ± 9.41% | **90.68 ± 9.31%** | 76.67 ± 11.95% | −4.34 pp |
+| 跨被试 | 三分类 | 73.06 ± 12.49% | **74.88 ± 14.03%** | 61.23 ± 11.28% | −1.82 pp |
+| XSI-FT | 二分类 | 86.22 ± 9.46% | **90.12 ± 8.98%** | 82.05 ± 11.00% † | −3.90 pp |
+| XSI-FT | 三分类 | 73.43 ± 12.91% | **75.04 ± 13.97%** | 66.33 ± 12.65% † | −1.61 pp |
+
+> † EEGNet XSI-FT 无 `is_baseline=1` 标记，引用最近的 N = 21 XSI-FT 运行 `20260507_1835`（二分类）和 `20260507_1913`（三分类）作为参考值。
+
+**预训练贡献按数据规模呈两段式分布**：被试内（每名被试 ~70 trial，单被试训练）下随机初始化下降 −23 至 −31 pp；跨被试与 XSI-FT（~21× 训练数据，1.5K+ trial）下仅下降 −1.6 至 −4.3 pp，前者跨度约为后者的 7×。具体到 within ternary 极端例：random-init 下 21 名被试中 **18 名**测试准确率落在 chance ± 2 pp 区间（≈ 33.33%）——三分类 from-scratch CBraMod 在被试内基本无法学到任何信号；唯三例外为 S07（61.67%）、S09（59.58%）、S19（90.42%）。
+
+**Seed 复现性检查**：为排除 18 / 21 collapse 是 seed = 42 的运气特例，重跑 within / ternary random-init 仅替换为 seed = 1234（其余 HP 与 `20260509_0102` 完全一致），得到 39.25% ± 13.90%（vs seed = 42 的 38.65% ± 14.07%）和 17 / 21 chance-collapse（vs 18 / 21）。两次 above-chance 被试交集为 {S09, S19}（两个 seed 下都逃出 chance），仅 S07（seed 42 only）和 {S13, S14}（seed 1234 only）为 seed 特异。两次 mean 差 0.6 pp、collapse 计数差 1 名——within ternary 的 chance collapse 是 from-scratch CBraMod 在该范式下的稳健行为而非 seed 噪声（seed = 1234 cache: `results/20260509_1838_within_subject_cache_imagery_ternary.json`）。
+
+**架构本身的独立价值在 cross-subject 与 XSI-FT 下被验证**：random-init CBraMod 即便完全切除 TUEG 预训练，在跨被试二分类仍达 86.34%（vs EEGNet 76.67%，**+9.67 pp**）、跨被试三分类 73.06%（vs 61.23%，**+11.83 pp**）；XSI-FT 二分类 86.22%（vs EEGNet 82.05%，+4.17 pp）、三分类 73.43%（vs 66.33%，+7.10 pp）。这说明 transformer + ACPE 架构在 21× pooled 数据下具备独立学习能力，与"差距全部来自 TUEG 预训练"的最弱归因相反。
+
+**Within-subject 范式下 from-scratch CBraMod 在当前 HP 下输给 EEGNet**：random-init CBraMod 被试内二分类 62.05% 低于 EEGNet 78.10% 约 −16 pp，三分类 38.65% 低于 EEGNet 66.81% 约 −28 pp。该差距方向性提示 transformer 在 ~70 trial 单被试样本下、**沿用 cross-subject HPO 选出的 backbone_lr = 1.3e-4 的固定优化栈**时，没有预训练先验的随机初始化难以收敛到具备判别力的解；~16K 参数的 EEGNet 凭借更小的搜索空间在被试内训练上仍能稳定收敛。**关于 within ternary 18 / 21 chance-collapse 的成因**，作者本人在 [`docs/handoffs/2026-05-09_random_init_ablation.md`](../../docs/handoffs/2026-05-09_random_init_ablation.md) L186-210 中基于 train_loss 轨迹分析给出的概率估计为：**(i) 数据量 / 过参数化导致 saddle-lock（结构性、与 LR 量级关系弱）70–80%；(ii) LR + patience + warmup 调优可救回 ≥ 5 个塌陷被试 15–25%；(iii) LR 是主因、提高 LR 可让 ≥ 10 / 18 塌陷被试学到 < 5%**。本研究的论证依赖 (i) 主导这一假设，但 within ternary 高 LR + 长 patience 的 retry 实验（~25 min GPU；handoff L212-227 描述方法）尚未执行，因此 "from-scratch transformer 在 ~70 trial 上结构性失败" 与 "当前 HP 配置下表现远低于其潜在能力" 在本研究中无法被严格区分。该现象与 NLP 文献中 transformer 在小样本上的已知微调脆弱性（Mosbach et al. 2021 [21] ICLR 在 RTE ~2K 样本上 BERT-base ~1/3 random seed 落入 chance）方向一致；此处的更深文献定位由相邻评审章节处理。基于这一综合判断，预训练表征**在本研究 HP 下方向性扮演**数据稀缺时的归纳偏置补偿角色，但精准量化"无 HP 错配下 TUEG 预训练在被试内的真实贡献"仍需 §6 #8 描述的 random-init 专属 HPO 完成后才能给出。
+
+**XSI-FT ceiling 在两种 init 下独立成立**：random-init cross→XSI-FT 的 Δ 为二分类 −0.12 pp（86.34% → 86.22%）、三分类 +0.37 pp（73.06% → 73.43%），与 §3.3 原始 weights 条件下的 −0.56 / +0.20 pp 模式一致——两条独立路径（pretrained vs from-scratch）均未能让 XSI-FT 超越对应的 cross-subject baseline。这一双重独立证据支持 §3.3 的 ceiling 解释（任务 × cohort × 通道密度共同决定上限），并排除"ceiling 是 TUEG 预训练 backbone 过度正则化的副作用"这一替代假设。
+
+需要明确的是，本消融**仅切换 backbone init，没有做 random-init 专属 HPO**；HP 与 original-weights baseline 完全共享（`get_default_config()`），故 random-init 的两段式差距（within ~−27 pp、cross/transfer ~−3 pp）严格而言应被理解为"**在 original-weights HP 下的 random-init 观察结果**"，而非"random-init 经独立 HPO 调优后的最优表现"。该 HP 错配在 within-subject 范式下可能尤为显著——`get_default_config()` 选出的 backbone_lr = 1.3e-4 来自 cross-subject 21 × 训练数据规模上的 HPO 全局最优（Table S5b cross-subject 行），用到 ~70 trial 单被试 + from-scratch transformer 上时的次优程度无独立度量。cross-subject 与 XSI-FT 的 random-init 缺口已小到 −1.6 至 −4.3 pp，**独立 HPO 即便能进一步弥合该缺口也难以翻转 within / cross 的两段式差异结构**这一定性观察仍可成立，但 within −23 至 −31 pp 内"HP 错配 vs 数据稀缺 saddle"的相对贡献无法在本节闭合；闭合需要 §6 #8 描述的 random-init 专属 HPO（≥ 25 trial Optuna，覆盖 backbone_lr 1e-4 ~ 5e-3 对数均匀、warmup、patience、layer-wise LR）。此外，random-init 训练实际比 original-weights 更早 early-stop（wrapper 总时长 2h 13m vs 估计 9–13h），训练集快速过拟合（train acc 升至 0.95+ 时 val 已高位震荡），与"更小搜索空间下更易过拟合"的预期一致。
+
+> **数据来源**: random-init runs `20260508_2338` (cross binary), `20260509_0014` (cross ternary), `20260509_0047` (within binary), `20260509_0102` (within ternary), `20260509_0124` (XSI-FT binary), `20260509_0135` (XSI-FT ternary)；JSON cache 路径与单被试明细见 `docs/handoffs/2026-05-09_random_init_ablation.md`。
+> Original-weights baseline: ExperimentDB run_tag `20260323_2237` (within binary), `20260323_2320` (within ternary), `20260324_0023` (cross binary), `20260324_0109` (cross ternary), `20260329_0507` (XSI-FT binary), `20260329_0521` (XSI-FT ternary)。
+> EEGNet baseline: ExperimentDB run_tag `20260316_1411` (within binary), `20260329_0056` (within ternary), `20260330_0709` (cross binary), `20260330_0735` (cross ternary), `20260507_1835` (XSI-FT binary, 无 baseline 标记), `20260507_1913` (XSI-FT ternary, 无 baseline 标记)。
+
+#### A.1.3 综合：架构 / 预训练 / 容量复合贡献的探索性观察
+
+合并 §A.1.1 与 §A.1.2 在 cross-subject binary 上的四个锚点，可观察到 CBraMod 相对 EEGNet baseline 的 +14.01 pp 优势沿以下相邻 Δ 跨越（**所有 Δ 在共享默认 HP 与受限 HPO 预算下的复合估计；严格独立 HPO 留待 §6 #8**；本节观察到的 EEGNet 内扩参单调退化方向上与 LLM 领域 Hoffmann et al. 2022 [22] compute-optimal 假说提示的 "over-parameterization 在固定算力 / 数据预算下退化训练效率" 一致，但 EEG decoding 尺度下的 scaling laws 在本研究规模 (≤ 30M, ≤ 21 被试) 之外尚未系统建立）：
+
+| 锚点 | 参数量 | 预训练 | Cross binary | 至下一锚点的 Δ（复合估计） |
+|------|--------|--------|--------------|---------------------------|
+| EEGNet baseline | 16K | 否 | 76.67% | EEGNet 内扩参 → −25.30 pp ¹ |
+| EEGNet-Huge v3 | 5.84M | 否 | 51.37% | 换为 transformer + ACPE 架构 → +34.97 pp ² |
+| CBraMod random-init | 30.48M | 否 | 86.34% | 加 TUEG 预训练 → +4.34 pp ³ |
+| CBraMod baseline | 30.48M | TUEG | 90.68% | — |
+
+> ¹ EEGNet 内扩参的 Δ 为 baseline (16K, F1=16/F2=64, 单 Linear 头) → Huge v3 (5.84M, F1=32/F2=256, [2048,2048] + LayerNorm 头) 的双轴跳跃，conv stem 与 MLP 头同时改变；该 −25.30 pp 中可归因到 "MLP 头 over-parameterization" vs "conv stem 改动" vs "EEGNet HPO 受限 (≤ 2 trial 人工调试)" 的拆分超出本节范围（详见 §6 #6）。
+> ² 跨架构 Δ 为 EEGNet-Huge v3 (受限 HPO 下 cross 51.37%) → CBraMod random-init (复用 original-weights HP, cross 86.34%) 的对照；该 +34.97 pp 中包含 (a) backbone 架构差异 (transformer + ACPE vs 扩参 CNN)、(b) EEGNet 优化栈在 BF16 + 深 MLP 头下的不稳定性、(c) random-init CBraMod 复用 original-weights HP 的可能错配 三种贡献的复合，且尚不能给出可归因到 (a) 的下界。
+> ³ TUEG 预训练 Δ 为 random-init CBraMod (cross 86.34%) → original-weights CBraMod (cross 90.68%) 的对照，HP 完全共享 `get_default_config()`；这一 +4.34 pp 是同规模、同 HP 下唯一只随 backbone init 变动的 Δ，因此**是本表中归因强度最高的一个 Δ**——但仍受限于 random-init 在该 HP 下可能并非最优表现这一前提（§A.1.2 caveat）。
+
+被试内任务上对应的相邻 Δ 序列方向相反：以 binary 为例，EEGNet baseline 78.10% → EEGNet-Huge v3 67.71% (−10 pp) → CBraMod random-init 62.05% (−5.66 pp，仍低于 EEGNet baseline) → CBraMod baseline 85.15%（TUEG 预训练 Δ = +23.10 pp，binary）；ternary 对应 TUEG 预训练 Δ = +30.79 pp。下文及 §7 Finding 1 / §4.1 在被试内引用 TUEG 预训练贡献时**显式列出 binary +23.10 / ternary +30.79 pp 双值**，不再使用 ~+27 pp 平均值（该平均会模糊任务难度差异）。
+
+**关于本节观察的解读边界**：CBraMod 与扩参 EEGNet 之间的 cross-subject gap 至少包含架构、预训练、容量三种贡献，本研究在受限 HPO 预算 + baseline → Mid 双轴扩参 + random-init 共享 HP 的三项约束下**无法独立分离**这三种贡献的各自贡献值。可被本节探索性观察方向性支持的较弱主张是：(a) **TUEG 预训练在被试内贡献巨大（binary +23.10 / ternary +30.79 pp），在 cross-subject 与 XSI-FT 仅贡献 +1.6 ~ +4.3 pp**——这是本节归因强度最高的一组 Δ；(b) **沿当前扩参轴扩参 EEGNet 在 cross-subject 范式下方向性有害**（baseline → Huge v3 沿双轴下降 −25.30 pp）——但 "EEGNet 内扩参普遍有害" 与 "EEG decoding 瓶颈不在容量" 等更强主张需要 §6 #8 + §6 #6 的独立 HPO 与单轴隔离实验完成后才能确立；(c) **transformer + ACPE 架构在不依赖 TUEG 预训练时仍能在 cross-subject 21 × pooled 数据上学到有效表征**（random-init CBraMod cross 86.34% vs EEGNet baseline 76.67%, +9.67 pp）——但与 EEGNet-Huge v3 的 +34.97 pp 差距是复合估计，不可独立归因到 "架构"。
+
+这一**范式依赖的复合贡献结构**与 §4.1 "基座模型价值随数据约束放大" 的叙事方向一致：在 cross-subject 范式（21 × 训练数据）信号充足时，random-init CBraMod 仍领先扩参 EEGNet；在 within-subject 范式（每被试 ~70 trial）信号稀缺时，TUEG 预训练贡献急剧扩大、random-init CBraMod 反而输给 EEGNet baseline。但因前述三项 HPO / 扩参非对称性，该结构的**精确归因强度**应被理解为方向性而非独立可定量分解的；详细归因需要 §6 #8（EEGNet-Huge ≥ 25 trial 独立 HPO + CBraMod random-init ≥ 25 trial 独立 HPO）的算力开支后才能闭合。
 
 ---
 
@@ -1493,7 +1486,7 @@ within-subject 范式下方向反转：random-init CBraMod 在被试内二分类
 | dropout_rate | 本研究新搜 | 0.5 (Orig) / 0.65 (Finetune) | [0.2, 0.7] uniform | 0.27 |
 | batch_size | 本研究新搜 | 16 | {32, 64, 128} | 64 |
 
-注：F1 / D 两个 architecture HP 虽继承 [3] 的 EEGNet-8,2 设计经验，但本研究的 Optuna 搜索仍把它们作为可变 categorical 在指定范围内独立采样；HPO 最优 (F1=16, D=4) 为本研究的搜索结果而非 [3] 默认值的直接采用。kernel_length 在本研究的搜索空间 {32, 64, 128} 中以 Ding 实际值 32 为下界、库形参默认 64 为中点；HPO 选择 64，相对 Ding 的 32 增加 2×。本研究未从零冷启动搜索 architecture HP 的边界（如 F1=32 等更大值）——这一上界限制在 §3.7.1 EEGNet-Mid（F1=32）实验中被独立扩展并验证（详见正文）。
+注：F1 / D 两个 architecture HP 虽继承 [3] 的 EEGNet-8,2 设计经验，但本研究的 Optuna 搜索仍把它们作为可变 categorical 在指定范围内独立采样；HPO 最优 (F1=16, D=4) 为本研究的搜索结果而非 [3] 默认值的直接采用。kernel_length 在本研究的搜索空间 {32, 64, 128} 中以 Ding 实际值 32 为下界、库形参默认 64 为中点；HPO 选择 64，相对 Ding 的 32 增加 2×。本研究未从零冷启动搜索 architecture HP 的边界（如 F1=32 等更大值）——这一上界限制在 §A.1.1 EEGNet-Mid（F1=32）实验中被独立扩展并验证（详见正文）。
 
 > **数据来源**: 搜索空间定义见 [src/hpo/search_spaces.py](../../src/hpo/search_spaces.py) `_sample_eegnet_within` / `_sample_eegnet_cross`；HPO 最优值见 Table S5b。
 
