@@ -169,16 +169,6 @@ _FIGS: list[FigureSpec] = [
         figure_generators_key="sensitivity_scaling",
     ),
     FigureSpec(
-        fig_id="fig5",
-        paper_label="图 5",
-        caption="4 通道最优配置 vs 负控制逐被试对比",
-        canonical_filename="fig5_4ch_optimal_vs_neg_control.png",
-        output_dir="paper/figures",
-        generator_script="scripts/paper/generate_paper_figures.py",
-        generator_command="uv run python scripts/paper/generate_paper_figures.py --figure fig5_merged",
-        figure_generators_key="fig5_merged",
-    ),
-    FigureSpec(
         fig_id="fig6",
         paper_label="图 6",
         caption="128 通道 XSI-FT 对比 (二分类)",

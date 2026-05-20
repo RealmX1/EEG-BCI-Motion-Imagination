@@ -711,12 +711,6 @@ FDR∩Attention 的 4 个交集通道（82.71%）的高准确率应被视为一�
 
 修订后的"标准方法在 4ch 是否失效"图景较此前更细致：（1）**模型驱动方法（Attention top-4）和全局判别方法（FDR top-4）确实失效**——均显著低于负控制；（2）**空间滤波方法（CSP top-4）几乎与负控制持平**（−0.66 pp）——意味着 CSP 选出的"最重要"通道与"未被任何方法选中"的通道在 4ch 极端约束下信息量等价；（3）**频域物理动机方法（Band Power top-4）显著超越负控制**（+11.10 pp）——保留了显著的判别能力。这与原"4ch 标准方法均失效"的笼统结论不同：4ch 失效的是 conditional importance 类方法（在全模型上下文中重要 ≠ 独立携带信息），但物理动机直接锚定的频域方法（mu/beta ERD 是手指 MI 的标志）仍然有效。
 
-图 5 展示了 4ch 四种关键配置的逐被试对比：FDR∩Attention outlier、负控制、Band Power top-4 (`20260505_2308`)、CSP top-4 (`20260505_2246`)。
-
-**图 5. 4 通道控制实验：四种配置逐被试对比。** 四个子图分别为 FDR∩Att outlier、负控制、Band Power top-4、CSP top-4；共享 y 轴，叠加 128ch 跨被试 baseline 横虚线（EEGNet + CBraMod），并显示各配置的逐被试柱与组均值横线。BP/CSP top-4 仅有 CBraMod 跑次，相应子图无 EEGNet 柱与均值线。
-
-![图 5. 4ch 最优配置 vs 负控制](../figures/fig5_4ch_optimal_vs_neg_control.png)
-
 负控制仍达到 67.65%（远高于 50% 随机基线），说明即使未被任何方法选中的通道也因体积传导而携带足够信息。这一结果同时提供了**两重验证**：（1）正向——数据驱动的通道选择确实捕获了更多任务相关信息（+15.06 pp）；（2）反向——高准确率并非数据泄露所致，而是 EEG 信号本身的物理特性（体积传导使皮层源信号广泛传播）。
 
 **表 10b. 4 通道控制实验结果（跨被试三分类，N = 21；2026-05-11 矩阵闭合新增）。**
@@ -747,7 +741,7 @@ Ternary 维度的 4ch 控制实验**与 binary 同向复现**：Band Power top-4
 这一结果揭示了一个具体的方法论提醒（见 §3.5.2 讨论）：基于 128ch 全模型计算的通道重要性排序在极低通道数下不仅失效，甚至产生反效果——FDR/Attention/CSP 选出的"最重要"通道空间分布过于集中，反而丢失了负控制中随机通道的分散空间覆盖带来的信息多样性。Band Power 在 4ch / 8ch 档保持判别力的事实与这一观察兼容（其评分机制不依赖全模型上下文，因此天然免疫"条件重要性外推"问题），但本研究**不主张** Band Power 与其他方法之间存在普适性的优劣排序——以下任意一项条件改变都可能让该排序翻转：被试群体（更大 cohort、不同年龄段）、任务粒度（粗运动 MI、四分类、ME）、模型 backbone（非 CBraMod 基座）、预处理流水线（不同滤波带、采样率）。本研究的结论限于"在该 (cohort, 任务, 模型, 预处理) 组合下，4ch / 8ch 部署应至少考虑 Band Power 作为候选方法"这一具体配置层级。
 
 > **数据来源**: FDR∩Attention `20260330_1417`: `results/4_channel/fdr_attention_overlap/20260330_1417_cross_subject_cache_imagery_binary.json`; 负控制 `20260330_1442`: `results/4_channel/negative_control/20260330_1442_cross_subject_cache_imagery_binary.json`; FDR top-4 / Attention top-4: 见 §3.5.2 数据来源行；Band Power top-4 `20260505_2308`: `results/4_channel/band_power/20260505_2308_cross_subject_cache_imagery_binary.json`; CSP top-4 `20260505_2246`: `results/4_channel/csp/20260505_2246_cross_subject_cache_imagery_binary.json`
-> 生成命令: 图 5 由 `uv run python scripts/paper/generate_paper_figures.py --figure fig5_merged` 生成；图 4c 由 `uv run python scripts/paper/generate_paper_figures.py --figure sensitivity_scaling` 生成
+> 生成命令: 图 4c 由 `uv run python scripts/paper/generate_paper_figures.py --figure sensitivity_scaling` 生成
 
 为了把上文表格中"通道数减少 → 方法选择敏感度上升"的趋势直观化，图 4c 把 32ch / 8ch / 4ch 三档的方法间 spread (max−min, pp) 与最优方法的绝对准确率合并到一张双轴图：左轴红色折线为方法间 spread（2.77 / 15.63 / 24.05 pp），右轴蓝色折线为最优方法的绝对准确率（FDR 32ch 87.71% → BP 8ch 84.05% → BP 4ch 78.75%）。两条曲线方向相反——通道越少时方法选择越关键，但最优方法的绝对天花板降幅有限（87.71% → 78.75%, ~9 pp）。
 

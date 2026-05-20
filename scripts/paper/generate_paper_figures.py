@@ -3389,119 +3389,6 @@ def generate_inference_latency_v2_figure():
     logger.info(f'Saved: {out_path}')
 
 
-# -----------------------------------------------------------------------------
-# T3.10 — Fig 5a/5b merged 4ch optimal vs neg control
-# -----------------------------------------------------------------------------
-
-def generate_fig5_merged_figure():
-    """T3.10 — Figure 5: 4-panel comparison of 4ch configurations.
-
-    Panel A: FDR ∩ Att outlier (CBraMod + EEGNet)
-    Panel B: Negative Control  (CBraMod + EEGNet)
-    Panel C: Band Power top-4  (CBraMod only — 20260505_2308)
-    Panel D: CSP top-4         (CBraMod only — 20260505_2246)
-
-    Panels C/D were added in 2026-05-05 补充实验; EEGNet was not run for
-    those configs, so only CBraMod bars + mean line are drawn.
-    """
-    import matplotlib.pyplot as plt
-    from src.config.constants import MODEL_COLORS
-
-    configs = [
-        ('A. 4ch FDR ∩ Att (optimal outlier)',
-         get_run_path('reduced_4_fdr_attention_overlap_binary')),
-        ('B. 4ch Negative Control',
-         get_run_path('reduced_4_negative_control_binary')),
-        ('C. 4ch Band Power top-4',
-         get_run_path('reduced_4_band_power_binary')),
-        ('D. 4ch CSP top-4',
-         get_run_path('reduced_4_csp_binary')),
-    ]
-
-    # Also load 128ch baseline for overlay
-    baseline_eg = get_run_path('cross_eegnet_binary')
-    baseline_cb = get_run_path('cross_cbramod_binary')
-
-    bl_eg_accs = (extract_model_accs(load_json_cache(baseline_eg), 'eegnet')
-                  if resolve_project_path(baseline_eg).exists() else [])
-    bl_cb_accs = (extract_model_accs(load_json_cache(baseline_cb), 'cbramod')
-                  if resolve_project_path(baseline_cb).exists() else [])
-
-    fig, axes = plt.subplots(2, 2, figsize=(15, 11), sharey=True)
-    axes_flat = axes.flatten()
-
-    subjects = [f'S{i:02d}' for i in range(1, 22)]
-
-    for ax, (title, path) in zip(axes_flat, configs):
-        if not resolve_project_path(path).exists():
-            logger.warning(f'Missing: {path}')
-            ax.set_title(f'{title}\n(missing)', fontsize=FONT_SIZES['title'])
-            continue
-        cache = load_json_cache(path)
-        cb_results = cache.get('results', {}).get('cbramod', {})
-        eg_results = cache.get('results', {}).get('eegnet', {})
-        cb_per = cb_results.get('per_subject_test_acc', {})
-        eg_per = eg_results.get('per_subject_test_acc', {})
-
-        has_eegnet = bool(eg_per)
-
-        x = np.arange(len(subjects))
-        width = 0.36 if has_eegnet else 0.7
-        cb_y = [cb_per.get(s, np.nan) * 100 if cb_per.get(s) is not None else np.nan
-                for s in subjects]
-
-        if has_eegnet:
-            eg_y = [eg_per.get(s, np.nan) * 100 if eg_per.get(s) is not None else np.nan
-                    for s in subjects]
-            ax.bar(x - width/2, cb_y, width, label='CBraMod (4ch)',
-                   color=MODEL_COLORS['cbramod'], edgecolor='black')
-            ax.bar(x + width/2, eg_y, width, label='EEGNet (4ch)',
-                   color=MODEL_COLORS['eegnet'], edgecolor='black')
-        else:
-            ax.bar(x, cb_y, width, label='CBraMod (4ch)',
-                   color=MODEL_COLORS['cbramod'], edgecolor='black')
-
-        # Mean lines
-        cb_mean = np.nanmean(cb_y)
-        ax.axhline(cb_mean, color=MODEL_COLORS['cbramod'], linestyle='--',
-                   alpha=0.7, label=f'CBraMod 4ch mean ({cb_mean:.1f}%)')
-        if has_eegnet:
-            eg_mean = np.nanmean(eg_y)
-            ax.axhline(eg_mean, color=MODEL_COLORS['eegnet'], linestyle='--',
-                       alpha=0.7, label=f'EEGNet 4ch mean ({eg_mean:.1f}%)')
-
-        # 128ch baseline overlays
-        if bl_cb_accs:
-            ax.axhline(np.mean(bl_cb_accs), color=MODEL_COLORS['cbramod'],
-                       linestyle=':', alpha=0.6,
-                       label=f'CBraMod 128ch ({np.mean(bl_cb_accs):.1f}%)')
-        if bl_eg_accs:
-            ax.axhline(np.mean(bl_eg_accs), color=MODEL_COLORS['eegnet'],
-                       linestyle=':', alpha=0.6,
-                       label=f'EEGNet 128ch ({np.mean(bl_eg_accs):.1f}%)')
-
-        ax.axhline(50, color=PAPER_COLORS['chance_red'], linestyle='--',
-                   alpha=0.85, linewidth=1.0)
-        ax.set_xticks(x)
-        ax.set_xticklabels(subjects, fontsize=FONT_SIZES['tick'], rotation=45)
-        ax.set_title(title, fontsize=FONT_SIZES['title'])
-        ax.set_ylim(40, 105)
-        ax.grid(axis='y', alpha=0.3)
-        ax.legend(loc='lower right', fontsize=FONT_SIZES['legend'], ncol=1)
-
-    axes[0, 0].set_ylabel('Cross-subject binary accuracy (%)', fontsize=FONT_SIZES['axis_label'])
-    axes[1, 0].set_ylabel('Cross-subject binary accuracy (%)', fontsize=FONT_SIZES['axis_label'])
-
-    fig.tight_layout()
-    apply_paper_style(fig=fig)
-    add_provenance_footer(fig, 'fig5_merged')
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = OUTPUT_DIR / 'fig5_4ch_optimal_vs_neg_control.png'
-    fig.savefig(out_path, dpi=200, bbox_inches='tight')
-    plt.close(fig)
-    logger.info(f'Saved: {out_path}')
-
-
 # =============================================================================
 # Figure 3d (revived 2026-05-12 + enhanced):
 #   2 rows × parametric channel-tier columns reduced-channel matrix grid.
@@ -3761,7 +3648,6 @@ FIGURE_GENERATORS = {
     'subject_heatmap': generate_subject_heatmap_figure,
     'extra_sessions_binary_v2': generate_extra_sessions_binary_v2_figure,
     'extra_sessions_ternary_v2': generate_extra_sessions_ternary_v2_figure,
-    'fig5_merged': generate_fig5_merged_figure,
     'reduced_channel_40cell_grid': generate_reduced_channel_grid_figure,
 }
 
