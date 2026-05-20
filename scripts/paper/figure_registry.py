@@ -243,7 +243,7 @@ _FIGS: list[FigureSpec] = [
     FigureSpec(
         fig_id="fig10a",
         paper_label="图 10a",
-        caption="DAPT V1-V5 paradigm × task small-multiples",
+        caption="DAPT V1-V5 by paradigm × task small-multiples (95% CI; 0/30 BH-FDR sig; ★ = V3 transfer-ternary outlier Δ=+1.09 pp)",
         canonical_filename="dapt_v1_v5_smallmultiples.png",
         output_dir="paper/figures",
         generator_script="scripts/paper/generate_paper_figures.py",

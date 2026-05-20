@@ -2124,13 +2124,10 @@ def generate_dapt_v1_v5_small_multiples_figure():
         ax.set_ylabel('Δ (DAPT − Baseline, pp)',
                       fontsize=FONT_SIZES_TIGHT['axis_label'])
 
-    fig.suptitle(
-        'DAPT V1-V5 by paradigm × task (95% CI; 0/30 BH-FDR sig; '
-        '★ = V3 transfer-ternary outlier Δ=+1.09 pp)',
-        fontsize=FONT_SIZES_TIGHT['title'], y=1.005,
-    )
+    # fig10a c2: 移除图级 suptitle — 复杂标题文本已迁入 figure caption
+    # (paper_draft + figure_registry), 避免在图内重复.
     apply_paper_style(fig=fig, tight=True)
-    fig.tight_layout(rect=(0, 0, 1, 0.97))
+    fig.tight_layout(rect=(0, 0, 1, 1.0))
     add_provenance_footer(fig, 'dapt_v1_v5_smallmultiples')
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     out_path = OUTPUT_DIR / 'dapt_v1_v5_smallmultiples.png'
@@ -3679,12 +3676,13 @@ def generate_reduced_channel_grid_figure():
                                 shrinkA=0, shrinkB=0), zorder=4,
                 annotation_clip=False,  # fig3d c1: 61ch 窄列防箭头夹断
             )
-            # fig3d c1: clip_on=False 防 61ch 窄列内 Δpp 文本被夹断。
-            ax.text(bracket_x + 0.10, (top_y + ref) / 2,
+            # fig3d c2: Δpp 标签置于 ruler 顶端正上方(原在 bracket 旁), 红色突出。
+            # clip_on=False 防 61ch 窄列内文字被夹断; cap_accuracy_yaxis 已留 headroom。
+            ax.text(bracket_x, top_y + 1.0,
                     f'{sign}{abs(delta):.1f} pp',
                     fontsize=FONT_SIZES['annotation'] - 1,
-                    color='dimgray', fontweight='bold',
-                    ha='left', va='center',
+                    color='#d62728', fontweight='bold',
+                    ha='center', va='bottom',
                     clip_on=False,
                     bbox=dict(boxstyle='round,pad=0.2',
                               facecolor='white', edgecolor='none', alpha=0.85))
