@@ -1485,124 +1485,13 @@ def generate_all_baseline_plots():
 # v3 修订增补图（plan EDITs T3.1 / T3.3）
 # =============================================================================
 
-def generate_8ch_ranking_flip_figure():
-    """T3.1 — 通道选择方法排序翻转 slope chart (40-cell matrix update).
-
-    双面板版本：左 binary、右 ternary，每子图 4 档 (64 / 32 / 8 / 4ch)。
-    强调"高通道档 4 method 几乎并排（method-agnostic），低通道档发散并翻转"
-    的方法选择敏感度现象（v3.1 Section 3.5.2 末段对应论点）。
-
-    数据来源：
-      reduced_{64,32,8,4}_{fdr,band_power,csp,attention}_{binary,ternary}
-      4ch 负控制（reduced_4_negative_control_{task}）作虚线天花板对照
-    """
-    import matplotlib.pyplot as plt
-
-    methods = ['FDR', 'Band Power', 'CSP', 'Attention']
-    method_registry_keys = {
-        'FDR': 'fdr', 'Band Power': 'band_power',
-        'CSP': 'csp', 'Attention': 'attention',
-    }
-    method_colors = {
-        'FDR':        PAPER_COLORS['fdr'],
-        'Band Power': PAPER_COLORS['band_power'],
-        'CSP':        PAPER_COLORS['csp'],
-        'Attention':  PAPER_COLORS['attention'],
-    }
-    channel_tiers = [64, 32, 8, 4]
-    channel_levels = [f'{n}ch' for n in channel_tiers]
-
-    def _compute_means(task):
-        means_table = {m: [] for m in methods}
-        for method in methods:
-            key_suffix = method_registry_keys[method]
-            for n_ch in channel_tiers:
-                alias = f'reduced_{n_ch}_{key_suffix}_{task}'
-                cache_path = get_run_path(alias)
-                if not resolve_project_path(cache_path).exists():
-                    logger.warning(f'Missing for {method} @ {n_ch}ch ({task}): {cache_path}')
-                    means_table[method].append(np.nan)
-                    continue
-                cache = load_json_cache(cache_path)
-                accs = extract_model_accs(cache, 'cbramod')
-                means_table[method].append(float(np.mean(accs)) if accs else np.nan)
-        neg_ctrl_path = get_run_path(f'reduced_4_negative_control_{task}')
-        neg_ctrl_mean = None
-        if resolve_project_path(neg_ctrl_path).exists():
-            cache = load_json_cache(neg_ctrl_path)
-            accs = extract_model_accs(cache, 'cbramod')
-            if accs:
-                neg_ctrl_mean = float(np.mean(accs))
-        return means_table, neg_ctrl_mean
-
-    def _draw_panel(ax, task, means_table, neg_ctrl_mean, show_legend):
-        x_positions = np.arange(len(channel_levels))
-        for method in methods:
-            ys = np.array(means_table[method], dtype=float)
-            valid_mask = ~np.isnan(ys)
-            ax.plot(x_positions[valid_mask], ys[valid_mask],
-                    marker='o', markersize=10, linewidth=2.2,
-                    color=method_colors[method], label=method, zorder=3)
-        if neg_ctrl_mean is not None:
-            ax.axhline(y=neg_ctrl_mean,
-                       color=PAPER_COLORS['median_gray'],
-                       linestyle=':', linewidth=1.5, alpha=0.7,
-                       label=f'4ch Negative Control ({neg_ctrl_mean:.1f}%)')
-        ax.set_xticks(x_positions)
-        ax.set_xticklabels(channel_levels, fontsize=FONT_SIZES['tick'])
-        task_label = 'Binary' if task == 'binary' else 'Ternary'
-        ax.set_ylabel(f'Cross-Subject {task_label} Accuracy (%)',
-                      fontsize=FONT_SIZES['axis_label'])
-        ax.set_xlabel('Channel count (reduced)', fontsize=FONT_SIZES['axis_label'])
-        if task == 'binary':
-            ax.set_ylim(50, 105)
-            flip_text = ('At 64/32ch: FDR leads (within 3.24 pp)\n'
-                         'At 8/4ch: Band Power dominates (reversal)')
-        else:
-            ax.set_ylim(35, 90)
-            flip_text = ('At 64ch: FDR > BP (1.77 pp)\n'
-                         'At 32/8/4ch: Band Power leads (consistent)')
-        y_top = ax.get_ylim()[1]
-        for level_idx in range(len(channel_levels)):
-            ranking = sorted(
-                [(m, means_table[m][level_idx]) for m in methods
-                 if not np.isnan(means_table[m][level_idx])],
-                key=lambda x: x[1], reverse=True,
-            )
-            stack_text = '\n'.join(
-                f'#{r} {m:<11} {v:.1f}%' for r, (m, v) in enumerate(ranking, start=1)
-            )
-            ax.text(level_idx, y_top * 0.995, stack_text,
-                    ha='center', va='top',
-                    fontsize=FONT_SIZES['annotation'] - 1,
-                    family='monospace',
-                    bbox=dict(boxstyle='round,pad=0.3',
-                              facecolor='white', edgecolor='lightgray', alpha=0.9))
-        ax.grid(axis='y', alpha=0.3, zorder=1)
-        ax.set_title(f'{task_label} cross-subject (CBraMod, N=21)',
-                     fontsize=FONT_SIZES['title'])
-        ax.text(0.02, 0.04, flip_text, transform=ax.transAxes,
-                fontsize=FONT_SIZES['annotation'],
-                bbox=dict(boxstyle='round,pad=0.5',
-                          facecolor='lightyellow', alpha=0.8),
-                verticalalignment='bottom')
-        if show_legend:
-            ax.legend(loc='lower right', fontsize=FONT_SIZES['legend'])
-
-    fig, (ax_bin, ax_ter) = plt.subplots(1, 2, figsize=(15, 6.8))
-    for ax, task, show_leg in [(ax_bin, 'binary', False),
-                               (ax_ter, 'ternary', True)]:
-        means_table, neg_ctrl_mean = _compute_means(task)
-        _draw_panel(ax, task, means_table, neg_ctrl_mean, show_leg)
-
-    fig.tight_layout()
-    apply_paper_style(fig=fig)
-    add_provenance_footer(fig, 'channel_ranking_flip')
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = OUTPUT_DIR / 'channel_method_ranking_flip.png'
-    fig.savefig(out_path, dpi=200, bbox_inches='tight')
-    plt.close(fig)
-    logger.info(f'Saved: {out_path}')
+# NOTE (C#2, 2026-05-20): the former `generate_8ch_ranking_flip_figure`
+# (channel_method_ranking_flip.png, fig4b) was DELETED — its per-tier method
+# leaderboard annotation has been merged into `generate_channel_scaling_v2_figure`
+# (fig4) below, and the standalone slope chart was judged redundant by the user.
+# Registry entry `fig4b` and FIGURE_GENERATORS key `'channel_ranking_flip'` have
+# been removed in the same change. If you need the historical PNG, see the figure
+# history under paper/figures/_history/fig4b/ (kept for archival comparison).
 
 
 def generate_cross_subject_pooling_forest_figure():
@@ -2617,9 +2506,15 @@ def generate_channel_scaling_v2_figure():
     Replaces existing `paper/figures/channel_scaling_curve.png`.
 
     Each panel:
-      - Per-method tracking lines (FDR/Att/BP/CSP) across {64, 32, 8, 4} tiers
+      - Per-method tracking lines (FDR/Att/BP/CSP) across {4, 8, 16, 32, 64} tiers
+        (ascending order — reverted from prior 64→4 ordering per user feedback C#2)
       - Best envelope line: 128 baseline + best-of-methods at each tier (61 NOT in envelope)
-      - Negative-control overlay markers at {32, 8, 4}
+      - Per-tier leaderboard annotation (#1..#4 ranking of methods by mean accuracy)
+        — merged in from former fig4b (channel_method_ranking_flip) per user feedback C#2.
+        Placed at the BOTTOM of each panel (va='bottom') to avoid occluding the line
+        traces in the upper portion; small monospace font + tight padding keeps the
+        4-row stack within ~12% of panel height.
+      - Negative-control overlay markers at {4, 8, 16, 32, 64}
       - 61ch standard 10-10 outlier dot (separate marker, NOT in envelope)
       - 4ch FDR ∩ Attention overlap outlier dot (separate marker, NOT in envelope)
 
@@ -2640,7 +2535,10 @@ def generate_channel_scaling_v2_figure():
         'FDR': 'fdr', 'Band Power': 'band_power',
         'Attention': 'attention', 'CSP': 'csp',
     }
-    CHANNEL_TIERS = [64, 32, 8, 4]
+    # Ascending order (C#2): per user feedback, revert from prior [64, 32, 8, 4]
+    # descending layout. Includes the 16ch tier added in the 2026-05-13 sweep
+    # (run_registry alias `reduced_16_{method}_{task}`).
+    CHANNEL_TIERS = [4, 8, 16, 32, 64]
 
     # MOCK values used when ternary make-up experiments are still pending.
     # Replace with real (mean, std) after experiments land.
@@ -2697,7 +2595,8 @@ def generate_channel_scaling_v2_figure():
             if mean is not None:
                 baseline_data[128] = (mean, std)
         neg_ctrl_overlay = {}
-        for n_ch in [32, 8, 4]:
+        # C#2: include 16ch + 64ch neg-control (data landed in 2026-05-11/13 sweeps).
+        for n_ch in [4, 8, 16, 32, 64]:
             path = _safe_get_path(f'reduced_{n_ch}_negative_control_{task}')
             if path is None:
                 continue
@@ -2826,10 +2725,44 @@ def generate_channel_scaling_v2_figure():
         ax.set_xlabel('Number of channels', fontsize=FONT_SIZES['axis_label'])
         ax.set_ylabel(f'CBraMod cross-subject {task} accuracy (%)',
                       fontsize=FONT_SIZES['axis_label'])
-        ax.set_title(f'{task.capitalize()}: 128→4ch envelope + 61/4-overlap outliers',
+        ax.set_title(f'{task.capitalize()}: 4→128ch envelope + per-tier method leaderboard',
                      fontsize=FONT_SIZES['title'])
         ax.set_ylim(*ylim)
         ax.grid(True, alpha=0.3)
+
+        # C#2: per-tier method leaderboard (merged in from former fig4b). For each
+        # CHANNEL_TIERS x-tick render a stacked #1..#4 ranking of the 4 data-driven
+        # methods (FDR / Band Power / Attention / CSP), excluding neg-control and
+        # outliers. Placed at the BOTTOM of the panel (transform-data x + axes-
+        # fraction y via blended transform) to avoid overlapping the line traces
+        # in the upper portion. Tight monospace box; legend lives in lower-right
+        # so the leaderboard column anchors live to its left at each x-tick.
+        from matplotlib.transforms import blended_transform_factory
+        bt = blended_transform_factory(ax.transData, ax.transAxes)
+        # Skip 4ch column to avoid colliding with the FDR∩Att ★ legend & 4-ch
+        # outlier marker, and skip 64ch column on right edge where it would clip
+        # against the y-axis frame. The 8/16/32 columns capture the interesting
+        # ranking-flip story (BP rises, FDR falls as channels shrink).
+        leaderboard_tiers = [n for n in CHANNEL_TIERS if n not in (4, 64)]
+        for n_ch in leaderboard_tiers:
+            ranked = sorted(
+                [(m, method_data[m][n_ch][0]) for m in method_data
+                 if n_ch in method_data[m]],
+                key=lambda kv: kv[1], reverse=True,
+            )
+            if not ranked:
+                continue
+            stack_text = '\n'.join(
+                f'#{r} {m:<11} {v:.1f}%' for r, (m, v) in enumerate(ranked, start=1)
+            )
+            ax.text(n_ch, 0.02, stack_text, transform=bt,
+                    ha='center', va='bottom',
+                    fontsize=max(FONT_SIZES['annotation'] - 2, 6),
+                    family='monospace',
+                    bbox=dict(boxstyle='round,pad=0.25',
+                              facecolor='white', edgecolor='lightgray', alpha=0.92),
+                    zorder=6)
+
         ax.legend(loc='lower right', fontsize=FONT_SIZES['legend'], ncol=2)
 
     fig, (ax_bin, ax_ter) = plt.subplots(1, 2, figsize=(17, 6.5))
@@ -3747,7 +3680,9 @@ FIGURE_GENERATORS = {
     'figure3b': generate_figure3b_32ch_fdr,
     'figure5': generate_figure5_4ch_control,
     'baseline_plots': generate_all_baseline_plots,
-    'channel_ranking_flip': generate_8ch_ranking_flip_figure,
+    # C#2 (2026-05-20): 'channel_ranking_flip' (fig4b) DELETED — its leaderboard
+    # annotation is now merged into `channel_scaling` (fig4) via per-tier method
+    # stacks. The standalone slope chart was deemed redundant by the user.
     'cross_subject_pooling_forest': generate_cross_subject_pooling_forest_figure,
     # DEPRECATED (2026-05-12, Stage 4 Step 4): §3.6 Figure 10a was redesigned
     # away from the 30-row vertical forest/heatmap. The paper figure is now

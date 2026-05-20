@@ -648,15 +648,11 @@ FDR 以 87.71% 领先，保留了 128 通道性能的 **96.7%**（87.71% vs 90.6
 
 图 4 以曲线形式直观呈现了这一非线性降解过程。
 
-**图 4. 通道缩放曲线：CBraMod 跨被试二分类准确率随通道数的变化。** 红色实线为各通道数下最优配置的包络线；虚线追踪各通道选择方法在不同通道数下的表现。绿色区域标示 32 通道部署区间。× 标记为 4 通道负控制。误差线为被试间标准差。
+**图 4. 通道缩放曲线 + 每档位方法 leaderboard：CBraMod 跨被试二/三分类准确率随通道数的变化。** 红色实线为各通道数下最优配置的包络线；虚线追踪各通道选择方法在不同通道数下的表现。绿色区域标示 32 通道部署区间。× 标记为各档位负控制。**每个 x-tick (8/16/32ch) 下方叠加一组 #1..#4 的方法 leaderboard**（合并自原 fig4b 的 slope-chart 排序信息），直接读出该档位 FDR/BP/Attention/CSP 的当前 ranking 与具体数值。4ch 与 64ch 因边缘碰撞 (4ch outlier ★ 与 y-axis frame) 省略 leaderboard，相应排序见正文表格。误差线已按 §3.5.2 修订移除（mean-only）。
 
-![图 4. 通道缩放曲线](../figures/channel_scaling_curve.png)
+![图 4. 通道缩放曲线 + 每档位方法 leaderboard](../figures/channel_scaling_curve.png)
 
-图 4 的关键观察是**通道选择方法的最优排序随通道数发生翻转，且该翻转在 binary / ternary 上的具体形式不同**。Binary：32ch 级别 FDR 以 87.71% 领先（五种方法差距仅 2.77 pp）；但到 8ch 级别，**Band Power 以 84.05% 大幅反超 FDR 的 76.43%**（+7.62 pp），CSP (81.73%) 亦优于 FDR；推进到 4ch 时翻转进一步极化——Band Power 仍保持 78.75%（远高于负控制 67.65%），而 FDR/CSP/Attention 均跌至负控制水平或以下。Ternary：32ch / 64ch 上 leading method 不再是 FDR——32ch ternary 上 Band Power 72.20% 居 4 数据驱动方法之首（与 negative_control 72.38% 在 ±0.18 pp 内 indistinguishable），64ch ternary 上 FDR 75.12% 居首（与 negative_control 75.44% 在 ±0.32 pp 内 indistinguishable）；8ch / 4ch ternary 上 Band Power 重新成为唯一 method（8ch BP 66.33% > FDR 64.88% > CSP 61.77%；4ch BP 60.67% 单独超越 negative_control 53.37% 达 +7.30 pp）。**Band Power 在 4 个通道档 × 2 task = 8 cell 上从不是 4 数据驱动方法的最差者**——这是本数据集下最稳健的横向观察。图 4b 以 slope chart 形式直观呈现 binary 翻转。本研究在四个通道档（64 / 32 / 8 / 4ch）× 双 task 的同向观察支撑了"低通道下方法选择敏感度上升"这一现象，但我们刻意避免把它升级为"FDR 与 BP 的相对排序应外推到其他数据集 / 其他任务"这种跨数据集方法论命题——单一 21 人 cohort、单一 MI 任务粒度的样本不足以支持这一升级。
-
-**图 4b. 32ch → 8ch → 4ch 通道选择方法排序翻转。** Slope chart：4 种数据驱动方法（FDR/Band Power/CSP/Attention）在三档通道数下的 cross-subject CBraMod 准确率，每档位标注当前 ranking。32ch 第一名 FDR 在 8ch 跌至第三、Band Power 反超；4ch 时 Band Power 单独保持在负控制（虚线）之上，FDR/CSP/Attention 均跌至或低于负控制。4ch BP top-4 (`20260505_2308`, 78.75%) 与 CSP top-4 (`20260505_2246`, 66.99%) 已纳入；Slope chart 数值与表 9、§3.5.3 表 10 一致。
-
-![图 4b. 通道选择方法排序翻转](../figures/channel_method_ranking_flip.png)
+图 4 的关键观察是**通道选择方法的最优排序随通道数发生翻转，且该翻转在 binary / ternary 上的具体形式不同**。Binary：32ch 级别 FDR 以 87.71% 领先（五种方法差距仅 2.77 pp）；但到 8ch 级别，**Band Power 以 84.05% 大幅反超 FDR 的 76.43%**（+7.62 pp），CSP (81.73%) 亦优于 FDR；推进到 4ch 时翻转进一步极化——Band Power 仍保持 78.75%（远高于负控制 67.65%），而 FDR/CSP/Attention 均跌至负控制水平或以下。Ternary：32ch / 64ch 上 leading method 不再是 FDR——32ch ternary 上 Band Power 72.20% 居 4 数据驱动方法之首（与 negative_control 72.38% 在 ±0.18 pp 内 indistinguishable），64ch ternary 上 FDR 75.12% 居首（与 negative_control 75.44% 在 ±0.32 pp 内 indistinguishable）；8ch / 4ch ternary 上 Band Power 重新成为唯一 method（8ch BP 66.33% > FDR 64.88% > CSP 61.77%；4ch BP 60.67% 单独超越 negative_control 53.37% 达 +7.30 pp）。**Band Power 在 4 个通道档 × 2 task = 8 cell 上从不是 4 数据驱动方法的最差者**——这是本数据集下最稳健的横向观察。图 4 各档位下方的 leaderboard 直接呈现 binary 翻转 (8ch BP > FDR vs 32ch FDR > BP)。本研究在四个通道档（64 / 32 / 8 / 4ch）× 双 task 的同向观察支撑了"低通道下方法选择敏感度上升"这一现象，但我们刻意避免把它升级为"FDR 与 BP 的相对排序应外推到其他数据集 / 其他任务"这种跨数据集方法论命题——单一 21 人 cohort、单一 MI 任务粒度的样本不足以支持这一升级。
 
 最优配置包络线（红色实线，按"每档最优方法"取）呈现**渐进降解模式**而非原假设的两阶段陡降。**Binary 包络线**：90.68% (128ch) → 89.46% (64ch FDR) → 87.71% (32ch FDR) → 84.05% (8ch BP) → 78.75% (4ch BP)，每减半通道损失约 1.5–5 pp，且 4ch 不再像之前认为的那样进入"全部失效"区间——**前提是选用 Band Power 方法**。**Ternary 包络线**：74.88% (128ch) → 75.12% (64ch FDR，与 128ch baseline 在 run-to-run noise 内一致) → 72.20% (32ch BP) → 66.33% (8ch BP) → 60.67% (4ch BP)；ternary 上 32ch 与 128ch 的差距比 binary 更大（2.68 pp vs 2.97 pp），但 32ch+ 段的方法 leadership 已从 FDR 切换到 BP。原 v2 草稿中的"两阶段（平坦区 + 陡降区）"模型基于 4ch FDR/Attention top-4 数据点；引入 4ch BP 后，包络线整体向上平移，原"陡降区"消失，**这一观察现已通过 ternary 维度独立复现**。
 
@@ -690,7 +686,7 @@ FDR∩Attention 的 4 个交集通道（82.71%）的高准确率应被视为一�
 > **数据来源 — Binary**: 128ch: `results/20260324_0023_cross_subject_cache_imagery_binary.json`; 64ch FDR `20260505_2223`: `results/64_channel/fdr/20260505_2223_cross_subject_cache_imagery_binary.json`; 64ch attention `20260511_1038` / band_power `20260511_1050` / csp `20260511_1111` / negative_control `20260511_1131`: `results/64_channel/{attention,band_power,csp,negative_control}/20260511_*_cross_subject_cache_imagery_binary.json`; 61ch: `results/61_channel/standard_1010/20260330_1213_cross_subject_cache_imagery_binary.json`; 32ch: `results/32_channel/{fdr,band_power,commercial,attention,csp}/20260330_*_cross_subject_cache_imagery_binary.json`; **16ch（2026-05-13 sweep）fdr `20260513_1959` / csp `20260513_2027` / attention `20260513_2048` / band_power `20260513_2108` / negative_control `20260513_2132`: `results/16_channel/{fdr,csp,attention,band_power,negative_control}/20260513_*_cross_subject_cache_imagery_binary.json`**; 8ch: `results/8_channel/{band_power/20260331_1950,csp/20260331_2044,fdr/20260330_1311,attention/20260330_1334}_cross_subject_cache_imagery_binary.json`; 8ch negative_control `20260511_1425`: `results/8_channel/negative_control/20260511_1425_cross_subject_cache_imagery_binary.json`; 4ch BP `20260505_2308`: `results/4_channel/band_power/20260505_2308_cross_subject_cache_imagery_binary.json`; 4ch CSP `20260505_2246`: `results/4_channel/csp/20260505_2246_cross_subject_cache_imagery_binary.json`
 >
 > **数据来源 — Ternary（2026-05-11 21-cell 矩阵闭合 + 2026-05-13 16ch / 61ch 补齐）**: 128ch baseline `20260324_0109`; **61ch standard_1010 `20260513_1938`: `results/61_channel/standard_1010/20260513_1938_cross_subject_cache_imagery_ternary.json`**; 64ch fdr `20260511_1148` / attention `20260511_1217` / band_power `20260511_1237` / csp `20260511_1256` / negative_control `20260511_1314`; 32ch fdr `20260221_0332` / attention `20260228_2247` / band_power `20260511_1348` / csp `20260511_1404` / negative_control `20260511_1757`; **16ch fdr `20260513_2146` / csp `20260513_2227` / attention `20260513_2241` / band_power `20260513_2319` / negative_control `20260513_2343`: `results/16_channel/{fdr,csp,attention,band_power,negative_control}/20260513_*_cross_subject_cache_imagery_ternary.json`**; 8ch fdr `20260511_1439` / attention `20260302_2140` / band_power `20260511_1508` / csp `20260511_1539` / negative_control `20260511_1600`; 4ch fdr `20260511_1618` / attention `20260511_1642` / band_power `20260511_1655` / csp `20260511_1731` / negative_control `20260310_0054`; 完整 run_tag → mean_acc 映射见 [docs/handoffs/2026-05-11_reduced_channel_matrix_closure.md §40-cell 矩阵](../../docs/handoffs/2026-05-11_reduced_channel_matrix_closure.md#40-cell-矩阵-cross-subject--cbramod--n21) + [docs/handoffs/2026-05-14_16ch_transition_point.md](../../docs/handoffs/2026-05-14_16ch_transition_point.md)（16ch / 61ch ternary 补齐记录）。
-> 生成命令: 图 4 由 `uv run python scripts/paper/generate_paper_figures.py --figure channel_scaling` 生成；图 4b 由 `uv run python scripts/paper/generate_paper_figures.py --figure channel_ranking_flip` 生成；ternary 维度的对应可视化见 §3.5.2 图 3d (`--figure reduced_channel_40cell_grid`)，当前渲染 4/8/32/61/64ch 矩阵（16ch 列待补，以表 9 为权威）。
+> 生成命令: 图 4 由 `uv run python scripts/paper/generate_paper_figures.py --figure channel_scaling` 生成（内嵌每档位 leaderboard，2026-05-20 起合并自原图 4b）；ternary 维度的对应可视化见 §3.5.2 图 3d (`--figure reduced_channel_40cell_grid`)，当前渲染 4/8/32/61/64ch 矩阵（16ch 列待补，以表 9 为权威）。配置 × 通道数的保留率（pct of 128ch + pct reduction from 2N）矩阵见 §补充材料 Appendix A 程序化生成表，由 `uv run python scripts/paper/generate_channel_scaling_table.py` 自动生成。
 
 #### 3.5.3 控制实验
 
@@ -1269,6 +1265,47 @@ within-subject 范式下方向反转：random-init CBraMod 在被试内二分类
 ## 补充材料
 
 > **选取说明**: Tables S1–S4 提供正文核心实验的逐被试细节，选取标准为：正文汇总表中讨论了被试间异质性模式（如异常被试 S04/S10/S14 的行为、低基线被试的差异化收益等）的实验。具体覆盖：128 通道二分类主对比（S1）及三分类对照（S1b）、32 通道配置间对比（S2）、多 session 纵向扩展（S3）、领域自适应预训练负迁移（S4）。XSI-FT、8/4 通道等实验因正文结论基于汇总统计而非个体模式，未单独列出逐被试表。
+
+### Appendix A. Per-Config Channel Scaling Retention (程序化生成表)
+
+本附录给出 [配置 × 通道数] 网格上的两项保留率指标：(1) 该 cell 的绝对准确率相对 128ch CBraMod 跨被试 baseline 的归一化比 (`pct of 128ch`)；(2) 同方法从 2× 通道数档位减半到当前档位时, `pct of 128ch` 的变化量 (`pct change from 2N`, 单位 pp)。这一表格替代了 2026-05-20 前的 fig4d 手绘小复图——把同样的 retention 信息以 single source-of-truth 程序化表呈现，避免论文图与表格手工同步带来的漂移。
+
+整张表由 `uv run python scripts/paper/generate_channel_scaling_table.py` 从 `paper/run_registry.yaml` alias 自动构建，与 §3.5.2 图 4 / 表 9 / 表 10 共用 cache 因此数字逐位一致。表本身按 task 拆分为 binary / ternary 两块, 64ch 列因无同方法 2N=128 counterpart 一律渲染 `—`。该范式（程序化生成 + inline 嵌入）同样适用于其他规则、网格状的大表（如未来若把 §3.5 表 9 / 表 10 / Appendix A 进一步合并为 3-tensor 视图）, 不再人工逐 cell 填写。
+
+<!-- inlined from paper/appendix/channel_scaling_retention_table.md, regenerate via scripts/paper/generate_channel_scaling_table.py -->
+
+### Binary task (CBraMod cross-subject, N = 21)
+
+> 128ch baseline = **90.68%** absolute accuracy. 每 cell: `pct of 128ch baseline (pct-point change from the 2× tier)`. `—` in the 64ch column means no same-method 2N=128 counterpart (128ch baseline is shared across all methods).
+
+| 方法 (method) | 4ch | 8ch | 16ch | 32ch | 64ch | 128ch |
+|---|---|---|---|---|---|---|
+| **FDR** | 68.5% (-15.8pp) | 84.3% (-8.6pp) | 92.9% (-3.8pp) | 96.7% (-1.9pp) | 98.7% (—) | 100.0% (baseline) |
+| **Band Power** | 86.8% (-5.8pp) | 92.7% (-1.3pp) | 94.0% (-1.8pp) | 95.8% (-1.1pp) | 96.9% (—) | 100.0% (baseline) |
+| **Attention** | 60.3% (-15.1pp) | 75.5% (-9.0pp) | 84.4% (-9.8pp) | 94.3% (-2.3pp) | 96.5% (—) | 100.0% (baseline) |
+| **CSP** | 73.9% (-16.2pp) | 90.1% (-1.8pp) | 91.9% (-1.7pp) | 93.7% (-1.4pp) | 95.1% (—) | 100.0% (baseline) |
+| **Neg. control** | 74.6% (-9.6pp) | 84.2% (-5.8pp) | 90.0% (-2.7pp) | 92.7% (-5.0pp) | 97.7% (—) | 100.0% (baseline) |
+
+- **61ch standard 10-10** (reference, not in 2× halving lattice): 98.8% of 128ch baseline (absolute 89.55%).
+- **4ch FDR ∩ Attention overlap** (favorable outlier, binary only): 91.2% of 128ch baseline (absolute 82.71%).
+
+### Ternary task (CBraMod cross-subject, N = 21)
+
+> 128ch baseline = **74.88%** absolute accuracy. 每 cell: `pct of 128ch baseline (pct-point change from the 2× tier)`. `—` in the 64ch column means no same-method 2N=128 counterpart (128ch baseline is shared across all methods).
+
+| 方法 (method) | 4ch | 8ch | 16ch | 32ch | 64ch | 128ch |
+|---|---|---|---|---|---|---|
+| **FDR** | 61.5% (-25.1pp) | 86.6% (-5.9pp) | 92.6% (-2.0pp) | 94.5% (-5.8pp) | 100.3% (—) | 100.0% (baseline) |
+| **Band Power** | 81.0% (-7.6pp) | 88.6% (-1.7pp) | 90.3% (-6.1pp) | 96.4% (-3.8pp) | 100.2% (—) | 100.0% (baseline) |
+| **Attention** | 55.5% (-24.0pp) | 79.5% (-2.9pp) | 82.4% (-13.2pp) | 95.5% (-3.0pp) | 98.6% (—) | 100.0% (baseline) |
+| **CSP** | 63.6% (-18.9pp) | 82.5% (-1.4pp) | 83.9% (-9.7pp) | 93.6% (-4.3pp) | 98.0% (—) | 100.0% (baseline) |
+| **Neg. control** | 71.3% (-7.6pp) | 78.9% (-7.1pp) | 86.0% (-10.7pp) | 96.7% (-4.1pp) | 100.7% (—) | 100.0% (baseline) |
+
+- **61ch standard 10-10** (reference, not in 2× halving lattice): 102.4% of 128ch baseline (absolute 76.71%).
+
+> **观察要点 (binary task)**: (i) Band Power 在 4 个通道减半档上的 `pct change from 2N` 全部 ≤ |6| pp, 4 method 中通道减半边际代价最低; (ii) FDR / Attention / CSP 在 32→16ch 至 16→8ch 之间出现最大单步 retention drop (FDR -8.6 pp @ 8ch, Attention -9.8 pp @ 16ch); (iii) negative control 在 32ch 上达 92.7%, 与最优 method 仅差 4 pp——空间冗余 + 体积传导让"未被任何方法选中"仍能高度逼近 baseline。(iv) 64ch 列所有 method 已 ≥ 95% baseline, 4 数据驱动 method 之间 spread 仅 3.6 pp, 与正文 §3.5.2 "32ch 起方法选择不敏感" 论断一致。
+
+> **观察要点 (ternary task)**: (i) 64ch 列上 FDR / Band Power / Neg. control 均 **超过** 100% baseline (100.2%–100.7%), 即 ternary 维度下 64ch 这三种配置的绝对准确率 *超过* 了 128ch CBraMod, 落入 128ch run-to-run noise 内 (cf. §3.2); (ii) 32→16ch retention drop 在 ternary 上比 binary 更剧烈 (Attention -13.2 pp / Neg. control -10.7 pp), 16ch 作为"method-agnostic 入口崩溃点"在 ternary 上信号更强 (与 §3.5.2 16ch 段一致); (iii) 4ch 列上 FDR / Attention 的 retention 跌至 55%–62%, 但 Band Power 仍保持 81%——这是 ternary 维度对"低通道下 BP 唯一保有判别力" 的独立复现。
 
 ### Table S1. 逐被试结果（128 通道，二分类）
 

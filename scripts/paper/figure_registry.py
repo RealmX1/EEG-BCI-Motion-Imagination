@@ -141,23 +141,15 @@ _FIGS: list[FigureSpec] = [
     FigureSpec(
         fig_id="fig4",
         paper_label="图 4",
-        caption="通道缩放曲线: CBraMod 跨被试二分类准确率随通道数变化",
+        caption="通道缩放曲线: CBraMod 跨被试二分类/三分类准确率随通道数变化 + 每档位方法 leaderboard (C#2 合并自原 fig4b)",
         canonical_filename="channel_scaling_curve.png",
         output_dir="paper/figures",
         generator_script="scripts/paper/generate_paper_figures.py",
         generator_command="uv run python scripts/paper/generate_paper_figures.py --figure channel_scaling",
         figure_generators_key="channel_scaling",
     ),
-    FigureSpec(
-        fig_id="fig4b",
-        paper_label="图 4b",
-        caption="通道选择方法排序翻转 (32ch → 8ch → 4ch)",
-        canonical_filename="channel_method_ranking_flip.png",
-        output_dir="paper/figures",
-        generator_script="scripts/paper/generate_paper_figures.py",
-        generator_command="uv run python scripts/paper/generate_paper_figures.py --figure channel_ranking_flip",
-        figure_generators_key="channel_ranking_flip",
-    ),
+    # C#2 (2026-05-20): fig4b (channel_method_ranking_flip) DELETED — leaderboard
+    # annotation merged into fig4. History preserved under paper/figures/_history/fig4b/.
     FigureSpec(
         fig_id="fig4c",
         paper_label="图 4c",
